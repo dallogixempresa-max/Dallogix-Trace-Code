@@ -1,0 +1,13 @@
+[Unit]
+Description=Snapshot diário do Dallogix Trace
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/dallogix-trace
+Environment=PATH=/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=TRACE_COMPOSE_PRODUCTION=1
+Environment=TRACE_COMPOSE_ENV_FILE=/opt/dallogix-trace/.env
+ExecStart=/usr/bin/bash /opt/dallogix-trace/scripts/backup_snapshot.sh /opt/dallogix-trace/armazenamento/backups/snapshots

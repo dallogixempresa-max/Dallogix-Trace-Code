@@ -1,0 +1,1035 @@
+/* Tela de operação: acompanhamento do romaneio e comandos da Dala. */
+@import url("/css/responsive.css?v=202610070203");
+
+/* A tela trabalha com três blocos claros: cabeçalho, acompanhamento e controle.
+   Todas as regras ficam escopadas para não alterar as demais telas. */
+body.work-page:has(.work-operation-screen) .topbar {
+  position: sticky;
+  top: 0;
+  z-index: 250;
+  min-height: var(--trace-topbar);
+  height: var(--trace-topbar);
+  padding: 8px clamp(14px, 2.2vw, 28px);
+}
+
+body.work-page:has(.work-operation-screen) .topbar h1 {
+  font-size: clamp(1.15rem, 1.45vw, 1.55rem);
+}
+
+body.work-page:has(.work-operation-screen) .topbar .local {
+  min-height: 30px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+body.work-page:has(.work-operation-screen) .work-operation-screen {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex-direction: column;
+  gap: 12px;
+}
+
+body.work-page:has(.work-operation-screen) .work-screen-header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 16px;
+}
+
+body.work-page:has(.work-operation-screen) .work-screen-heading {
+  min-width: 0;
+  text-align: center;
+}
+
+body.work-page:has(.work-operation-screen) .work-screen-heading h2 {
+  margin: 0;
+  color: var(--navy, #17384a);
+  font-size: clamp(22px, 2vw, 30px);
+  line-height: 1.12;
+  letter-spacing: -0.03em;
+}
+
+body.work-page:has(.work-operation-screen) .work-screen-heading p {
+  margin: 4px 0 0;
+  color: var(--muted, #6b7785);
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+body.work-page:has(.work-operation-screen) .work-header-state {
+  display: inline-flex;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+body.work-page:has(.work-operation-screen) .work-screen-actions {
+  display: none;
+}
+
+body.work-page:has(.work-operation-screen) .work-header-statuses {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid #cfe1e8;
+  border-radius: 14px;
+  background: #f7fbfc;
+  box-shadow: 0 6px 16px rgba(16, 43, 59, 0.06);
+}
+
+body.work-page:has(.work-operation-screen) .work-header-statuses .work-device-status-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+body.work-page:has(.work-operation-screen) .work-header-statuses .work-device-status-heading > span:last-child {
+  color: var(--muted, #6b7785);
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+body.work-page:has(.work-operation-screen) .work-device-status-updated {
+  display: block;
+  color: var(--muted, #6b7785);
+  font-size: 9px;
+  line-height: 1.2;
+  text-align: right;
+}
+
+body.work-page:has(.work-operation-screen) .work-header-statuses .status-compact {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin: 0;
+}
+
+body.work-page:has(.work-operation-screen) .work-header-statuses .status-compact span {
+  display: flex;
+  min-width: 0;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 5px 6px;
+  border: 1px solid #d7e4e9;
+  border-radius: 8px;
+  background: #fff;
+  color: var(--muted, #6b7785);
+  font-size: 10px;
+  line-height: 1.1;
+  text-align: center;
+}
+
+body.work-page:has(.work-operation-screen) .work-header-statuses .status-compact strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body.work-page:has(.work-operation-screen) .work-header-statuses .status-compact b {
+  flex: 0 0 auto;
+  font-size: 10px;
+  letter-spacing: 0.03em;
+}
+
+body.work-page:has(.work-operation-screen) .work-back-button {
+  min-height: 36px;
+  padding: 8px 12px;
+  white-space: nowrap;
+}
+
+body.work-page:has(.work-operation-screen) .work-header-actions {
+  grid-column: 1;
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-self: start;
+  align-items: center;
+}
+
+body.work-page:has(.work-operation-screen) .work-operation-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(380px, 0.75fr);
+  align-items: start;
+  gap: 16px;
+  flex: 0 0 auto;
+  min-height: 0;
+}
+
+body.work-page:has(.work-operation-screen) .work-status-column {
+  display: flex;
+  min-width: 0;
+  height: auto;
+  max-height: calc(100dvh - 150px);
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+body.work-page:has(.work-operation-screen) .work-live-summary {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 8px;
+  margin: 0;
+  padding: 14px 16px;
+  border: 1px solid #cfe1e8;
+  border-left: 4px solid var(--cyan, #1a9bc0);
+  border-radius: 12px;
+  background: #f7fbfc;
+}
+
+body.work-page:has(.work-operation-screen) .work-live-summary-heading,
+body.work-page:has(.work-operation-screen) .work-live-summary-foot {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+body.work-page:has(.work-operation-screen) .work-live-summary-divider {
+  color: #8a9aa7;
+  font-weight: 800;
+}
+
+body.work-page:has(.work-operation-screen) .work-live-summary-heading {
+  color: var(--ink, #17212b);
+  font-size: 15px;
+}
+
+body.work-page:has(.work-operation-screen) .work-live-summary-heading > span,
+body.work-page:has(.work-operation-screen) .work-live-summary-foot {
+  color: var(--muted, #6b7785);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+body.work-page:has(.work-operation-screen) .work-live-progress {
+  height: 8px;
+  margin: 0;
+}
+
+body.work-page:has(.work-operation-screen) .work-completion-notice {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  color: #7a5200;
+  background: #fff3cf;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+body.work-page:has(.work-operation-screen) .work-completion-notice.complete {
+  color: #12663c;
+  background: #e5f6ec;
+}
+
+body.work-page:has(.work-operation-screen) .work-completion-notice.excess {
+  color: #842c2c;
+  background: #fff0f0;
+}
+
+body.work-page:has(.work-operation-screen) .work-completion-notice[hidden] {
+  display: none;
+}
+
+body.work-page:has(.work-operation-screen) .work-manual-reading {
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(300px, 1.15fr);
+  align-items: center;
+  gap: 10px 16px;
+  padding-top: 8px;
+  border-top: 1px solid #cfe1e8;
+}
+
+body.work-page:has(.work-operation-screen) .work-manual-reading-heading {
+  min-width: 0;
+}
+
+body.work-page:has(.work-operation-screen) .work-manual-reading-heading h3,
+body.work-page:has(.work-operation-screen) .work-manual-reading-heading p,
+body.work-page:has(.work-operation-screen) .work-manual-reading-heading small {
+  margin: 0;
+}
+
+body.work-page:has(.work-operation-screen) .work-manual-reading-heading h3 {
+  font-size: 15px;
+}
+
+body.work-page:has(.work-operation-screen) .work-manual-reading-heading p,
+body.work-page:has(.work-operation-screen) .work-manual-reading-heading small {
+  color: var(--muted, #6b7785);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+body.work-page:has(.work-operation-screen) .manual-operation-reading-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+  gap: 6px;
+  min-width: 0;
+}
+
+body.work-page:has(.work-operation-screen) .manual-operation-reading-form label {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  color: var(--muted, #6b7785);
+  font-size: 11px;
+}
+
+body.work-page:has(.work-operation-screen) .manual-operation-reading-form input,
+body.work-page:has(.work-operation-screen) .manual-operation-reading-form button {
+  min-height: 44px;
+}
+
+body.work-page:has(.work-operation-screen) .manual-operation-reading-form input {
+  font-size: 15px;
+}
+
+body.work-page:has(.work-operation-screen) .manual-operation-reading-form .form-feedback,
+body.work-page:has(.work-operation-screen) .manual-reading-blocked {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+body.work-page:has(.work-operation-screen) .manual-reading-blocked {
+  color: #76520a;
+  font-size: 11px;
+}
+
+body.work-page:has(.work-operation-screen) .work-scanner-corrections {
+  flex: 0 0 auto;
+}
+
+body.work-page:has(.work-operation-screen) .work-items-panel {
+  display: flex;
+  min-width: 0;
+  flex: 0 0 auto;
+  flex-direction: column;
+  height: auto;
+  margin: 0;
+  padding: 14px 16px;
+  overflow: visible;
+}
+
+body.work-page:has(.work-operation-screen) .work-items-panel > .panel-heading {
+  flex: 0 0 auto;
+  min-height: 0;
+  margin-bottom: 8px;
+}
+
+body.work-page:has(.work-operation-screen) .work-items-panel > .panel-heading h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+body.work-page:has(.work-operation-screen) .work-items-summary {
+  color: var(--muted, #6b7785);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+body.work-page:has(.work-operation-screen) .work-items-summary strong {
+  color: var(--ink, #17212b);
+}
+
+body.work-page:has(.work-operation-screen) .work-item-progress-list {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 0;
+  min-height: 0;
+  max-height: calc(100dvh - 430px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+body.work-page:has(.work-operation-screen) .work-item-progress-card {
+  min-width: 0;
+  padding: 12px 6px;
+  border-bottom: 1px solid var(--line, #dfe5eb);
+}
+
+body.work-page:has(.work-operation-screen) .work-item-progress-card:first-child {
+  padding-top: 6px;
+}
+
+body.work-page:has(.work-operation-screen) .work-item-progress-card:last-child {
+  padding-bottom: 4px;
+  border-bottom: 0;
+}
+
+body.work-page:has(.work-operation-screen) .work-item-progress-heading,
+body.work-page:has(.work-operation-screen) .work-item-progress-values,
+body.work-page:has(.work-operation-screen) .work-item-progress-foot {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+body.work-page:has(.work-operation-screen) .work-item-identity {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 10px;
+}
+
+body.work-page:has(.work-operation-screen) .work-item-identity strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 15px;
+  line-height: 1.25;
+}
+
+body.work-page:has(.work-operation-screen) .work-item-identity code {
+  flex: 0 1 auto;
+  overflow-wrap: anywhere;
+  color: var(--muted, #6b7785);
+  font-size: 11px;
+}
+
+body.work-page:has(.work-operation-screen) .work-item-progress-values {
+  margin: 5px 0;
+}
+
+body.work-page:has(.work-operation-screen) .work-item-progress-values > strong {
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+body.work-page:has(.work-operation-screen) .work-item-progress-values > strong span {
+  color: var(--muted, #6b7785);
+  font-size: 15px;
+  font-weight: 500;
+}
+
+body.work-page:has(.work-operation-screen) .work-item-progress-track {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e9f0f3;
+}
+
+body.work-page:has(.work-operation-screen) .work-item-progress-track i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--cyan, #1a9bc0);
+  transition: width 240ms ease;
+}
+
+body.work-page:has(.work-operation-screen) .work-item-progress-foot {
+  justify-content: flex-end;
+  margin-top: 4px;
+  color: var(--muted, #6b7785);
+  font-size: 11px;
+}
+
+body.work-page:has(.work-operation-screen) .work-item-progress-foot > span:first-child {
+  display: none;
+}
+
+body.work-page:has(.work-operation-screen) .work-machine-panel {
+  display: flex;
+  min-width: 0;
+  height: auto;
+  align-self: start;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 14px;
+  overflow: visible;
+  border: 1px solid #cfe1e8;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 8px 22px rgba(16, 43, 59, 0.07);
+}
+
+body.work-page:has(.work-operation-screen) .work-machine-panel > .work-header-statuses {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  margin: 0;
+  padding: 10px;
+  background: #f7fbfc;
+}
+
+body.work-page:has(.work-operation-screen) .work-machine-panel > .work-header-statuses .status-compact {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+body.work-page:has(.work-operation-screen) .work-machine-panel > .work-header-statuses .status-compact span {
+  min-height: 32px;
+}
+
+body.work-page:has(.work-operation-screen) .work-machine-panel > .panel-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+body.work-page:has(.work-operation-screen) .work-machine-heading-actions {
+  flex: 0 0 auto;
+}
+
+body.work-page:has(.work-operation-screen) .work-machine-heading-actions .button {
+  min-height: 34px;
+  padding: 7px 10px;
+  font-size: 12px;
+}
+
+body.work-page:has(.work-operation-screen) .work-items-panel {
+  height: auto;
+  min-height: 0;
+}
+
+body.work-page:has(.work-operation-screen) .work-item-progress-list {
+  max-height: min(52dvh, 540px);
+}
+
+body.work-page:has(.work-operation-screen) .work-machine-panel > .panel-heading {
+  min-height: 0;
+  margin: 0;
+}
+
+body.work-page:has(.work-operation-screen) .work-machine-panel > .panel-heading h3 {
+  margin: 3px 0 0;
+  font-size: 21px;
+}
+
+body.work-page:has(.work-operation-screen) .work-machine-controls,
+body.work-page:has(.work-operation-screen) .work-controls {
+  min-width: 0;
+  min-height: 0;
+  flex: 0 0 auto;
+}
+
+body.work-page:has(.work-operation-screen) .work-control-lock-reasons {
+  padding: 10px 12px;
+  border: 1px solid #ead8a7;
+  border-radius: 9px;
+  color: #674b0b;
+  background: #fff8df;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+body.work-page:has(.work-operation-screen) .work-control-lock-reasons p {
+  margin: 0;
+}
+
+body.work-page:has(.work-operation-screen) .work-control-lock-reasons p + p {
+  margin-top: 4px;
+}
+
+body.work-page:has(.work-operation-screen) .work-stop-confirmation {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid #d88b22;
+  border-radius: 10px;
+  color: #573900;
+  background: #fff6df;
+}
+
+body.work-page:has(.work-operation-screen) .work-stop-confirmation h3,
+body.work-page:has(.work-operation-screen) .work-stop-confirmation p {
+  margin: 0;
+}
+
+body.work-page:has(.work-operation-screen) .work-stop-confirmation-alert {
+  font-weight: 750;
+}
+
+body.work-page:has(.work-operation-screen) .confirm-stop-removal-form {
+  display: grid;
+  gap: 10px;
+}
+
+body.work-page:has(.work-operation-screen) .confirm-stop-removal-form label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+body.work-page:has(.work-operation-screen) .confirm-stop-removal-form input[type="checkbox"] {
+  width: 20px;
+  min-width: 20px;
+  height: 20px;
+  margin: 0;
+}
+
+body.work-page:has(.work-operation-screen) .confirm-stop-removal-form .form-feedback {
+  margin: 0;
+}
+
+body.work-page .work-selection-error {
+  padding: 10px 12px;
+  border: 1px solid #e7b9b9;
+  border-radius: 9px;
+  margin: 0 0 12px;
+  color: #842c2c;
+  background: #fff0f0;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+body.work-page:has(.work-operation-screen) .work-machine-controls .work-routine-controls {
+  display: grid;
+  min-height: 0;
+  flex: 0 0 auto;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+body.work-page:has(.work-operation-screen) .work-machine-controls .work-routine-controls .button {
+  width: 100%;
+  min-width: 0;
+  min-height: 58px;
+  flex: 0 0 auto;
+  justify-content: center;
+  padding: 10px 8px;
+  font-size: 14px;
+  font-weight: 800;
+  text-align: center;
+}
+
+body.work-page:has(.work-operation-screen) .work-machine-controls .work-routine-controls .button.primary {
+  background: #1769ff;
+}
+
+body.work-page:has(.work-operation-screen) .work-machine-controls .work-routine-controls .button.ghost {
+  color: #142332;
+  border: 1px solid #d0dce3;
+  background: #edf2f5;
+}
+
+body.work-page:has(.work-operation-screen) .work-machine-controls .work-routine-controls .button.secondary {
+  color: #0d6c91;
+  border: 1px solid #b9dce5;
+  background: #e6f6fa;
+}
+
+body.work-page:has(.work-operation-screen) .work-machine-controls .button:disabled,
+body.work-page:has(.work-operation-screen) .work-machine-controls .button[aria-disabled="true"] {
+  color: #718091;
+  border-color: #d9e1e6;
+  background: #eef2f5;
+  opacity: 1;
+}
+
+body.work-page:has(.work-operation-screen) .work-machine-controls .work-emergency-zone {
+  display: grid;
+  min-height: 0;
+  flex: 0 0 auto;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 12px;
+  border-top: 1px solid #dfe8ec;
+}
+
+body.work-page:has(.work-operation-screen) .work-machine-controls .work-emergency-zone .button {
+  width: 100%;
+  min-height: 64px;
+  justify-content: center;
+  font-size: 1rem;
+  font-weight: 900;
+}
+
+body.work-page:has(.work-operation-screen) .work-machine-panel .work-command-feedback {
+  margin: 0;
+}
+
+body.work-page:has(.work-operation-screen) .work-command-history {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border: 1px solid #ead8a7;
+  border-radius: 9px;
+  background: #fff8df;
+  color: #674b0b;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+body.work-page:has(.work-operation-screen) .work-machine-panel .emergency-compact {
+  margin: 0;
+  padding: 16px;
+  border-radius: 12px;
+}
+
+@media (min-width: 960px) and (min-height: 680px) {
+  body.work-page:has(.work-operation-screen) {
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  body.work-page:has(.work-operation-screen) .main {
+    display: flex;
+    height: 100dvh;
+    min-height: 0;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  body.work-page:has(.work-operation-screen) .content {
+    display: flex;
+    min-height: 0;
+    flex: 1 1 auto;
+    max-width: none;
+    overflow: hidden;
+    padding: 12px clamp(14px, 2vw, 28px);
+  }
+
+  body.work-page:has(.work-operation-screen) #screen-root {
+    display: flex;
+    min-height: 0;
+    flex: 1 1 auto;
+  }
+
+  body.work-page:has(.work-operation-screen) .work-operation-screen {
+    min-height: 0;
+    height: 100%;
+  }
+
+  body.work-page:has(.work-operation-screen) .work-operation-layout {
+    min-height: 0;
+    flex: 0 0 auto;
+  }
+}
+
+/* Em monitores baixos, preserva a composição em duas colunas, mas deixa a
+   página rolar para o título e os comandos não disputarem a altura da tela. */
+@media (min-width: 960px) and (min-height: 680px) and (max-height: 820px) {
+  body.work-page:has(.work-operation-screen) {
+    height: auto;
+    min-height: 100dvh;
+    overflow: auto;
+  }
+
+  body.work-page:has(.work-operation-screen) .main {
+    height: auto;
+    min-height: 100dvh;
+    overflow: visible;
+  }
+
+  body.work-page:has(.work-operation-screen) .content {
+    display: block;
+    min-height: 0;
+    flex: 0 0 auto;
+    overflow: visible;
+  }
+
+  body.work-page:has(.work-operation-screen) #screen-root {
+    display: block;
+    min-height: 0;
+  }
+
+  body.work-page:has(.work-operation-screen) .work-operation-screen {
+    height: auto;
+    min-height: 0;
+  }
+
+  body.work-page:has(.work-operation-screen) .work-status-column {
+    max-height: none;
+    overflow: visible;
+  }
+}
+
+/* Comandos conforme o painel aprovado: um abaixo do outro, grandes e
+   sempre fáceis de acionar no posto industrial. */
+body.work-page:has(.work-operation-screen) .work-machine-controls .work-routine-controls {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+
+body.work-page:has(.work-operation-screen) .work-machine-controls .work-routine-controls .button {
+  min-height: 96px;
+  padding: 16px 14px;
+  font-size: clamp(16px, 1.2vw, 20px);
+}
+
+body.work-page:has(.work-operation-screen) .work-machine-controls .work-emergency-zone .button {
+  min-height: 104px;
+  font-size: clamp(17px, 1.25vw, 21px);
+}
+
+@media (max-width: 959px), (max-height: 679px) {
+  body.work-page:has(.work-operation-screen) .work-operation-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  body.work-page:has(.work-operation-screen) .work-status-column {
+    max-height: none;
+    overflow: visible;
+  }
+
+  body.work-page:has(.work-operation-screen) .work-machine-panel {
+    order: 2;
+  }
+}
+
+@media (max-width: 620px) {
+  body.work-page:has(.work-operation-screen) .work-screen-header {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+  }
+
+  body.work-page:has(.work-operation-screen) .work-screen-heading {
+    text-align: left;
+  }
+
+  body.work-page:has(.work-operation-screen) .work-manual-reading,
+  body.work-page:has(.work-operation-screen) .manual-operation-reading-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  body.work-page:has(.work-operation-screen) .work-machine-panel > .work-header-statuses .status-compact {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  body.work-page:has(.work-operation-screen) .manual-operation-reading-form button {
+    width: 100%;
+  }
+}
+
+@media (max-width: 460px) {
+  body.work-page:has(.work-operation-screen) .work-machine-panel > .work-header-statuses .status-compact,
+  body.work-page:has(.work-operation-screen) .work-machine-controls .work-routine-controls {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (min-width: 461px) and (max-width: 1100px) {
+  body.work-page:has(.work-operation-screen) .work-header-statuses .status-compact {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* Composição final da operação: o módulo de estados fica no canto direito,
+   acima dos comandos, e cada cartão ocupa somente o espaço do seu conteúdo. */
+@media (min-width: 960px) and (min-height: 680px) {
+  body.work-page:has(.work-operation-screen) .work-operation-layout {
+    grid-template-columns: minmax(0, 1.45fr) minmax(360px, 0.75fr);
+    align-items: start;
+    gap: 16px;
+  }
+
+  body.work-page:has(.work-operation-screen) .work-status-column {
+    height: auto;
+    max-height: calc(100dvh - 150px);
+    overflow: visible;
+  }
+
+  body.work-page:has(.work-operation-screen) .work-status-column > .work-live-summary,
+  body.work-page:has(.work-operation-screen) .work-status-column > .work-items-panel {
+    flex: 0 0 auto;
+  }
+
+  body.work-page:has(.work-operation-screen) .work-items-panel {
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+  }
+
+  body.work-page:has(.work-operation-screen) .work-item-progress-list {
+    flex: 0 1 auto;
+    max-height: min(55dvh, 620px);
+    overflow-y: auto;
+  }
+
+  body.work-page:has(.work-operation-screen) .work-machine-panel {
+    height: auto;
+    align-self: start;
+    overflow: visible;
+  }
+
+  body.work-page:has(.work-operation-screen) .work-machine-panel > .work-header-statuses {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 7px;
+    margin: 0 0 2px;
+    padding: 9px;
+    border: 1px solid #cfe1e8;
+    border-radius: 11px;
+    background: #f7fbfc;
+    box-shadow: none;
+  }
+
+  body.work-page:has(.work-operation-screen) .work-machine-panel > .work-header-statuses .work-device-status-heading {
+    min-height: 20px;
+  }
+
+  body.work-page:has(.work-operation-screen) .work-machine-panel > .work-header-statuses .status-compact {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 5px;
+  }
+
+  body.work-page:has(.work-operation-screen) .work-machine-panel > .work-header-statuses .status-compact span {
+    min-height: 28px;
+    padding: 4px 5px;
+    border-radius: 7px;
+    font-size: 9px;
+  }
+
+  body.work-page:has(.work-operation-screen) .work-machine-panel > .work-header-statuses .status-compact b {
+    font-size: 9px;
+  }
+
+  body.work-page:has(.work-operation-screen) .work-machine-panel > .work-header-statuses .work-device-status-updated {
+    font-size: 8px;
+  }
+}
+
+@media (max-width: 959px), (max-height: 679px) {
+  body.work-page:has(.work-operation-screen) .work-machine-panel > .work-header-statuses .status-compact {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* A operação mostra somente o que é acionável. Os estados dos dispositivos
+   ficam em Configurações; os comandos permanecem grandes e sempre no mesmo
+   bloco visual. */
+body.work-page:has(.work-operation-screen) .work-header-statuses,
+body.work-page:has(.work-operation-screen) .work-command-feedback {
+  display: none !important;
+}
+
+body.work-page:has(.work-operation-screen) .work-machine-controls .work-routine-controls {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+
+body.work-page:has(.work-operation-screen) .work-machine-controls .work-routine-controls .button,
+body.work-page:has(.work-operation-screen) .work-machine-controls .work-emergency-zone .button {
+  min-height: 92px;
+  padding: 18px 16px;
+  font-size: 18px;
+  border-radius: 12px;
+}
+
+body.work-page:has(.work-operation-screen) .work-machine-controls .work-emergency-zone {
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 14px;
+}
+
+@media (max-width: 620px) {
+  body.work-page:has(.work-operation-screen) .work-machine-controls .work-routine-controls .button,
+  body.work-page:has(.work-operation-screen) .work-machine-controls .work-emergency-zone .button {
+    min-height: 78px;
+    font-size: 16px;
+  }
+}
+
+/* Ajustes finais da composição: título central, retorno discreto e leitura
+   automática sem textos repetidos sobre o mesmo estado. */
+body.work-page:has(.work-operation-screen) .work-screen-header {
+  grid-template-columns: minmax(120px, 1fr) minmax(0, auto) minmax(120px, 1fr);
+  align-items: start;
+  gap: 12px;
+}
+
+body.work-page:has(.work-operation-screen) .work-screen-heading {
+  grid-column: 2;
+  justify-self: center;
+  text-align: center;
+}
+
+body.work-page:has(.work-operation-screen) .work-back-button {
+  grid-column: 1;
+  justify-self: start;
+  align-self: start;
+  transform: translateY(-4px);
+}
+
+body.work-page:has(.work-operation-screen) .work-live-summary {
+  gap: 6px;
+  padding: 12px 14px;
+}
+
+body.work-page:has(.work-operation-screen) .work-live-summary-foot {
+  justify-content: flex-start;
+  gap: 8px;
+  font-size: 11px;
+}
+
+body.work-page:has(.work-operation-screen) .work-manual-reading {
+  gap: 8px 14px;
+  padding-top: 8px;
+}
+
+body.work-page:has(.work-operation-screen) .work-manual-reading-heading p {
+  margin-top: 2px;
+}
+
+@media (max-width: 620px) {
+  body.work-page:has(.work-operation-screen) .work-screen-header {
+    position: relative;
+    grid-template-columns: minmax(0, 1fr);
+    padding-top: 40px;
+  }
+
+  body.work-page:has(.work-operation-screen) .work-screen-heading {
+    grid-column: 1;
+    justify-self: stretch;
+    text-align: center;
+  }
+
+  body.work-page:has(.work-operation-screen) .work-back-button {
+    position: static;
+    transform: none;
+  }
+
+  body.work-page:has(.work-operation-screen) .work-header-actions {
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: flex;
+    max-width: 100%;
+  }
+}
+
+/* Regra final da tela de operação.
+   O CSS responsivo geral ainda contém compatibilidade histórica que transforma
+   as duas colunas em áreas de altura total. Aqui a tela operacional mantém o
+   tamanho real dos cartões e limita o rolagem somente à lista de itens. */
+@media (min-width: 960px) and (min-height: 680px) {
+  body.work-page:has(.work-operation-screen) .work-operation-layout {
+    align-items: start;
+    flex: 0 0 auto;
+  }
+
+  body.work-page:has(.work-operation-screen) .work-status-column {
+    height: auto;
+    max-height: calc(100dvh - 150px);
+    overflow: visible;
+  }
+
+  body.work-page:has(.work-operation-screen) .work-status-column > .work-items-panel {
+    height: auto;
+    flex: 0 0 auto;
+    overflow: visible;
+  }
+
+  body.work-page:has(.work-operation-screen) .work-item-progress-list {
+    flex: 0 1 auto;
+    max-height: min(55dvh, 620px);
+    overflow-y: auto;
+  }
+
+  body.work-page:has(.work-operation-screen) .work-machine-panel {
+    height: auto;
+    align-self: start;
+    overflow: visible;
+  }
+}

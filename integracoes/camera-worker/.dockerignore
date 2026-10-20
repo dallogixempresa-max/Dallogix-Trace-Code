@@ -1,0 +1,8 @@
+*
+!Dockerfile
+!camera-worker.mjs
+!evidence-pdf.mjs
+!evidence-store.mjs
+!config.mjs
+!ffmpeg-arguments.mjs
+!jpeg-frame-collector.mjs

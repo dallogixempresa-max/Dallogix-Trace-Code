@@ -1,0 +1,16 @@
+export const FORM_ACTIONS = new Set([
+  "save-network",
+  "save-pdf-settings",
+  "submit-dala",
+  "save-dala-edit",
+  "submit-product",
+  "submit-manifest",
+  "submit-manifest-edit",
+  "import-pdf",
+  "import-csv",
+  "save-occurrence",
+  "prepare-loading",
+  "create-user",
+  "create-company",
+  "identify-reading",
+]);

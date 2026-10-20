@@ -1,0 +1,15 @@
+ALTER TABLE plc_command_requests
+MODIFY COLUMN command ENUM(
+  'REVERSAO',
+  'REVERSAO_ATIVAR',
+  'REVERSAO_DESATIVAR'
+) NOT NULL;
+
+UPDATE plc_command_requests
+SET
+  command = 'REVERSAO_ATIVAR'
+WHERE
+  command = 'REVERSAO';
+
+ALTER TABLE plc_command_requests
+MODIFY COLUMN command ENUM('REVERSAO_ATIVAR', 'REVERSAO_DESATIVAR') NOT NULL;

@@ -1,0 +1,448 @@
+/* Estilos da tela empresa; a base responsiva é compartilhada. */
+@import url("/css/responsive.css");
+
+.company-detail-header {
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.company-detail-heading {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+}
+
+.company-detail-heading .page-back,
+.company-detail-header .actions .button {
+  margin: 0;
+}
+
+.company-rename-panel {
+  padding: clamp(14px, 1.25vw, 20px);
+}
+
+.company-rename-form > .panel-heading {
+  min-height: 0;
+  margin-bottom: 8px;
+  gap: 12px;
+}
+
+.company-rename-form .panel-heading p {
+  margin: 4px 0 0;
+  line-height: 1.35;
+}
+
+.company-rename-form > label {
+  margin: 0;
+}
+
+.company-rename-form input {
+  min-height: 44px;
+  margin-top: 6px;
+}
+
+.industrial-pc-create-panel,
+.industrial-pc-management-panel {
+  padding: clamp(14px, 1.25vw, 20px);
+}
+
+.industrial-pc-create-panel {
+  margin-top: 14px;
+}
+
+.industrial-pc-create-panel > .panel-heading,
+.industrial-pc-management-panel > .panel-heading {
+  margin-bottom: 10px;
+}
+
+.industrial-pc-management-panel > .panel-heading p {
+  margin: 4px 0 0;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.industrial-pc-create-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+  margin: 12px 0 0;
+}
+
+.industrial-pc-create-form label {
+  display: grid;
+  gap: 6px;
+  font-size: 14px;
+  margin: 0;
+}
+
+.industrial-pc-create-form input,
+.industrial-pc-create-form > .button {
+  min-height: 44px;
+}
+
+.industrial-pc-create-form input {
+  margin-top: 0;
+  padding: 10px 12px;
+}
+
+.industrial-pc-create-form > .button {
+  align-self: end;
+  margin: 0;
+  padding: 9px 16px;
+  font-size: 14px;
+}
+
+.industrial-pc-create-form .form-feedback {
+  grid-column: 1 / -1;
+}
+
+.industrial-pc-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.industrial-pc-row {
+  display: grid;
+  gap: 0;
+  border: 1px solid #dbe5ea;
+  border-left: 4px solid #8598a2;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.industrial-pc-row.is-online {
+  border-left-color: #27835f;
+}
+
+.industrial-pc-row.is-offline {
+  border-left-color: #b17a16;
+}
+
+.industrial-pc-row.is-error,
+.industrial-pc-row.is-blocked {
+  border-left-color: #b74349;
+}
+
+.industrial-pc-row.is-pending {
+  border-left-color: #347fc0;
+}
+
+.industrial-pc-row.is-unknown,
+.industrial-pc-row.is-archived {
+  border-left-color: #8598a2;
+}
+
+.industrial-pc-row.is-archived {
+  background: #f4f6f7;
+}
+
+.industrial-pc-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 14px;
+}
+
+.industrial-pc-identity {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.industrial-pc-identity > small,
+.industrial-pc-info-item > small,
+.industrial-pc-activation > small {
+  color: #617382;
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+
+.industrial-pc-identity h4 {
+  margin: 0;
+  color: #18313e;
+  font-size: 16px;
+  overflow-wrap: anywhere;
+}
+
+.industrial-pc-status {
+  flex: 0 0 auto;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: #edf1f3;
+  color: #526571;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.industrial-pc-status.is-online {
+  background: #e5f4ed;
+  color: #236b4c;
+}
+
+.industrial-pc-status.is-offline,
+.industrial-pc-status.is-pending {
+  background: #e8f1fb;
+  color: #285f93;
+}
+
+.industrial-pc-status.is-error,
+.industrial-pc-status.is-blocked {
+  background: #fae9e9;
+  color: #993a40;
+}
+
+.industrial-pc-info-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-top: 1px solid #e5ecef;
+  border-bottom: 1px solid #e5ecef;
+  background: #f8fafb;
+}
+
+.industrial-pc-info-item {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 12px;
+  border-right: 1px solid #e5ecef;
+}
+
+.industrial-pc-info-item:last-child {
+  border-right: 0;
+}
+
+.industrial-pc-info-item > strong,
+.industrial-pc-info-value strong,
+.industrial-pc-info-item > div > strong {
+  color: #213642;
+  font-size: 13px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.industrial-pc-info-item > small:not(:first-child) {
+  color: #617382;
+  font-size: 11px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.industrial-pc-footer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+}
+
+.industrial-pc-activation {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  min-width: 0;
+}
+
+.industrial-pc-activation > small {
+  flex-basis: 100%;
+}
+
+.industrial-pc-controls {
+  display: flex;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.industrial-pc-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.industrial-pc-actions .button,
+.industrial-pc-activation .button {
+  margin: 0;
+}
+
+.industrial-pc-row .button.small {
+  min-height: 38px;
+  padding: 8px 12px;
+  font-size: 12px;
+}
+
+.industrial-pc-code summary {
+  color: #0c5277;
+  cursor: pointer;
+  font-weight: 750;
+}
+
+.industrial-pc-code > div {
+  margin-top: 8px;
+}
+
+.industrial-pc-code code {
+  overflow-wrap: anywhere;
+}
+
+.industrial-pc-note {
+  margin: 0;
+  color: #617382;
+  font-size: 13px;
+}
+
+.industrial-pc-archived {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid #dbe5ea;
+}
+
+.industrial-pc-archived > summary {
+  color: #0c5277;
+  cursor: pointer;
+  font-weight: 750;
+}
+
+.industrial-pc-archived .industrial-pc-list {
+  margin-top: 12px;
+}
+
+.industrial-pc-link-form {
+  display: flex;
+  gap: 8px;
+  align-items: end;
+}
+
+.industrial-pc-link-form label {
+  flex: 1;
+}
+
+.industrial-pc-activation .company-activation-code {
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.industrial-pc-create-panel + .industrial-pc-management-panel,
+.industrial-pc-management-panel + .company-dashboard-metrics {
+  margin-top: 14px;
+}
+
+.company-dashboard-metrics .metric {
+  min-height: 0;
+  padding: 14px 16px;
+}
+
+.company-dashboard-metrics .metric small {
+  font-size: 13px;
+}
+
+.company-dashboard-metrics .metric strong {
+  font-size: 26px;
+  line-height: 1.1;
+}
+
+@media (max-width: 1100px) {
+  .industrial-pc-info-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .industrial-pc-info-item:nth-child(even) {
+    border-right: 0;
+  }
+
+  .industrial-pc-info-item:nth-child(n + 3) {
+    border-top: 1px solid #e5ecef;
+  }
+
+  .industrial-pc-footer {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .industrial-pc-controls {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 860px) {
+  .company-detail-header {
+    align-items: flex-start;
+  }
+
+  .industrial-pc-create-form {
+    grid-template-columns: 1fr;
+  }
+
+  .industrial-pc-link-form {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 560px) {
+  .company-rename-panel {
+    padding: 14px;
+  }
+
+  .company-rename-form > .panel-heading {
+    align-items: stretch;
+  }
+
+  .company-rename-form > .panel-heading > .button {
+    width: 100%;
+  }
+
+  .industrial-pc-create-panel,
+  .industrial-pc-management-panel {
+    padding: 13px;
+  }
+
+  .industrial-pc-card-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+    padding: 10px 12px;
+  }
+
+  .industrial-pc-info-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .industrial-pc-info-item,
+  .industrial-pc-info-item:nth-child(even) {
+    border-right: 0;
+    padding: 9px 12px;
+  }
+
+  .industrial-pc-info-item + .industrial-pc-info-item {
+    border-top: 1px solid #e5ecef;
+  }
+
+  .industrial-pc-actions {
+    justify-content: stretch;
+    width: 100%;
+  }
+
+  .industrial-pc-actions .button {
+    flex: 1 1 130px;
+  }
+
+  .industrial-pc-activation {
+    align-items: stretch;
+  }
+
+  .industrial-pc-activation > .button {
+    flex: 1 1 130px;
+  }
+
+  .company-dashboard-metrics .metric {
+    padding: 12px 14px;
+  }
+}

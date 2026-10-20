@@ -1,0 +1,37 @@
+# Overlay obrigatório para instalações de produção.
+# O compose principal continua servindo ao desenvolvimento local; este arquivo
+# remove os valores padrão conhecidos e exige uma configuração própria.
+services:
+  php:
+    environment:
+      APP_ENV: ${APP_ENV:?APP_ENV é obrigatório}
+      SESSION_SECURE: ${SESSION_SECURE:?SESSION_SECURE é obrigatório}
+      APP_URL: ${APP_URL:?APP_URL é obrigatório}
+      DB_NAME: ${MYSQL_DATABASE:?MYSQL_DATABASE é obrigatório}
+      DB_USER: ${MYSQL_USER:?MYSQL_USER é obrigatório}
+      DB_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD é obrigatório}
+      SYNC_MAX_ATTEMPTS: ${SYNC_MAX_ATTEMPTS:-5}
+      TRACE_READINESS_TOKEN: ${TRACE_READINESS_TOKEN:-}
+      TRACE_DEVICE_TOKEN: ${TRACE_DEVICE_TOKEN:?TRACE_DEVICE_TOKEN é obrigatório}
+      CAMERA_DEVICE_TOKEN: ${CAMERA_DEVICE_TOKEN:?CAMERA_DEVICE_TOKEN é obrigatório}
+      TRACE_VERSION: ${TRACE_VERSION:-production}
+      TRACE_COMMIT: ${TRACE_COMMIT:-unknown}
+  mysql:
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:?MYSQL_DATABASE é obrigatório}
+      MYSQL_USER: ${MYSQL_USER:?MYSQL_USER é obrigatório}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD é obrigatório}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD é obrigatório}
+  node-red:
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      TRACE_DEVICE_TOKEN: ${TRACE_DEVICE_TOKEN:?TRACE_DEVICE_TOKEN é obrigatório}
+      TRACE_INSTALLATION_MODE: ${TRACE_INSTALLATION_MODE:-}
+      NODE_RED_ADMIN_USER: ${NODE_RED_ADMIN_USER:-}
+      NODE_RED_ADMIN_PASSWORD_HASH: ${NODE_RED_ADMIN_PASSWORD_HASH:-}
+      TRACE_LOCAL_SIMULATION: ${TRACE_LOCAL_SIMULATION:-0}
+      TRACE_SIMULATOR_ONLY_COMMANDS: ${TRACE_SIMULATOR_ONLY_COMMANDS:-0}
+      CAMERA_DEVICE_TOKEN: ${CAMERA_DEVICE_TOKEN:?CAMERA_DEVICE_TOKEN é obrigatório}
+  nginx:
+    ports:
+      - "${WEB_BIND_ADDRESS:?WEB_BIND_ADDRESS é obrigatório}:${WEB_PORT:?WEB_PORT é obrigatório}:80"

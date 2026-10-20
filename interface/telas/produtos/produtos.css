@@ -1,0 +1,14 @@
+/* Estilos da tela produtos; a base responsiva é compartilhada. */
+@import url("/css/responsive.css");
+
+.product-status-field {
+  align-content: start;
+}
+
+.product-status-control {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 46px;
+  margin-top: 8px;
+}

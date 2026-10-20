@@ -1,0 +1,16 @@
+[Unit]
+Description=Dallogix Trace local industrial stack
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/dallogix-trace
+ExecStart=/usr/bin/docker compose --profile industrial up -d --build
+ExecStop=/usr/bin/docker compose --profile industrial stop
+RemainAfterExit=yes
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target

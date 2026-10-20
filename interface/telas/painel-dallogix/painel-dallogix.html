@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/png" href="/assets/branding/trace-platform.png" />
+    <link rel="apple-touch-icon" href="/assets/branding/trace-platform.png" />
+    <title>Central Master • Dallogix Trace</title>
+    <link rel="stylesheet" href="/css/styles.css?v=28" />
+    <link rel="stylesheet" href="/css/light-theme.css?v=202610160002" />
+  <link rel="stylesheet" href="/css/sistema-design.css?v=202610060004" />
+      <link rel="stylesheet" href="/telas/painel-dallogix/painel-dallogix.css" />
+  </head>
+  <body>
+    <div class="shell" id="shell">
+      <aside class="sidebar">
+        <div class="brand"><img src="/assets/branding/trace-platform.png" alt="TRACE PLATFORM" /></div>
+        <nav></nav>
+        <footer>
+          <div class="user-avatar" id="user-avatar">A</div>
+          <div class="user-name" id="user-name">—</div>
+          <b id="user-role">—</b>
+          <button class="logout-link" data-action="logout" type="button">Sair</button>
+        </footer>
+      </aside>
+      <main class="main">
+        <header class="topbar">
+          <button class="sidebar-toggle" type="button" data-action="toggle-menu" aria-label="Recolher ou expandir menu" title="Recolher ou expandir menu">☰</button>
+          <h1>TracePlatform <small>/ Dallogix Trace</small></h1>
+          <span class="local"><i></i> Sistema local online</span>
+        </header>
+        <section class="content"><div id="screen-root"></div></section>
+      </main>
+    </div>
+     <script data-cfasync="false" type="module" src="/js/aplicacao.js?v=202610200004" data-page="master-home"></script>
+  </body>
+</html>

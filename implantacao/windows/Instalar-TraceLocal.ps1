@@ -1,0 +1,488 @@
+param(
+    [string]$PackageRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
+    [string]$CentralUrl = '',
+    [switch]$NoBrowser,
+    [switch]$ProductionMachine,
+    [switch]$AllowFreshDatabaseCreation
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
+$PackageRoot = (Resolve-Path -LiteralPath $PackageRoot).Path
+$DatabaseVolumeGuard = Join-Path $PSScriptRoot 'TraceDatabaseVolume.ps1'
+if (-not (Test-Path -LiteralPath $DatabaseVolumeGuard -PathType Leaf)) { throw "Protecao do volume MySQL ausente: $DatabaseVolumeGuard" }
+. $DatabaseVolumeGuard
+
+function Assert-Success([string]$Stage, [int]$Code) {
+    if ($Code -ne 0) {
+        throw "$Stage falhou (codigo $Code). A instalacao parou sem apagar o banco ou a configuracao."
+    }
+}
+
+function Find-GitBash {
+    $candidates = @(
+        (Join-Path $env:ProgramFiles "Git\bin\bash.exe"),
+        (Join-Path $env:LOCALAPPDATA "Programs\Git\bin\bash.exe")
+    )
+    $programFilesX86 = [Environment]::GetEnvironmentVariable("ProgramFiles(x86)")
+    if ($programFilesX86) {
+        $candidates += Join-Path $programFilesX86 "Git\bin\bash.exe"
+    }
+    $git = Get-Command git.exe -ErrorAction SilentlyContinue
+    if ($git) {
+        $candidates += Join-Path (Split-Path -Parent (Split-Path -Parent $git.Source)) "bin\bash.exe"
+    }
+    foreach ($candidate in $candidates) {
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+            return $candidate
+        }
+    }
+    return $null
+}
+
+function Read-EnvValues([string]$Path) {
+    $values = @{}
+    foreach ($line in [System.IO.File]::ReadAllLines($Path)) {
+        if ($line -match '^([A-Za-z_][A-Za-z0-9_]*)=(.*)$') {
+            $key = $matches[1]
+            if ($values.ContainsKey($key)) {
+                throw "O arquivo .env contem a variavel $key mais de uma vez. Corrija antes de continuar."
+            }
+            $values[$key] = $matches[2].Trim().Trim('"').Trim("'")
+        }
+    }
+    return $values
+}
+
+function Set-EnvValue([string]$Path, [string]$Key, [string]$Value) {
+    $lines = New-Object 'System.Collections.Generic.List[string]'
+    $found = $false
+    foreach ($line in [System.IO.File]::ReadAllLines($Path)) {
+        if ($line -match "^$([regex]::Escape($Key))=") {
+            if ($found) { throw "O arquivo .env contem a variavel $Key mais de uma vez. Corrija antes de continuar." }
+            $lines.Add("$Key='$Value'")
+            $found = $true
+        } else {
+            $lines.Add([string]$line)
+        }
+    }
+    if (-not $found) { $lines.Add("$Key='$Value'") }
+    $utf8 = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllLines($Path, $lines, $utf8)
+}
+
+function ConvertFrom-SecureStringToPlainText([System.Security.SecureString]$Value) {
+    $pointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($Value)
+    try {
+        return [Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer)
+    } finally {
+        [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer)
+    }
+}
+
+function Ensure-NodeRedAdminAuth([string]$EnvPath, [hashtable]$Values) {
+    $username = [string]$Values['NODE_RED_ADMIN_USER']
+    if ($username -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$') {
+        throw "NODE_RED_ADMIN_USER deve ter de 3 a 64 caracteres seguros."
+    }
+    $hash = [string]$Values['NODE_RED_ADMIN_PASSWORD_HASH']
+    if ($hash -and $hash -notmatch '^\$2[ab]\$\d{2}\$[./A-Za-z0-9]{53}$') {
+        throw "NODE_RED_ADMIN_PASSWORD_HASH inválido. Informe um hash bcrypt, nunca a senha em texto puro."
+    }
+    if ($hash) {
+        Set-EnvValue $EnvPath 'NODE_RED_ADMIN_PASSWORD_HASH' $hash
+        $Values['NODE_RED_ADMIN_PASSWORD_HASH'] = $hash
+        return
+    }
+
+    Write-Host "O perfil industrial exige uma senha administrativa do Node-RED."
+    Write-Host "Use uma senha com pelo menos 15 caracteres e guarde-a no gerenciador de credenciais técnico."
+    $securePassword = Read-Host "Senha do usuário $username" -AsSecureString
+    $secureConfirmation = Read-Host "Confirme a senha do Node-RED" -AsSecureString
+    $plainPassword = $null
+    $confirmation = $null
+    try {
+        if ($securePassword.Length -lt 15) {
+            throw "A senha do Node-RED precisa ter pelo menos 15 caracteres."
+        }
+        $plainPassword = ConvertFrom-SecureStringToPlainText $securePassword
+        $confirmation = ConvertFrom-SecureStringToPlainText $secureConfirmation
+        if (-not [string]::Equals($plainPassword, $confirmation, [StringComparison]::Ordinal)) {
+            throw "As senhas não conferem. Execute o instalador novamente."
+        }
+        if ([System.Text.Encoding]::UTF8.GetByteCount($plainPassword) -gt 72) {
+            throw "A senha do Node-RED deve ter no máximo 72 bytes em UTF-8 para evitar truncamento pelo bcrypt."
+        }
+
+        Write-Host "Preparando o gerador bcrypt local; a senha não será gravada nem exibida."
+        & docker.exe compose --profile industrial build node-red
+        Assert-Success "Preparação do Node-RED para gerar o hash" $LASTEXITCODE
+        $env:NODE_RED_ADMIN_PASSWORD = $plainPassword
+        $hashOutput = & docker.exe compose --profile industrial run --rm --no-deps `
+            -e NODE_RED_ADMIN_PASSWORD --entrypoint node node-red `
+            -e "console.log(require('bcryptjs').hashSync(process.env.NODE_RED_ADMIN_PASSWORD, 12))" 2>&1
+        $hashExitCode = $LASTEXITCODE
+        if ($hashExitCode -ne 0) {
+            $diagnostic = ($hashOutput | Out-String).Trim()
+            throw "Não foi possível gerar o hash bcrypt do Node-RED (código $hashExitCode). $diagnostic"
+        }
+        $hash = [string]($hashOutput | Where-Object { [string]$_ -match '^\$2[ab]\$12\$[./A-Za-z0-9]{53}$' } | Select-Object -Last 1)
+        if (-not $hash) {
+            throw "O gerador do Node-RED não retornou um hash bcrypt válido. Nenhum serviço industrial foi iniciado."
+        }
+    } finally {
+        Remove-Item Env:NODE_RED_ADMIN_PASSWORD -ErrorAction SilentlyContinue
+        $plainPassword = $null
+        $confirmation = $null
+        $securePassword.Dispose()
+        $secureConfirmation.Dispose()
+    }
+
+    Set-EnvValue $EnvPath 'NODE_RED_ADMIN_PASSWORD_HASH' $hash
+    $Values['NODE_RED_ADMIN_PASSWORD_HASH'] = $hash
+    Write-Host "Hash bcrypt salvo no .env; a senha em texto puro foi descartada."
+}
+
+function Ensure-EnvDefaults([string]$Path, [hashtable]$Defaults) {
+    $lines = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($line in [System.IO.File]::ReadAllLines($Path)) {
+        $lines.Add([string]$line)
+    }
+    foreach ($entry in $Defaults.GetEnumerator()) {
+        $key = [string]$entry.Key
+        $pattern = "^$([regex]::Escape($key))=(.*)$"
+        $matchesForKey = @()
+        for ($index = 0; $index -lt $lines.Count; $index++) {
+            if ($lines[$index] -match $pattern) {
+                $matchesForKey += $index
+            }
+        }
+        if ($matchesForKey.Count -gt 1) {
+            throw "O arquivo .env contem a variavel $key mais de uma vez. Corrija antes de continuar."
+        }
+        if ($matchesForKey.Count -eq 1) {
+            $index = $matchesForKey[0]
+            $current = ($lines[$index] -split "=", 2)[1].Trim().Trim('"').Trim("'")
+            if ([string]::IsNullOrWhiteSpace($current)) {
+                $lines[$index] = "$key=$($entry.Value)"
+            }
+        } else {
+            $lines.Add("$key=$($entry.Value)")
+        }
+    }
+    $utf8 = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllLines($Path, $lines, $utf8)
+}
+
+function New-HexSecret([Security.Cryptography.RandomNumberGenerator]$Generator) {
+    $bytes = New-Object byte[] 32
+    $Generator.GetBytes($bytes)
+    return [System.BitConverter]::ToString($bytes).Replace("-", "")
+}
+
+function Get-CentralBaseUrl([string]$InputUrl) {
+    $parsed = $null
+    if (-not [Uri]::TryCreate($InputUrl.Trim(), [UriKind]::Absolute, [ref]$parsed) -or
+        $parsed.Scheme -ne "https" -or -not $parsed.Host -or
+        $parsed.UserInfo -or $parsed.Query -or $parsed.Fragment) {
+        throw "Informe uma URL HTTPS do servidor central, sem usuario, senha, parametros ou fragmento."
+    }
+    $baseUrl = $parsed.GetLeftPart([UriPartial]::Authority)
+    if ($parsed.AbsolutePath -ne "/") {
+        Write-Host "Usando apenas a origem do servidor central: $baseUrl"
+    }
+    return $baseUrl
+}
+
+function Test-DockerEngine {
+    # A falha nesta sonda e esperada enquanto o Docker Desktop inicia.
+    $ErrorActionPreference = "Continue"
+    $engineType = & docker.exe info --format '{{.OSType}}' 2> $null
+    return $LASTEXITCODE -eq 0 -and $engineType -eq "linux"
+}
+
+function Check-DockerReady {
+    if (Test-DockerEngine) { return $true }
+
+    $desktopCandidates = @(
+        (Join-Path $env:ProgramFiles "Docker\Docker\Docker Desktop.exe"),
+        (Join-Path $env:LOCALAPPDATA "Programs\DockerDesktop\Docker Desktop.exe")
+    )
+    $desktop = $desktopCandidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+    if ($desktop) {
+        Write-Host "Iniciando Docker Desktop e aguardando o mecanismo Linux..."
+        Start-Process -FilePath $desktop | Out-Null
+        for ($attempt = 1; $attempt -le 24; $attempt++) {
+            Start-Sleep -Seconds 5
+            if (Test-DockerEngine) { return $true }
+        }
+    }
+    return $false
+}
+
+function Initialize-DockerCli {
+    if (Get-Command docker.exe -ErrorAction SilentlyContinue) { return }
+    $dockerCandidates = @(
+        (Join-Path $env:ProgramFiles "Docker\Docker\resources\bin\docker.exe"),
+        (Join-Path $env:LOCALAPPDATA "Programs\DockerDesktop\resources\bin\docker.exe")
+    )
+    foreach ($candidate in $dockerCandidates) {
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+            $env:PATH = "$(Split-Path -Parent $candidate);$env:PATH"
+            if (Get-Command docker.exe -ErrorAction SilentlyContinue) { return }
+        }
+    }
+    throw "Docker Desktop nao encontrado. Instale-o pelo CMD com: winget install --exact --id Docker.DockerDesktop --accept-source-agreements --accept-package-agreements. Depois abra o Docker Desktop, conclua a configuracao do WSL e execute este instalador novamente."
+}
+
+function Wait-MySqlHealthy {
+    $containerId = & docker.exe compose ps -q mysql
+    Assert-Success "Localizacao do container MySQL" $LASTEXITCODE
+    $containerId = ([string]$containerId).Trim()
+    if (-not $containerId) {
+        throw "O container MySQL nao foi criado pelo Docker Compose."
+    }
+    for ($attempt = 1; $attempt -le 60; $attempt++) {
+        $health = & docker.exe inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' $containerId
+        if ($LASTEXITCODE -eq 0 -and ([string]$health).Trim() -eq 'healthy') { return }
+        $state = & docker.exe inspect --format '{{.State.Status}}' $containerId
+        if ($LASTEXITCODE -eq 0 -and ([string]$state).Trim() -in @('exited', 'dead')) { break }
+        Start-Sleep -Seconds 3
+    }
+    $logs = & docker.exe compose logs --no-color --tail=100 mysql 2>&1
+    $diagnostic = ($logs | Out-String).Trim()
+    throw "O MySQL nao ficou saudavel antes das migrations. A instalacao foi interrompida. Logs recentes:`n$diagnostic"
+}
+
+function Wait-NodeRedHealthy {
+    $containerId = & docker.exe compose ps -q node-red
+    Assert-Success "Localizacao do container Node-RED" $LASTEXITCODE
+    $containerId = ([string]$containerId).Trim()
+    if (-not $containerId) {
+        throw "O perfil industrial nao iniciou o Node-RED. Confira COMPOSE_PROFILES=industrial no .env."
+    }
+    for ($attempt = 1; $attempt -le 30; $attempt++) {
+        $health = & docker.exe inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' $containerId
+        if ($LASTEXITCODE -eq 0 -and ([string]$health).Trim() -eq 'healthy') { return }
+        Start-Sleep -Seconds 2
+    }
+    $logs = & docker.exe compose logs --no-color --tail=80 node-red 2>&1
+    $diagnostic = ($logs | Out-String).Trim()
+    throw "O Node-RED nao ficou saudavel; a instalacao foi interrompida. Logs recentes:`n$diagnostic"
+}
+
+try {
+    if (-not (Test-Path -LiteralPath (Join-Path $PackageRoot "docker-compose.yml") -PathType Leaf) -or
+        -not (Test-Path -LiteralPath (Join-Path $PackageRoot ".env.example") -PathType Leaf) -or
+        -not (Test-Path -LiteralPath (Join-Path $PackageRoot "scripts\migrate.sh") -PathType Leaf)) {
+        throw "Pacote incompleto. Extraia o ZIP inteiro e execute Instalar-PC-Windows.cmd na pasta extraida."
+    }
+    Initialize-DockerCli
+    if (-not (Check-DockerReady)) {
+        throw "Docker Desktop nao iniciou o mecanismo Linux. Abra o Docker Desktop, conclua a configuracao do WSL/reinicio se solicitado e execute este instalador novamente."
+    }
+    & docker.exe compose version
+    Assert-Success "Docker Compose" $LASTEXITCODE
+
+    $gitBash = Find-GitBash
+    if (-not $gitBash) {
+        $winget = Get-Command winget.exe -ErrorAction SilentlyContinue
+        if (-not $winget) {
+            throw "Git for Windows nao encontrado. Instale-o e execute este instalador novamente."
+        }
+        Write-Host "Instalando Git for Windows para executar as migracoes do banco..."
+        & $winget.Source install --exact --id Git.Git --accept-source-agreements --accept-package-agreements
+        $gitBash = Find-GitBash
+        if (-not $gitBash) {
+            throw "Git for Windows nao foi localizado apos a instalacao. Reabra o CMD e execute este instalador novamente."
+        }
+    }
+
+    $envPath = Join-Path $PackageRoot ".env"
+    if (-not (Test-Path -LiteralPath $envPath)) {
+        $defaultCentral = "https://trace.santocloud.com.br"
+        $answer = if ($CentralUrl) { $CentralUrl } else { Read-Host "URL HTTPS do servidor central [$defaultCentral]" }
+        if ([string]::IsNullOrWhiteSpace($answer)) { $answer = $defaultCentral }
+        $centralUrl = Get-CentralBaseUrl $answer
+
+        $generator = [Security.Cryptography.RandomNumberGenerator]::Create()
+        try {
+            $replacement = @{
+                MYSQL_PASSWORD = (New-HexSecret $generator)
+                MYSQL_ROOT_PASSWORD = (New-HexSecret $generator)
+                TRACE_DEVICE_TOKEN = (New-HexSecret $generator)
+                CAMERA_DEVICE_TOKEN = (New-HexSecret $generator)
+                TRACE_CENTRAL_URL = $centralUrl
+                TRACE_INSTALLATION_MODE = "local"
+                WEB_BIND_ADDRESS = "127.0.0.1"
+                BIND_ADDRESS = "127.0.0.1"
+            }
+            if ($ProductionMachine) { $replacement.COMPOSE_PROFILES = 'industrial' }
+        } finally {
+            $generator.Dispose()
+        }
+
+        $source = Join-Path $PackageRoot ".env.example"
+        $seen = @{}
+        $lines = New-Object 'System.Collections.Generic.List[string]'
+        foreach ($line in [System.IO.File]::ReadAllLines($source)) {
+            $key = ($line -split "=", 2)[0]
+            if ($line.StartsWith("$key=") -and $replacement.ContainsKey($key)) {
+                if ($seen.ContainsKey($key)) { throw "A configuracao de exemplo repete $key." }
+                $seen[$key] = $true
+                $lines.Add("$key=$($replacement[$key])")
+            } else {
+                $lines.Add($line)
+            }
+        }
+        foreach ($key in $replacement.Keys) {
+            if (-not $seen.ContainsKey($key)) { throw "A configuracao de exemplo nao contem $key." }
+        }
+        $utf8 = New-Object System.Text.UTF8Encoding($false)
+        [System.IO.File]::WriteAllLines($envPath, $lines, $utf8)
+        Write-Host "Arquivo .env criado com credenciais aleatorias. Os valores nao serao exibidos."
+    } else {
+        Write-Host "Arquivo .env existente preservado. Conferindo campos obrigatorios..."
+    }
+
+    # O perfil padrão usa somente a leitura do sensor M2052 informado para o
+    # INVT TS621. Os valores continuam sobrescrevíveis para outro modelo, mas
+    # uma instalação nova nunca inicia com a sonda Modbus vazia.
+    Ensure-EnvDefaults $envPath @{
+        TRACE_MODBUS_UNIT_ID = '1'
+        TRACE_MODBUS_HEARTBEAT_FUNCTION = '1'
+        TRACE_MODBUS_HEARTBEAT_REGISTER = '2052'
+        NODE_RED_ADMIN_USER = 'trace-admin'
+        NODE_RED_ADMIN_PASSWORD_HASH = ''
+    }
+    $values = Read-EnvValues $envPath
+    foreach ($key in @("MYSQL_PASSWORD", "MYSQL_ROOT_PASSWORD", "TRACE_DEVICE_TOKEN", "CAMERA_DEVICE_TOKEN", "TRACE_CENTRAL_URL")) {
+        if (-not $values.ContainsKey($key) -or [string]::IsNullOrWhiteSpace($values[$key])) {
+            throw "O campo $key esta vazio em .env. Preencha-o sem alterar os demais valores e execute o instalador novamente."
+        }
+    }
+    foreach ($key in @("WEB_BIND_ADDRESS", "BIND_ADDRESS")) {
+        if (-not $values.ContainsKey($key) -or $values[$key] -ne "127.0.0.1") {
+            throw "Mantenha $key=127.0.0.1 em .env antes de continuar."
+        }
+    }
+    if (-not $values.ContainsKey("TRACE_INSTALLATION_MODE") -or $values["TRACE_INSTALLATION_MODE"] -ne "local") {
+        throw "Defina TRACE_INSTALLATION_MODE=local em .env antes de continuar."
+    }
+    if ($values.ContainsKey("TRACE_LOCAL_SIMULATION") -and $values["TRACE_LOCAL_SIMULATION"] -ne "0") {
+        throw "TRACE_LOCAL_SIMULATION deve ser 0 no PC industrial de produção. A instalação não continuará em modo simulado."
+    }
+    if ($values.ContainsKey("TRACE_SIMULATOR_ONLY_COMMANDS") -and $values["TRACE_SIMULATOR_ONLY_COMMANDS"] -ne "0") {
+        throw "TRACE_SIMULATOR_ONLY_COMMANDS deve ser 0 no PC industrial de produção. A instalação não continuará com comandos simulados."
+    }
+    if ($ProductionMachine -and (-not $values.ContainsKey('COMPOSE_PROFILES') -or
+        $values['COMPOSE_PROFILES'] -notmatch '(^|,)industrial(,|$)')) {
+        throw "Defina COMPOSE_PROFILES=industrial em .env para este PC de producao."
+    }
+    $modbusUnit = 0
+    $modbusFunction = 0
+    $modbusRegister = 0
+    if (-not [int]::TryParse($values['TRACE_MODBUS_UNIT_ID'], [ref]$modbusUnit) -or
+        $modbusUnit -lt 0 -or $modbusUnit -gt 255) {
+        throw "TRACE_MODBUS_UNIT_ID deve ser um valor entre 0 e 255."
+    }
+    if (-not [int]::TryParse($values['TRACE_MODBUS_HEARTBEAT_FUNCTION'], [ref]$modbusFunction) -or
+        $modbusFunction -notin @(1, 2, 3, 4)) {
+        throw "TRACE_MODBUS_HEARTBEAT_FUNCTION deve ser 1, 2, 3 ou 4."
+    }
+    if (-not [int]::TryParse($values['TRACE_MODBUS_HEARTBEAT_REGISTER'], [ref]$modbusRegister) -or
+        $modbusRegister -lt 0 -or $modbusRegister -gt 65535) {
+        throw "TRACE_MODBUS_HEARTBEAT_REGISTER deve ser um valor entre 0 e 65535."
+    }
+    $centralUrl = Get-CentralBaseUrl $values["TRACE_CENTRAL_URL"]
+    if ($centralUrl -ne $values["TRACE_CENTRAL_URL"].TrimEnd('/')) {
+        throw "TRACE_CENTRAL_URL deve conter apenas a origem HTTPS do servidor, sem caminho de pagina."
+    }
+    if ($CentralUrl -and (Get-CentralBaseUrl $CentralUrl) -ne $centralUrl) {
+        throw "O .env existente aponta para outro servidor central. Corrija TRACE_CENTRAL_URL conscientemente antes de continuar."
+    }
+
+    Set-Location -LiteralPath $PackageRoot
+    if ($values.ContainsKey('COMPOSE_PROFILES') -and $values['COMPOSE_PROFILES'] -match '(^|,)industrial(,|$)') {
+        Ensure-NodeRedAdminAuth $envPath $values
+    }
+    & docker.exe compose config --quiet
+    Assert-Success "Configuracao do Docker Compose" $LASTEXITCODE
+    $mysqlVolume = Initialize-TraceMySqlVolumeForInstall -InstallRoot $PackageRoot -AllowFreshDatabaseCreation:$AllowFreshDatabaseCreation
+
+    Write-Host "[1/3] Iniciando banco e PHP..."
+    & docker.exe compose up -d --build mysql php
+    Assert-Success "Inicializacao do banco e PHP" $LASTEXITCODE
+    Write-Host "Aguardando o MySQL concluir a inicializacao antes das migrations..."
+    Wait-MySqlHealthy
+    if ($mysqlVolume.NeedsDatabaseValidation) {
+        if (-not (Test-TraceMySqlApplicationSchema -InstallRoot $PackageRoot)) {
+            throw "O volume MySQL existente nao confirmou a tabela carregamentos. Migrations bloqueadas para proteger os dados existentes."
+        }
+        Register-TraceMySqlVolumeAfterDatabaseCheck -InstallRoot $PackageRoot | Out-Null
+    }
+
+    Write-Host "[2/3] Aplicando migracoes antes de iniciar os demais servicos..."
+    & $gitBash "scripts/migrate.sh"
+    Assert-Success "Migracoes do banco" $LASTEXITCODE
+
+    Write-Host "[3/3] Iniciando os servicos locais..."
+    & docker.exe compose up -d --build
+    Assert-Success "Inicializacao do Trace" $LASTEXITCODE
+    if ($values.ContainsKey('COMPOSE_PROFILES') -and $values['COMPOSE_PROFILES'] -match '(^|,)industrial(,|$)') {
+        Write-Host "Aguardando o gateway Node-RED ficar saudavel..."
+        Wait-NodeRedHealthy
+    }
+
+    $webPort = 8080
+    if ($values.ContainsKey("WEB_PORT") -and $values["WEB_PORT"] -ne "") {
+        if (-not [int]::TryParse($values["WEB_PORT"], [ref]$webPort) -or $webPort -lt 1 -or $webPort -gt 65535) {
+            throw "WEB_PORT invalida em .env."
+        }
+    }
+    $localUrl = "http://127.0.0.1:$webPort"
+    $activationUrl = "$localUrl/api/ativacao_local.php"
+    $lastProbeError = "A API de ativacao ainda nao respondeu."
+    $ready = $false
+    for ($attempt = 1; $attempt -le 18; $attempt++) {
+        try {
+            $response = Invoke-WebRequest -UseBasicParsing -Uri $activationUrl -TimeoutSec 5
+            $data = $response.Content | ConvertFrom-Json
+            if ($response.StatusCode -eq 200 -and $data.data.enabled -eq $true) {
+                $ready = $true
+                break
+            }
+            $lastProbeError = "A API respondeu, mas a ativacao local nao esta habilitada."
+        } catch {
+            $lastProbeError = $_.Exception.Message
+        }
+        Start-Sleep -Seconds 3
+    }
+    if (-not $ready) {
+        $containerStatus = & docker.exe compose ps --all 2>&1
+        $serviceLogs = & docker.exe compose logs --no-color --tail=80 php mysql 2>&1
+        $diagnostic = @(
+            "Erro da sonda: $lastProbeError"
+            "Estado dos containers:"
+            ($containerStatus | Out-String).Trim()
+            "Logs recentes de PHP/MySQL:"
+            ($serviceLogs | Out-String).Trim()
+        ) -join "`n"
+        throw "Os containers iniciaram, mas a ativacao local nao ficou pronta. Diagnostico:`n$diagnostic"
+    }
+
+    Write-Host "OK: Trace local pronto para ativacao em $localUrl"
+    Write-Host "Modo físico: simulação desativada; comandos não serão falsamente confirmados."
+    Write-Host "Depois da ativação, vincule a Dala e confirme CLP ONLINE antes de testar Ligar esteira."
+    Write-Host "Use o codigo de ativacao e o administrador da empresa cadastrados no servidor central."
+    if (-not $NoBrowser) {
+        try {
+            Start-Process $localUrl | Out-Null
+        } catch {
+            Write-Host "Nao foi possivel abrir o navegador automaticamente. Abra $localUrl manualmente."
+        }
+    }
+} catch {
+    [Console]::Error.WriteLine("ERRO: $($_.Exception.Message)")
+    exit 1
+}

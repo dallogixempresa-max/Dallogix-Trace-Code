@@ -1,0 +1,8 @@
+ALTER TABLE camera_capture_requests
+MODIFY COLUMN status ENUM(
+  'PENDENTE',
+  'CAPTURANDO',
+  'CAPTURADA',
+  'DESCARTADA',
+  'ERRO'
+) NOT NULL DEFAULT 'PENDENTE';

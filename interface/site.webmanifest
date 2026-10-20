@@ -1,0 +1,16 @@
+{
+  "name": "Dallogix Trace",
+  "short_name": "Trace",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#10243f",
+  "theme_color": "#10243f",
+  "icons": [
+    {
+      "src": "/favicon.svg?v=1",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

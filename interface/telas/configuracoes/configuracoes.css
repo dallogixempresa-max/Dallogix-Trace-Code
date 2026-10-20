@@ -1,0 +1,302 @@
+/* Estilos da tela configuracoes; a base responsiva é compartilhada. */
+@import url("/css/responsive.css?v=202610070203");
+
+.settings-device-status-panel {
+  overflow: hidden;
+  padding: clamp(20px, 3vw, 32px);
+}
+
+.settings-device-status-panel + br {
+  display: none;
+}
+
+.settings-device-status-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.settings-device-status-heading h3 {
+  margin: 7px 0 6px;
+  color: var(--ink, #17212b);
+  font-size: clamp(22px, 2vw, 30px);
+  line-height: 1.1;
+}
+
+.settings-device-status-heading p {
+  margin: 0;
+  color: var(--muted, #6b7785);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.settings-device-status-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: center;
+  gap: 14px;
+  margin-top: 22px;
+  padding: 14px 16px;
+  border: 1px solid #d8e8ee;
+  border-radius: 14px;
+  background: #f7fbfd;
+  color: var(--muted, #6b7785);
+  font-size: 12px;
+}
+
+.settings-device-status-summary > div {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+}
+
+.settings-device-status-summary strong {
+  color: var(--ink, #17212b);
+  font-size: 21px;
+  letter-spacing: -.02em;
+}
+
+.settings-device-status-summary span {
+  line-height: 1.35;
+}
+
+.settings-device-status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.settings-device-status-card {
+  display: flex;
+  min-width: 0;
+  min-height: 112px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 16px 18px;
+  border: 1px solid #d7e4e9;
+  border-top: 4px solid #b8c8d2;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 6px 18px rgba(37, 71, 88, .06);
+}
+
+.settings-device-status-card.online {
+  border-top-color: var(--green, #23834f);
+}
+
+.settings-device-status-card.error {
+  border-top-color: var(--red, #b83242);
+  background: #fff9f9;
+}
+
+.settings-device-status-card.offline {
+  border-top-color: #d29724;
+  background: #fffdf8;
+}
+
+.settings-device-status-card.unknown {
+  border-top-color: #8999a6;
+  background: #f9fbfc;
+}
+
+.settings-device-status-identity,
+.settings-device-status-result {
+  display: flex;
+  min-width: 0;
+}
+
+.settings-device-status-identity {
+  align-items: flex-start;
+  gap: 10px;
+  overflow-wrap: anywhere;
+}
+
+.settings-device-status-identity > div,
+.settings-device-status-result {
+  flex-direction: column;
+}
+
+.settings-device-status-identity > div {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.settings-device-status-mark {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  place-items: center;
+  border-radius: 11px;
+  background: #e3f1f6;
+  color: var(--blue, #176fa5);
+  font-size: 15px;
+  font-weight: 850;
+}
+
+.settings-device-status-identity strong {
+  color: var(--ink, #17212b);
+  font-size: 16px;
+  line-height: 1.15;
+}
+
+.settings-device-status-identity small,
+.settings-device-status-result small {
+  display: block;
+  color: var(--muted, #6b7785);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.settings-device-status-result {
+  align-items: flex-end;
+  justify-content: center;
+  flex: 0 0 auto;
+  gap: 6px;
+  text-align: right;
+}
+
+.settings-device-status-result .status-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 9px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  letter-spacing: .06em;
+  font-size: 14px;
+  font-weight: 850;
+}
+
+.settings-device-status-result .status-value::before {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  content: "";
+}
+
+.settings-device-status-result .status-value.status-online {
+  color: var(--green, #23834f);
+}
+
+.settings-device-status-result .status-value.status-offline {
+  color: #a56b00;
+}
+
+.settings-device-status-result .status-value.status-unknown {
+  color: #667887;
+}
+
+.settings-device-status-result .status-value.status-error,
+.settings-device-status-card.error .settings-device-status-result .status-value {
+  color: var(--red, #b83242);
+}
+
+.settings-device-status-detail {
+  color: var(--muted, #6b7785);
+  font-size: 11px;
+  max-width: 160px;
+  white-space: normal;
+}
+
+.settings-device-status-note {
+  margin: 14px 0 0;
+  color: var(--muted, #6b7785);
+  font-size: 12px;
+}
+
+.settings-dalas-table th,
+.settings-dalas-table td {
+  vertical-align: middle;
+  overflow-wrap: anywhere;
+}
+
+.settings-dalas-table th:nth-child(1),
+.settings-dalas-table td:nth-child(1) { width: 22%; }
+.settings-dalas-table th:nth-child(2),
+.settings-dalas-table td:nth-child(2) { width: 26%; }
+.settings-dalas-table th:nth-child(3),
+.settings-dalas-table td:nth-child(3) { width: 20%; }
+.settings-dalas-table th:nth-child(4),
+.settings-dalas-table td:nth-child(4) { width: 18%; }
+.settings-dalas-table th:nth-child(5),
+.settings-dalas-table td:nth-child(5) { width: 14%; }
+
+.settings-dalas-table td.dala-status {
+  display: table-cell;
+  min-width: 0;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+.settings-dala-status {
+  display: inline-flex;
+  min-width: 50px;
+  min-height: 32px;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 10px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: .04em;
+}
+
+.settings-dala-status.online {
+  color: var(--green, #23834f);
+  background: #f0faf4;
+}
+
+.settings-dala-status.offline {
+  color: var(--red, #b83242);
+  background: #fff5f5;
+}
+
+.settings-dala-status.unknown {
+  color: #667887;
+  background: #f5f8fa;
+}
+
+@media (max-width: 900px) {
+  .settings-device-status-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); }
+}
+
+@media (max-width: 560px) {
+  .settings-device-status-heading {
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .settings-device-status-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-device-status-card {
+    min-height: 96px;
+    gap: 12px;
+    padding: 14px;
+  }
+
+  .settings-device-status-summary {
+    grid-template-columns: 1fr;
+    align-items: start;
+    gap: 8px;
+    margin-top: 16px;
+  }
+
+  .settings-device-status-result {
+    align-items: flex-start;
+    text-align: left;
+  }
+
+  .settings-device-status-detail {
+    max-width: 120px;
+  }
+}

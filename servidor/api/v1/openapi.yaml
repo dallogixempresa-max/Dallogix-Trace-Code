@@ -1,0 +1,258 @@
+openapi: 3.1.0
+info:
+  title: Dallogix Trace API
+  version: 1.0.0
+  description: API externa do Dallogix Trace. Os dados e gravações são limitados à empresa vinculada à chave; comandos do CLP não são expostos.
+servers:
+  - url: https://SEU_DOMINIO_CENTRAL/api/v1
+security:
+  - bearerAuth: []
+paths:
+  /empresa:
+    get:
+      operationId: obterEmpresa
+      summary: Consultar a empresa vinculada à chave
+      responses:
+        '200':
+          description: Empresa autorizada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      id: { type: integer }
+                      name: { type: string }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /romaneios:
+    get:
+      operationId: listarRomaneios
+      summary: Listar romaneios
+      parameters:
+        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/Cursor' }
+        - name: number
+          in: query
+          schema: { type: string, maxLength: 80 }
+        - name: status
+          in: query
+          schema: { type: string, enum: [IMPORTADO, AGUARDANDO, EM_ANDAMENTO, FINALIZADO, CANCELADO] }
+        - name: date_from
+          in: query
+          schema: { type: string, format: date }
+        - name: date_to
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        '200': { $ref: '#/components/responses/Paginated' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    post:
+      operationId: criarRomaneio
+      summary: Criar um romaneio e o caminhão associado
+      description: Requer o escopo romaneios:write. A empresa vem da chave; a API não aceita company_id. Informe a Dala de destino; o romaneio será sincronizado ao PC vinculado. A API grava dados de negócio e não altera o CLP. A Idempotency-Key é obrigatória e permite repetir uma criação após perda de resposta sem duplicar o romaneio. Os limites são aplicados por chave e por empresa; respostas limitadas usam HTTP 429 e Retry-After.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: Chave única por tentativa de criação. O mesmo conteúdo retorna o romaneio original com HTTP 200 e Idempotent-Replayed; outro conteúdo retorna HTTP 409. A resposta pode ser repetida por 730 dias.
+          schema: { type: string, minLength: 16, maxLength: 128, pattern: '^[A-Za-z0-9._:-]+$' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [equipment_code, number, scheduled_date, plate, items]
+              properties:
+                equipment_code: { type: string, minLength: 1, maxLength: 80, pattern: '^[A-Za-z0-9._-]+$' }
+                number: { type: string, minLength: 1, maxLength: 80 }
+                scheduled_date: { type: string, format: date }
+                expedidor: { type: string, maxLength: 160 }
+                plate: { type: string, minLength: 1, maxLength: 20 }
+                driver_name: { type: string, maxLength: 160 }
+                items:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  items:
+                    oneOf:
+                      - type: object
+                        additionalProperties: false
+                        required: [product_id, quantity]
+                        properties:
+                          product_id: { type: integer, minimum: 1 }
+                          quantity: { type: integer, minimum: 1, maximum: 4294967295 }
+                      - type: object
+                        additionalProperties: false
+                        required: [product_code, quantity]
+                        properties:
+                          product_code: { type: string, minLength: 1, maxLength: 80 }
+                          quantity: { type: integer, minimum: 1, maximum: 4294967295 }
+      responses:
+        '200': { $ref: '#/components/responses/Record' }
+        '201': { $ref: '#/components/responses/Record' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/InvalidRequest' }
+        '415': { $ref: '#/components/responses/InvalidRequest' }
+        '422': { $ref: '#/components/responses/InvalidRequest' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /romaneios/{id}:
+    get:
+      operationId: obterRomaneio
+      summary: Consultar romaneio, itens e caminhões
+      parameters:
+        - { $ref: '#/components/parameters/Id' }
+      responses:
+        '200': { $ref: '#/components/responses/Record' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /romaneios/{id}/relatorio.pdf:
+    get:
+      operationId: baixarRelatorioRomaneio
+      summary: Gerar ou baixar o relatório PDF do romaneio
+      parameters:
+        - { $ref: '#/components/parameters/Id' }
+      responses:
+        '200':
+          description: Relatório de auditoria em PDF
+          content:
+            application/pdf:
+              schema: { type: string, format: binary }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /carregamentos:
+    get:
+      operationId: listarCarregamentos
+      summary: Listar carregamentos
+      parameters:
+        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/Cursor' }
+        - name: state
+          in: query
+          schema: { type: string, enum: [AGUARDANDO, PREPARANDO, CARREGANDO, PAUSADO, FINALIZANDO, FINALIZADO, EMERGENCIA] }
+      responses:
+        '200': { $ref: '#/components/responses/Paginated' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /carregamentos/{id}:
+    get:
+      operationId: obterCarregamento
+      summary: Consultar carregamento
+      parameters:
+        - { $ref: '#/components/parameters/Id' }
+      responses:
+        '200': { $ref: '#/components/responses/Record' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /carregamentos/{id}/leituras:
+    get:
+      operationId: listarLeituras
+      summary: Listar leituras de um carregamento
+      parameters:
+        - { $ref: '#/components/parameters/Id' }
+        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/Cursor' }
+      responses:
+        '200': { $ref: '#/components/responses/Paginated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /equipamentos:
+    get:
+      operationId: listarEquipamentos
+      summary: Listar equipamentos e estado da comunicação do CLP
+      description: ONLINE indica comunicação recente, não confirma movimento físico.
+      parameters:
+        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/Cursor' }
+      responses:
+        '200': { $ref: '#/components/responses/Paginated' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /ocorrencias:
+    get:
+      operationId: listarOcorrencias
+      summary: Listar ocorrências
+      parameters:
+        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/Cursor' }
+      responses:
+        '200': { $ref: '#/components/responses/Paginated' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: Trace API key
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer, minimum: 1 }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+    Cursor:
+      name: cursor
+      in: query
+      schema: { type: integer, minimum: 0, default: 0 }
+  responses:
+    Paginated:
+      description: Página de registros
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              data: { type: array, items: { type: object, additionalProperties: true } }
+              pagination:
+                type: object
+                properties:
+                  limit: { type: integer }
+                  next_cursor: { type: [string, 'null'] }
+                  has_more: { type: boolean }
+    Record:
+      description: Registro encontrado
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              data: { type: object, additionalProperties: true }
+    Unauthorized:
+      description: Chave ausente ou inválida
+    Forbidden:
+      description: Escopo insuficiente
+    NotFound:
+      description: Registro inexistente ou fora da empresa autorizada
+    Conflict:
+      description: O número do romaneio já existe para a empresa ou o relatório ainda não está disponível
+    InvalidRequest:
+      description: Corpo, tipo ou tamanho da requisição inválido
+    RateLimited:
+      description: Limite por chave ou empresa excedido; aguarde o intervalo informado em Retry-After
+      headers:
+        Retry-After:
+          description: Segundos até poder tentar novamente
+          schema: { type: integer, minimum: 1 }
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: object
+                properties:
+                  code: { type: string, const: rate_limited }
+                  message: { type: string }
+                  request_id: { type: string }

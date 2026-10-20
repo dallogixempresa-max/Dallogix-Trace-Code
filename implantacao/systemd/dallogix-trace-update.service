@@ -1,0 +1,9 @@
+[Unit]
+Description=Atualização segura do Dallogix Trace
+After=docker.service dallogix-trace.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/dallogix-trace
+ExecStart=/opt/dallogix-trace/scripts/update_trace.sh

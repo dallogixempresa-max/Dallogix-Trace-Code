@@ -1,0 +1,422 @@
+x-trace-logging: &trace-logging
+  driver: json-file
+  options:
+    max-size: "5m"
+    max-file: "3"
+
+services:
+  armazenamento-init:
+    build:
+      context: ./docker/php
+    restart: "no"
+    user: "0:0"
+    network_mode: "none"
+    command:
+      - sh
+      - -c
+      - >-
+        set -eu;
+        mkdir -p /var/www/armazenamento/backups /var/www/armazenamento/logs /var/www/armazenamento/camera-pc;
+        chown -R 82:82 /var/www/armazenamento;
+        chmod -R u+rwX /var/www/armazenamento;
+        chown 1000:82 /var/www/armazenamento/camera-pc;
+        chmod 2770 /var/www/armazenamento/camera-pc;
+        probe=/var/www/armazenamento/.trace-write-probe;
+        : > "$$probe";
+        rm -f "$$probe"
+    volumes:
+      - ./armazenamento:/var/www/armazenamento
+
+  nginx:
+    image: cgr.dev/chainguard/nginx:latest@sha256:f5bfac85024ea2d7c16a28ac21e985c6d19a20a60ae74838f056297d44467525
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 256
+    mem_limit: 128m
+    cpus: "0.50"
+    logging: *trace-logging
+    tmpfs:
+      - /run:rw,nosuid,nodev,size=8m,uid=65532,gid=65532,mode=0755
+      - /var/lib/nginx/tmp:rw,nosuid,nodev,size=16m,uid=65532,gid=65532,mode=0755
+      - /var/cache/nginx:rw,nosuid,nodev,size=16m,uid=65532,gid=65532,mode=0755
+    depends_on:
+      php:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+    ports:
+      - "${WEB_BIND_ADDRESS:-127.0.0.1}:${WEB_PORT:-8080}:80"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./interface:/var/www/interface:ro
+      - ./servidor:/var/www/servidor:ro
+
+  php:
+    build:
+      context: ./docker/php
+    restart: unless-stopped
+    user: "82:82"
+    depends_on:
+      armazenamento-init:
+        condition: service_completed_successfully
+      mysql:
+        condition: service_healthy
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 256
+    mem_limit: 512m
+    cpus: "1.50"
+    logging: *trace-logging
+    tmpfs:
+      - /tmp
+    volumes:
+      - php_sessions:/var/lib/php/sessions
+      - ./servidor:/var/www/servidor:ro
+      - ./armazenamento:/var/www/armazenamento
+      - ./scripts:/var/www/scripts:ro
+    environment:
+      APP_ENV: ${APP_ENV:-local}
+      TZ: ${TZ:-America/Sao_Paulo}
+      SESSION_SECURE: ${SESSION_SECURE:-false}
+      SESSION_IDLE_TIMEOUT: ${SESSION_IDLE_TIMEOUT:-1800}
+      SESSION_GC_MAXLIFETIME: ${SESSION_GC_MAXLIFETIME:-86400}
+      APP_URL: ${APP_URL:-http://localhost:8080}
+      DB_HOST: mysql
+      DB_NAME: ${MYSQL_DATABASE:-trace_local}
+      DB_USER: ${MYSQL_USER:-trace}
+      DB_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD é obrigatório}
+      SYNC_REMOTE_URL: ${SYNC_REMOTE_URL:-}
+      SYNC_REMOTE_BATCH_URL: ${SYNC_REMOTE_BATCH_URL:-}
+      SYNC_REMOTE_TOKEN: ${SYNC_REMOTE_TOKEN:-}
+      SYNC_MAX_ATTEMPTS: ${SYNC_MAX_ATTEMPTS:-5}
+      TRACE_CENTRAL_URL: ${TRACE_CENTRAL_URL:-}
+      TRACE_READINESS_TOKEN: ${TRACE_READINESS_TOKEN:-}
+      TRACE_INSTALLATION_MODE: ${TRACE_INSTALLATION_MODE:-}
+      TRACE_DEBOUNCE_MS: ${TRACE_DEBOUNCE_MS:-400}
+      TRACE_SCANNER_NO_READ_TIMEOUT_MS: ${TRACE_SCANNER_NO_READ_TIMEOUT_MS:-1500}
+      TRACE_END_PRODUCT_ALERT_THRESHOLD: ${TRACE_END_PRODUCT_ALERT_THRESHOLD:-5}
+      TRACE_LOCAL_SIMULATION: ${TRACE_LOCAL_SIMULATION:-0}
+      TRACE_VERSION: ${TRACE_VERSION:-development}
+      TRACE_COMMIT: ${TRACE_COMMIT:-unknown}
+      CLP_SIGNAL_LIMIT_SECONDS: ${CLP_SIGNAL_LIMIT_SECONDS:-3}
+      CAMERA_SIGNAL_LIMIT_SECONDS: ${CAMERA_SIGNAL_LIMIT_SECONDS:-15}
+      HEALTH_DEVICE_STALE_SECONDS: ${HEALTH_DEVICE_STALE_SECONDS:-30}
+      HEALTH_MIN_DISK_FREE_PERCENT: ${HEALTH_MIN_DISK_FREE_PERCENT:-5}
+      HEALTH_MAX_QUEUE_AGE_SECONDS: ${HEALTH_MAX_QUEUE_AGE_SECONDS:-604800}
+      READING_RETENTION_DAYS: ${READING_RETENTION_DAYS:-365}
+      SENSOR_EVENT_RETENTION_DAYS: ${SENSOR_EVENT_RETENTION_DAYS:-90}
+      AUDIT_RETENTION_DAYS: ${AUDIT_RETENTION_DAYS:-730}
+      SYNC_SENT_RETENTION_DAYS: ${SYNC_SENT_RETENTION_DAYS:-30}
+      ERROR_LOG_RETENTION_DAYS: ${ERROR_LOG_RETENTION_DAYS:-365}
+      TRACE_DEVICE_TOKEN: ${TRACE_DEVICE_TOKEN:?TRACE_DEVICE_TOKEN é obrigatório}
+      CAMERA_DEVICE_TOKEN: ${CAMERA_DEVICE_TOKEN:?CAMERA_DEVICE_TOKEN é obrigatório}
+      LOGIN_EMAIL_DOMAIN: ${LOGIN_EMAIL_DOMAIN:-dallogix.local}
+      LOGIN_EMAIL_BASE_DOMAIN: ${LOGIN_EMAIL_BASE_DOMAIN:-dallogix}
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "php -r 'new PDO(\"mysql:host=\".getenv(\"DB_HOST\").\";dbname=\".getenv(\"DB_NAME\"), getenv(\"DB_USER\"), getenv(\"DB_PASSWORD\"));'",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  mysql:
+    image: trace-industrial-pc-mysql:8.4.12-minimal
+    platform: linux/amd64
+    build:
+      context: ./docker/mysql
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    logging: *trace-logging
+    user: "999:999"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 256
+    mem_limit: 512m
+    cpus: "1.00"
+    # Limita buffers de diagnóstico do Performance Schema no PC de 512 MiB.
+    # Isso reduz histórico de consultas, sem limitar conexões nem alterar dados SQL.
+    command:
+      - --performance-schema-digests-size=1000
+      - --performance-schema-events-stages-history-long-size=1000
+      - --performance-schema-events-statements-history-long-size=1000
+      - --performance-schema-events-transactions-history-long-size=1000
+      - --performance-schema-events-waits-history-long-size=1000
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,mode=1777
+      - /var/run/mysqld:rw,nosuid,nodev,uid=999,gid=999
+      - /var/lib/mysql-files:rw,nosuid,nodev,uid=999,gid=999
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-trace_local}
+      MYSQL_USER: ${MYSQL_USER:-trace}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD é obrigatório}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD é obrigatório}
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "MYSQL_PWD=\"$${MYSQL_ROOT_PASSWORD}\" mysqladmin ping -h localhost -u root --silent",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  node-red-init:
+    profiles: ["industrial"]
+    image: trace-industrial-pc-node-red:5.0.7-24-minimal-patched1
+    build:
+      context: ./integracoes/node-red
+      dockerfile: Dockerfile
+    # Executa uma vez como root apenas para preparar o volume persistente
+    # para o processo Node-RED (UID 1000); não possui acesso à rede.
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        if [ ! -f /data/flows.json ]; then /usr/local/bin/node -e 'const fs=require("fs"); const output="/data/flows.json"; const file="/seed/trace-clp-bridge.flow.json"; fs.writeFileSync(output, fs.readFileSync(file, "utf8"));'; fi; chown -R 1000:1000 /data
+    network_mode: "none"
+    logging: *trace-logging
+    volumes:
+      - node_red_data:/data
+      - ./integracoes/node-red:/seed:ro
+
+  node-red:
+    profiles: ["industrial"]
+    image: trace-industrial-pc-node-red:5.0.7-24-minimal-patched1
+    build:
+      context: ./integracoes/node-red
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/seed/entrypoint.sh"]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    depends_on:
+      node-red-init:
+        condition: service_completed_successfully
+      nginx:
+        condition: service_started
+    pids_limit: 256
+    mem_limit: 512m
+    cpus: "1.00"
+    logging: *trace-logging
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${NODE_RED_PORT:-1880}:1880"
+    env_file:
+      - path: ./config/node-red-clp.env
+        required: false
+    environment:
+      APP_ENV: ${APP_ENV:-local}
+      TRACE_API_URL: ${TRACE_API_URL:-http://nginx}
+      TRACE_DEVICE_TOKEN: ${TRACE_DEVICE_TOKEN:?TRACE_DEVICE_TOKEN é obrigatório}
+      TRACE_INSTALLATION_MODE: ${TRACE_INSTALLATION_MODE:-}
+      NODE_RED_ADMIN_USER: ${NODE_RED_ADMIN_USER:-}
+      NODE_RED_ADMIN_PASSWORD_HASH: ${NODE_RED_ADMIN_PASSWORD_HASH:-}
+      TRACE_LOCAL_SIMULATION: ${TRACE_LOCAL_SIMULATION:-0}
+      TRACE_SIMULATOR_ONLY_COMMANDS: ${TRACE_SIMULATOR_ONLY_COMMANDS:-0}
+      TRACE_MODBUS_UNIT_ID: ${TRACE_MODBUS_UNIT_ID:-1}
+      TRACE_MODBUS_HEARTBEAT_FUNCTION: ${TRACE_MODBUS_HEARTBEAT_FUNCTION:-1}
+      TRACE_MODBUS_HEARTBEAT_REGISTER: ${TRACE_MODBUS_HEARTBEAT_REGISTER:-2052}
+      TRACE_MODBUS_SENSOR_REGISTER: ${TRACE_MODBUS_SENSOR_REGISTER:-2052}
+      TRACE_SENSOR_ACTIVE_LEVEL: ${TRACE_SENSOR_ACTIVE_LEVEL:-1}
+      TRACE_SENSOR_SIGNAL_MODE: ${TRACE_SENSOR_SIGNAL_MODE:-rising_edge}
+    volumes:
+      - node_red_data:/data
+      - ./integracoes/node-red:/seed:ro
+    healthcheck:
+      test: ["CMD", "node", "/seed/healthcheck.mjs"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  camera-worker:
+    profiles: ["industrial"]
+    image: trace-industrial-pc-camera-worker:1.0
+    build:
+      context: ./integracoes/camera-worker
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    init: true
+    user: "1000:1000"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    depends_on:
+      nginx:
+        condition: service_started
+      armazenamento-init:
+        condition: service_completed_successfully
+    pids_limit: 128
+    mem_limit: 384m
+    cpus: "1.50"
+    stop_grace_period: 20s
+    environment:
+      TRACE_API_URL: http://nginx
+      CAMERA_DEVICE_TOKEN: ${CAMERA_DEVICE_TOKEN:?CAMERA_DEVICE_TOKEN é obrigatório}
+      CAMERA_RTSP_HOST: ${CAMERA_RTSP_HOST:-}
+      CAMERA_RTSP_PORT: ${CAMERA_RTSP_PORT:-554}
+      CAMERA_RTSP_CHANNEL: ${CAMERA_RTSP_CHANNEL:-101}
+      CAMERA_RTSP_USERNAME: ${CAMERA_RTSP_USERNAME:-}
+      CAMERA_RTSP_PASSWORD: ${CAMERA_RTSP_PASSWORD:-}
+      CAMERA_JOB_POLL_MS: ${CAMERA_JOB_POLL_MS:-200}
+      CAMERA_CAPTURE_TIMEOUT_MS: ${CAMERA_CAPTURE_TIMEOUT_MS:-10000}
+      CAMERA_HEARTBEAT_INTERVAL_MS: ${CAMERA_HEARTBEAT_INTERVAL_MS:-5000}
+      CAMERA_EVIDENCE_DIR: /var/lib/trace/camera-evidence
+    volumes:
+      - ./armazenamento/camera-pc:/var/lib/trace/camera-evidence
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8090/health').then(async (response) => { const health = response.ok ? await response.json() : null; process.exit(health?.running === true && health?.capture_mode === 'ON_DEMAND' ? 0 : 1); }).catch(() => process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    logging: *trace-logging
+
+  modbus-virtual:
+    profiles: ["simulation"]
+    build:
+      context: ./integracoes/modbus-virtual
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${MODBUS_VIRTUAL_PORT:-1502}:1502"
+    environment:
+      MODBUS_PORT: 1502
+      MODBUS_LOG_LEVEL: ${MODBUS_LOG_LEVEL:-INFO}
+    logging: *trace-logging
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 128m
+    cpus: "0.50"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('127.0.0.1', 1502), 1); s.close()"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  image-retention:
+    build:
+      context: ./docker/php
+    depends_on:
+      armazenamento-init:
+        condition: service_completed_successfully
+      mysql:
+        condition: service_healthy
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 256m
+    cpus: "0.50"
+    logging: *trace-logging
+    tmpfs:
+      - /tmp
+    environment:
+      TZ: ${TZ:-America/Sao_Paulo}
+      DB_HOST: mysql
+      DB_NAME: ${MYSQL_DATABASE:-trace_local}
+      DB_USER: ${MYSQL_USER:-trace}
+      DB_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD é obrigatório}
+      IMAGE_RETENTION_DAYS: ${IMAGE_RETENTION_DAYS:-30}
+      READING_RETENTION_DAYS: ${READING_RETENTION_DAYS:-365}
+      SENSOR_EVENT_RETENTION_DAYS: ${SENSOR_EVENT_RETENTION_DAYS:-90}
+      AUDIT_RETENTION_DAYS: ${AUDIT_RETENTION_DAYS:-730}
+      SYNC_SENT_RETENTION_DAYS: ${SYNC_SENT_RETENTION_DAYS:-30}
+      ERROR_LOG_RETENTION_DAYS: ${ERROR_LOG_RETENTION_DAYS:-365}
+    command:
+      [
+        "sh",
+        "-c",
+        "while true; do if php /var/www/scripts/prune_images.php && php /var/www/scripts/prune_operational_data.php; then php /var/www/scripts/write_heartbeat.php /tmp/trace-retention-heartbeat || echo 'Falha ao gravar heartbeat da retenção' >&2; else echo 'Falha na execução da retenção; heartbeat não atualizado' >&2; fi; sleep 86400; done",
+      ]
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "php -r 'exit(!is_file(\"/tmp/trace-retention-heartbeat\") || time() - filemtime(\"/tmp/trace-retention-heartbeat\") > 172800);'",
+        ]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    volumes:
+      - ./armazenamento:/var/www/armazenamento
+      - ./scripts:/var/www/scripts:ro
+
+  sync-worker:
+    build:
+      context: ./docker/php
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: unless-stopped
+    user: "82:82"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 256m
+    cpus: "0.50"
+    logging: *trace-logging
+    tmpfs:
+      - /tmp
+    volumes:
+      - php_sessions:/var/lib/php/sessions
+      - ./servidor:/var/www/servidor:ro
+      - ./scripts:/var/www/scripts:ro
+      - ./armazenamento:/var/www/armazenamento:ro
+    environment:
+      TZ: ${TZ:-America/Sao_Paulo}
+      DB_HOST: mysql
+      DB_NAME: ${MYSQL_DATABASE:-trace_local}
+      DB_USER: ${MYSQL_USER:-trace}
+      DB_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD é obrigatório}
+      SYNC_REMOTE_URL: ${SYNC_REMOTE_URL:-}
+      SYNC_REMOTE_BATCH_URL: ${SYNC_REMOTE_BATCH_URL:-}
+      SYNC_REMOTE_TOKEN: ${SYNC_REMOTE_TOKEN:-}
+      TRACE_CENTRAL_URL: ${TRACE_CENTRAL_URL:-}
+      TRACE_INSTALLATION_MODE: ${TRACE_INSTALLATION_MODE:-}
+      TRACE_LOCAL_SIMULATION: ${TRACE_LOCAL_SIMULATION:-0}
+      TRACE_DEVICE_TOKEN: ${TRACE_DEVICE_TOKEN:?TRACE_DEVICE_TOKEN é obrigatório}
+      CAMERA_DEVICE_TOKEN: ${CAMERA_DEVICE_TOKEN:?CAMERA_DEVICE_TOKEN é obrigatório}
+      SYNC_BATCH_SIZE: ${SYNC_BATCH_SIZE:-50}
+      SYNC_MAX_ATTEMPTS: ${SYNC_MAX_ATTEMPTS:-5}
+      SYNC_POLL_INTERVAL_SECONDS: ${SYNC_POLL_INTERVAL_SECONDS:-1}
+    command:
+      [
+        "sh",
+        "-c",
+        "while true; do if php /var/www/scripts/sync_worker.php; then php /var/www/scripts/write_heartbeat.php /tmp/trace-sync-worker-heartbeat || echo 'Falha ao gravar heartbeat da sincronização' >&2; else echo 'Falha na sincronização; heartbeat não atualizado' >&2; fi; sleep \"$${SYNC_POLL_INTERVAL_SECONDS:-1}\"; done",
+      ]
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "php -r 'exit(!is_file(\"/tmp/trace-sync-worker-heartbeat\") || time() - filemtime(\"/tmp/trace-sync-worker-heartbeat\") > 120);'",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  mysql_data:
+  node_red_data:
+  php_sessions:

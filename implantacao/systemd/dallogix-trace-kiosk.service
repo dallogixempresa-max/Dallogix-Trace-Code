@@ -1,0 +1,19 @@
+[Unit]
+Description=Dallogix Trace operator kiosk
+Requires=dallogix-trace.service graphical.target
+After=dallogix-trace.service graphical.target
+Wants=graphical.target
+
+[Service]
+Type=simple
+User=trace-operator
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/trace-operator/.Xauthority
+Environment=TRACE_KIOSK_URL=http://127.0.0.1:8080
+ExecStart=/opt/dallogix-trace/scripts/launch_kiosk.sh
+Restart=always
+RestartSec=3
+RestartPreventExitStatus=0
+
+[Install]
+WantedBy=graphical.target

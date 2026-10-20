@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=1" />
+    <link rel="icon" type="image/png" href="/assets/branding/trace-platform.png" />
+    <link rel="apple-touch-icon" href="/assets/branding/trace-platform.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta name="theme-color" content="#10243f" />
+    <meta property="og:site_name" content="Dallogix Trace" />
+    <meta property="og:title" content="Dallogix Trace" />
+    <meta property="og:image" content="/assets/branding/trace-platform.png" />
+    <title>Acesso ao sistema • Dallogix Trace</title>
+    <link rel="stylesheet" href="/css/styles.css?v=28" />
+    <link rel="stylesheet" href="/css/light-theme.css?v=202610160002" />
+  <link rel="stylesheet" href="/css/sistema-design.css?v=202610060004" />
+    <link rel="stylesheet" href="/css/auth.css?v=20261001-activation" />
+      <link rel="stylesheet" href="/telas/acesso/acesso.css" />
+  </head>
+  <body>
+    <main class="login-page">
+      <section class="login-card">
+        <div class="brand login-brand">
+          <img src="/assets/branding/trace-platform.png" alt="TRACE PLATFORM" />
+        </div>
+        <h1>Dallogix Trace</h1>
+        <p class="login-description">
+          Acesse a operação local e acompanhe os carregamentos em tempo real.
+        </p>
+        <div id="login-error" role="alert" aria-live="assertive" tabindex="-1"></div>
+        <div id="local-license-status" class="local-license-status" role="status" aria-live="polite" hidden></div>
+        <section id="local-activation" class="local-activation-panel" aria-labelledby="local-activation-title" hidden>
+          <span class="login-hint">Primeiro acesso deste PC</span>
+          <h2 id="local-activation-title">Ativar instalação</h2>
+          <p>Informe o código individual deste PC industrial e o login do administrador criado no servidor central.</p>
+          <form id="local-activation-form">
+            <label>Código deste PC industrial<input name="activation_code" type="text" inputmode="text" autocapitalize="characters" spellcheck="false" autocomplete="one-time-code" maxlength="34" required /></label>
+            <label>Login do administrador<input name="email" type="email" autocomplete="username" required /></label>
+            <label>Senha do administrador<input name="password" type="password" autocomplete="current-password" required /></label>
+            <button class="button secondary" type="submit">Ativar este PC</button>
+          </form>
+          <div id="local-activation-error" class="login-error" role="alert" aria-live="assertive" hidden></div>
+        </section>
+        <form id="login-form" method="post" action="/api/login.php">
+          <label
+            >Login<input
+              name="email"
+              type="text"
+              inputmode="email"
+              value=""
+              autocomplete="username"
+              required
+          /></label>
+          <label
+            >Senha<input
+              id="login-password"
+              name="password"
+              type="password"
+              autocomplete="current-password"
+              required
+          /></label>
+          <button class="button primary login-button" type="submit">
+            Entrar no sistema
+          </button>
+        </form>
+      </section>
+    </main>
+    <script data-cfasync="false" type="module" src="/js/login.js?v=202610190036" data-page="login"></script>
+  </body>
+</html>

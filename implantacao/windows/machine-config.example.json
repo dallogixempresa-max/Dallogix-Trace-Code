@@ -1,0 +1,20 @@
+{
+  "machine_id": "DALLOGIX-EMPRESA-001-EST-001",
+  "company_code": "EMPRESA-001",
+  "equipment_id": 1,
+  "equipment_code": "EST-001",
+  "trace_url": "http://127.0.0.1:8080",
+  "central_api_url": "https://api.seudominio.com.br",
+  "device_token": "PREENCHER_FORA_DO_REPOSITORIO",
+  "heartbeat_seconds": 15,
+  "scanner_usb_pattern": "",
+  "operation_mode": "SIMULATED",
+  "physical_clp_enabled": false,
+  "io_map_status": "APPROVED",
+  "modbus_map": {
+    "conveyor_run_coil": 2049,
+    "reverse_command_coil": 2050,
+    "emergency_command_coil": 2051,
+    "emergency_feedback_coil": 17
+  }
+}
