@@ -27,6 +27,8 @@ id_ed25519
 /armazenamento/updates/
 /armazenamento/logs/
 /armazenamento/producao-teste/
+/armazenamento/.maintenance
+/armazenamento/.git-deploy-failed
 /armazenamento/company_*/
 /tmp/
 /var/

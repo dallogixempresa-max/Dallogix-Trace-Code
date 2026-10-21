@@ -1,17 +1,33 @@
-FROM container-registry.oracle.com/mysql/community-server:8.4.12@sha256:7dcc4add9183664de3a214daf85a50c3ba6cccfd7534f700b6561bf5b41885be
+FROM mysql:8.4.11@sha256:0f51e63e537a1f176423fa03ef559aabe6fa4372a53160a44bc7e75da7d15364
 
-# The Trace database uses mysqld and the mysql CLI, not the optional mysqlsh.
-# Apply Oracle Linux security updates during image build (never at container
-# startup), because the upstream 8.4.12 digest can lag behind package fixes.
-# Keep the UID/GID used by the previous official mysql:8.4 image so an existing
-# named data volume remains readable when Compose replaces the image.
-RUN microdnf update --assumeyes \
-    && microdnf remove --assumeyes mysql-shell \
-    && microdnf clean all \
-    && groupmod --gid 999 mysql \
-    && usermod --uid 999 --gid 999 mysql \
-    && chown -R mysql:mysql /var/run/mysqld /var/lib/mysql-files /var/lib/mysql-keyring
+RUN set -eux; \
+    sed -i 's/^enabled=1$/enabled=0/' /etc/yum.repos.d/mysql-community-minimal.repo; \
+    printf '%s\n' \
+        '[mysql84-community]' \
+        'name=MySQL 8.4 Community' \
+        'baseurl=https://repo.mysql.com/yum/mysql-8.4-community/el/9/$basearch/' \
+        'enabled=1' \
+        'gpgcheck=1' \
+        'gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-mysql' \
+        'module_hotfixes=true' \
+        > /etc/yum.repos.d/mysql-community.repo; \
+    rpm -e --nodeps mysql-community-server-minimal; \
+    microdnf update --assumeyes; \
+    microdnf install --assumeyes --setopt=install_weak_deps=0 mysql-community-server-8.4.13-1.el9; \
+    microdnf clean all; \
+    test "$(rpm -q --qf '%{VERSION}-%{RELEASE}' mysql-community-server)" = '8.4.13-1.el9'; \
+    sed -i '/^[[:space:]]*log-error[[:space:]]*=/d' /etc/my.cnf; \
+    ! grep -Eq '^[[:space:]]*log-error[[:space:]]*=' /etc/my.cnf; \
+    test "$(id -u mysql)" = '999'; \
+    test "$(id -g mysql)" = '999'; \
+    mkdir -p /var/lib/mysql /var/lib/mysql-files /var/lib/mysql-keyring /var/run/mysqld /etc/mysql/conf.d; \
+    chown -R mysql:mysql /var/lib/mysql /var/lib/mysql-files /var/lib/mysql-keyring /var/run/mysqld
 
-# The upstream entrypoint supports non-root initialization; keep the same UID
-# as existing data volumes while preventing the container from starting as root.
 USER mysql
+
+ENV MYSQL_VERSION=8.4.13-1.el9
+
+VOLUME /var/lib/mysql
+EXPOSE 3306 33060
+ENTRYPOINT ["docker-entrypoint.sh"]
+CMD ["mysqld"]
