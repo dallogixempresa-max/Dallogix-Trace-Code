@@ -24,4 +24,4 @@ cat > "$bundle"
   exit 2
 }
 
-exec /usr/bin/sudo -n /usr/local/sbin/trace-github-deploy-apply "$tag" "$commit" "$bundle"
+/usr/bin/sudo -n /usr/local/sbin/trace-github-deploy-apply "$tag" "$commit" "$bundle"

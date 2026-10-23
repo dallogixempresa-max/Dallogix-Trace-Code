@@ -35,19 +35,27 @@ repo=/opt/dallogix-trace
   echo "A instalação de produção ou o arquivo .env não foi encontrado." >&2
   exit 2
 }
-git -C "$repo" bundle verify "$bundle"
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0=safe.directory
+export GIT_CONFIG_VALUE_0="$repo"
+
+git_repo() {
+  /usr/bin/git -c "safe.directory=$repo" -C "$repo" "$@"
+}
+
+git_repo bundle verify "$bundle"
 tag_ref="refs/tags/$tag"
-if git -C "$repo" show-ref --verify --quiet "$tag_ref"; then
-  existing_tag_commit="$(git -C "$repo" rev-parse "$tag_ref^{commit}")"
+if git_repo show-ref --verify --quiet "$tag_ref"; then
+  existing_tag_commit="$(git_repo rev-parse "$tag_ref^{commit}")"
   [[ "$existing_tag_commit" == "$commit" ]] || {
     echo "A tag $tag já existe localmente e aponta para outro commit." >&2
     exit 2
   }
 else
-  git -C "$repo" fetch --quiet --no-tags "$bundle" "$tag_ref:$tag_ref"
+  git_repo fetch --quiet --no-tags "$bundle" "$tag_ref:$tag_ref"
 fi
 
-tag_commit="$(git -C "$repo" rev-parse "$tag_ref^{commit}")"
+tag_commit="$(git_repo rev-parse "$tag_ref^{commit}")"
 [[ "$tag_commit" == "$commit" ]] || {
   echo "A tag $tag não aponta para o commit informado; deploy cancelado." >&2
   exit 2
@@ -55,7 +63,7 @@ tag_commit="$(git -C "$repo" rev-parse "$tag_ref^{commit}")"
 
 deploy_script="$(mktemp /run/trace-git-deploy.XXXXXX.sh)"
 trap 'rm -f -- "$deploy_script"' EXIT
-git -C "$repo" show "$commit:scripts/deploy_from_git.sh" > "$deploy_script"
+git_repo show "$commit:scripts/deploy_from_git.sh" > "$deploy_script"
 chmod 700 "$deploy_script"
 TRACE_GIT_DEPLOY_ROOT="$repo" \
   TRACE_GIT_DEPLOY_TARGET_COMMIT="$commit" \
