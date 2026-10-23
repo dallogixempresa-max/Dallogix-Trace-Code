@@ -17,8 +17,8 @@ set -a
 . "$env_file"
 set +a
 
-trace_commit="${TRACE_COMMIT:-$(git -C "$root_dir" rev-parse HEAD 2>/dev/null || echo unknown)}"
-trace_version="${TRACE_VERSION:-$trace_commit}"
+trace_commit="${TRACE_DEPLOY_COMMIT:-${TRACE_COMMIT:-$(git -C "$root_dir" rev-parse HEAD 2>/dev/null || echo unknown)}}"
+trace_version="${TRACE_DEPLOY_VERSION:-${TRACE_VERSION:-$trace_commit}}"
 export TRACE_COMMIT="$trace_commit" TRACE_VERSION="$trace_version"
 
 exec bash "$root_dir/scripts/docker_compose.sh" \

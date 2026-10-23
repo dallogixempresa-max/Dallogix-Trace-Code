@@ -93,7 +93,12 @@ TRACE_COMPOSE_ENV_FILE="$root_dir/.env" TRACE_COMPOSE_PRODUCTION=1 \
   bash "$root_dir/scripts/backup_db.sh" "$root_dir/armazenamento/backups/git-deploy"
 
 git checkout --detach "$target_commit"
-if ! bash "$root_dir/scripts/deploy_production.sh" up -d --build --remove-orphans; then
+release_version="$(git describe --tags --exact-match HEAD 2>/dev/null || true)"
+if [[ ! "$release_version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  release_version="$target_commit"
+fi
+if ! TRACE_DEPLOY_COMMIT="$target_commit" TRACE_DEPLOY_VERSION="$release_version" \
+  bash "$root_dir/scripts/deploy_production.sh" up -d --build --remove-orphans; then
   printf 'commit=%s\nfailed_at=%s\nphase=compose\n' "$target_commit" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$failed_file"
   chmod 600 "$failed_file"
   echo "Compose falhou; o commit ficou registrado para revisão manual." >&2

@@ -9,13 +9,14 @@ Type=oneshot
 User=root
 Group=root
 UMask=0077
-Environment=TRACE_GIT_DEPLOY_ROOT=/opt/dallogix-trace
+Environment=PATH=/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=TRACE_GIT_DEPLOY_ROOT=/opt/dallogix-trace-git
 Environment=TRACE_GIT_DEPLOY_BRANCH=production
 Environment="GIT_SSH_COMMAND=ssh -i /etc/dallogix-trace/github_deploy_ed25519 -o IdentitiesOnly=yes -o UserKnownHostsFile=/etc/dallogix-trace/github_known_hosts -o StrictHostKeyChecking=yes"
-ExecStart=/opt/dallogix-trace/scripts/deploy_from_git.sh
+ExecStart=/usr/bin/bash /opt/dallogix-trace-git/scripts/deploy_from_git.sh
 TimeoutStartSec=20min
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
 ProtectHome=true
-ReadWritePaths=/opt/dallogix-trace /run/lock
+ReadWritePaths=/opt/dallogix-trace-git /opt/dallogix-trace/armazenamento /run/lock

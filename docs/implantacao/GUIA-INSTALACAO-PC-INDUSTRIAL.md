@@ -2,19 +2,18 @@
 
 Revisão feita em 23/10/2026 sobre o código local, o instalador publicado `v1.0.175` e o fluxo de implantação do PC industrial.
 
-> **Estado atual: não instale a release `v1.0.175` em um PC de produção.** O executável publicado não tem assinatura Authenticode, o erro de variáveis ausentes mostrado no PC não está corrigido nessa release e os padrões ainda apontam para o servidor antigo. O código local contém parte das correções, mas elas ainda não estão em uma release assinada.
+> **Estado atual: não instale a release `v1.0.175` em um PC de produção.** O executável publicado não tem assinatura Authenticode e contém o erro de variáveis ausentes mostrado no PC. O código em `production` já corrige a geração das variáveis, passa o `.env` explicitamente ao Docker Compose e usa `https://trace.dallogix.com` como padrão. Essa correção está no commit `c48379506b6c05893a0201f985bb5dd5252ad43f` e já está na VM nova. Ainda falta publicar a VM no hostname `trace.dallogix.com` e gerar uma release Windows aprovada; o hostname público atualmente responde outro commit (`f924d10`).
 
 ## Resultado da revisão
 
 | Prioridade | Constatação | Evidência e efeito |
 |---|---|---|
 | Bloqueio de distribuição | `TraceSetup.exe` v1.0.175 não tem assinatura Authenticode. | O arquivo publicado tem 52.226.062 bytes e SHA-256 `e4f1e456fb6c1ad77e62186116bdff1693e77dc007aa923ad513c14105d10f40`. A tabela de certificado PE está vazia. O GitHub informa o mesmo digest do arquivo, o que valida a integridade do download, mas não identifica o publicador do programa. |
-| Bloqueio de instalação reproduzível | O executável v1.0.175 pode iniciar o Compose sem passar explicitamente o caminho do `.env`; isso pode produzir mensagens como `MYSQL_PASSWORD` e `CAMERA_DEVICE_TOKEN` ausentes. | O `Program.cs` publicado não valida essas chaves nem usa `--env-file`. O `Program.cs` local já contém essa verificação e passa `--project-directory` e `--env-file`, mas essa alteração ainda não foi compilada e publicada. |
-| `.env` incompleto | A rotina publicada gera credenciais quando o `.env` não existe, mas não completa chaves ausentes em um `.env` preexistente. | O instalador pode parar com credenciais vazias antes de subir os serviços. A alteração local gera valores aleatórios para campos ausentes e se recusa a trocar as senhas do banco se detectar volume ou instalação anterior. Essa proteção é necessária para não perder acesso a dados existentes. |
-| Endereço de produção antigo | O padrão do assistente ainda é `https://trace.santocloud.com.br`. | O servidor indicado para esta instalação é `https://trace.dallogix.com`. O endereço precisa ser digitado no assistente; a configuração padrão do código ainda precisa ser atualizada antes de uma nova release. |
-| Release do repositório da empresa | O repositório de código configurado é `dallogixempresa-max/Dallogix-Trace-Code`, mas o checkout consultado não tem tags de release nem fluxo `.github/workflows` de produção. | `Build-TraceSetup.ps1` exige uma tag exata `vN.N.N`; no estado atual, ele não consegue gerar o instalador a partir desse checkout. A release `v1.0.175` está no repositório separado `VItoraaraujoo/Dallogix-Trace-System`. |
+| Bloqueio de instalação reproduzível | O executável v1.0.175 pode iniciar o Compose sem passar explicitamente o caminho do `.env`; isso produziu as mensagens de variáveis ausentes no PC. | O código `c483795` valida as quatro chaves necessárias e passa `--project-directory` e `--env-file`. A correção está no código da branch `production`, mas ainda não em um novo `TraceSetup.exe`. |
+| `.env` incompleto | O instalador v1.0.175 não completa chaves vazias em um `.env` já existente. | O código `c483795` gera segredos criptograficamente aleatórios quando não há banco existente. Se encontra banco ou instalação anterior, não troca as senhas do banco: orienta a restaurar as credenciais do backup para preservar os dados. |
+| Endereço de produção antigo | O executável v1.0.175 usava `https://trace.santocloud.com.br`. | O código atual define `https://trace.dallogix.com` como padrão. No momento desta revisão, o DNS público ainda aponta para o servidor anterior; a verificação do hostname responde o commit `f924d10`, não a VM nova (`c483795`). |
+| Release do repositório da empresa | O repositório é `dallogixempresa-max/Dallogix-Trace-Code`; a branch `production` contém o código atualizado, mas não há tags de release nem workflow de compilação em `.github/workflows`. | `Build-TraceSetup.ps1` exige uma tag exata `vN.N.N`; ainda não existe uma tag aprovada. A release `v1.0.175` está no repositório separado `VItoraaraujoo/Dallogix-Trace-System`. |
 | Publicação do atualizador | O instalador e o atualizador procuram o manifesto e os pacotes em `VItoraaraujoo/Dallogix-Trace-System`. | Esse repositório ainda serve a release `v1.0.175`, mas o proprietário é uma conta pessoal. Antes de transferir os artefatos para o repositório da empresa, atualize junto as URLs, a lista de origens permitidas, as assinaturas e o fluxo de release. |
-| Build pode aceitar arquivo local não rastreado | O script de build verifica alterações rastreadas, mas usa `git status --untracked-files=no`. | Arquivos novos não rastreados não bloqueiam a compilação. Isso pode colocar conteúdo local acidental em diretórios que o Inno Setup empacota por curinga. A verificação de build deve exigir uma árvore totalmente limpa. |
 | Segredos locais | `.env` e `config\machine.json` contêm senhas e tokens. | Não encontrei etapa que aplique ACL restritiva a esses arquivos. Limite a leitura à conta técnica, Administradores e SYSTEM; não envie esses arquivos em chamados ou mensagens. |
 | Atualização central | O instalador exige que `/api/health.php` responda com a versão e o commit exatos do pacote. | O servidor Central precisa estar publicado antes de instalar o PC. Uma versão diferente é recusada intencionalmente. |
 | CLP físico | O assistente só habilita escrita física para o mapa reconhecido do INVT TS621, após confirmar o mapa e vincular um equipamento. | Sem esses dados, o Trace instala em modo sem escrita física. Isso não impede a instalação da interface, banco e sincronização. |
@@ -30,7 +29,7 @@ Revisão feita em 23/10/2026 sobre o código local, o instalador publicado `v1.0
 ## O que precisa estar pronto antes de instalar
 
 1. Uma release aprovada e assinada do `TraceSetup.exe`, compilada a partir de uma tag do repositório da empresa.
-2. O servidor Central já publicado em `https://trace.dallogix.com`, com `version` e `commit` iguais aos da release do instalador.
+2. A VM nova publicada em `https://trace.dallogix.com`, com `version` e `commit` iguais aos da release do instalador. O DNS público ainda aponta para a instalação anterior; não prossiga com a instalação do PC até a verificação de saúde pública mostrar o commit de produção esperado.
 3. Manifesto estável e pacote assinado acessíveis no endereço oficial do atualizador.
 4. Um PC x64 com Windows atualizado, virtualização habilitada no BIOS/UEFI, WSL 2 e Docker Desktop. O Docker Desktop exige pelo menos 8 GB de RAM segundo sua documentação atual; para uso comercial em organizações maiores, confirme a licença antes da instalação.
 5. Código de ativação e credenciais do administrador da empresa no Trace. Se o PC já tiver banco local, faça e valide um backup antes de atualizar ou reparar.
@@ -50,7 +49,7 @@ Feche e reabra o PowerShell. Clone o repositório oficial da empresa:
 
 ```powershell
 $buildRoot = 'C:\DallogixTrace-Build'
-git clone https://github.com/dallogixempresa-max/Dallogix-Trace-Code.git $buildRoot
+git clone --branch production --single-branch https://github.com/dallogixempresa-max/Dallogix-Trace-Code.git $buildRoot
 Set-Location $buildRoot
 git fetch --all --tags
 git ls-remote --tags origin
@@ -90,7 +89,7 @@ $health | Select-Object status, installation_mode, version, commit | Format-List
 
 Confirme que `status` é `ok`, `installation_mode` é `central`, e `version` e `commit` correspondem à release do instalador. O próprio instalador bloqueia a configuração se houver divergência.
 
-Confira o manifesto atualmente configurado para o atualizador:
+Confira o manifesto atualmente configurado para o atualizador. Este endpoint ainda pertence ao repositório pessoal e não deve ser tratado como a distribuição oficial da empresa:
 
 ```powershell
 $manifestUrl = 'https://github.com/VItoraaraujoo/Dallogix-Trace-System/releases/latest/download/manifest.json'
