@@ -46,7 +46,19 @@ export class ServicoInstalacoesIndustriais {
         throw new Error("O servidor retornou uma lista incompleta de PCs industriais.");
       }
 
-      if (hasMoreInstallations) installations.push(...data.installations);
+      if (hasMoreInstallations) installations.push(...data.installations.map((installation) => {
+        const hasTimestamp = (field) => installation[field] !== null &&
+          installation[field] !== undefined && installation[field] !== "";
+        return {
+          ...installation,
+          access_blocked: typeof installation.access_blocked === "boolean"
+            ? installation.access_blocked
+            : hasTimestamp("access_blocked_at"),
+          archived: typeof installation.archived === "boolean"
+            ? installation.archived
+            : hasTimestamp("archived_at"),
+        };
+      }));
       if (hasMoreEquipment) equipmentOptions.push(...data.equipment_options);
 
       const nextInstallationCursor = this.validarCursorPaginacao(
