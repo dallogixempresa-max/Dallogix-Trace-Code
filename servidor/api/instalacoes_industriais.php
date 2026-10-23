@@ -146,6 +146,20 @@ if (!$isMaster) {
 require_csrf();
 $payload = request_json();
 $action = strtolower(trim((string) ($payload["action"] ?? "")));
+$respondActionFailure = static function (
+    Throwable $exception,
+    string $logOrigin,
+    string $fallback,
+) use ($pdo): never {
+    if ($pdo->inTransaction()) {
+        $pdo->rollBack();
+    }
+    if ($exception instanceof RuntimeException) {
+        json_response(["error" => $exception->getMessage()], 409);
+    }
+    registrar_log_erro($exception, $logOrigin);
+    json_response(["error" => $fallback], 500);
+};
 
 if ($action === "create") {
     $companyId = $resolveCompanyId($payload["company_id"] ?? null, true, $actor);
@@ -324,10 +338,11 @@ if ($action === "block_access" || $action === "unblock_access") {
         $pdo->commit();
         json_response(["data" => ["id" => $installationId, "blocked" => $blocked]]);
     } catch (Throwable $exception) {
-        if ($pdo->inTransaction()) {
-            $pdo->rollBack();
-        }
-        json_response(["error" => $exception->getMessage()], 409);
+        $respondActionFailure(
+            $exception,
+            "pc_industrial_bloqueio_acesso",
+            "Não foi possível alterar o acesso do PC industrial. Consulte os logs do sistema.",
+        );
     }
 }
 
@@ -392,10 +407,11 @@ if ($action === "archive" || $action === "restore_archive") {
         $pdo->commit();
         json_response(["data" => ["id" => $installationId, "archived" => $archive]]);
     } catch (Throwable $exception) {
-        if ($pdo->inTransaction()) {
-            $pdo->rollBack();
-        }
-        json_response(["error" => $exception->getMessage()], 409);
+        $respondActionFailure(
+            $exception,
+            "pc_industrial_arquivamento",
+            "Não foi possível arquivar ou restaurar o PC industrial. Consulte os logs do sistema.",
+        );
     }
 }
 
