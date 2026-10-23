@@ -118,6 +118,13 @@ if ! TRACE_DEPLOY_COMMIT="$target_commit" TRACE_DEPLOY_VERSION="$release_version
   exit 10
 fi
 
+if ! compose restart nginx; then
+  printf 'commit=%s\nfailed_at=%s\nphase=nginx-restart\n' "$target_commit" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$failed_file"
+  chmod 600 "$failed_file"
+  echo "Nginx não reiniciou para atualizar a resolução do serviço PHP; deploy registrado para revisão manual." >&2
+  exit 13
+fi
+
 if ! bash "$root_dir/scripts/migrate.sh"; then
   printf 'commit=%s\nfailed_at=%s\nphase=migrations\n' "$target_commit" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$failed_file"
   chmod 600 "$failed_file"

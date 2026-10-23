@@ -7,7 +7,7 @@ app_root="$test_root/app"
 bin_root="$test_root/bin"
 target_commit=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 current_commit=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-release_version=v1.0.178
+release_version=v1.0.181
 
 mkdir -p "$app_root/scripts" "$app_root/armazenamento/backups" "$bin_root"
 cp "$source_root/scripts/deploy_from_git.sh" "$app_root/scripts/deploy_from_git.sh"
@@ -71,6 +71,10 @@ EOF
 cat > "$bin_root/docker" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+if [[ " $* " == *" restart nginx "* ]]; then
+  touch "$TRACE_GIT_DEPLOY_ROOT/nginx-restarted.called"
+  exit 0
+fi
 printf '0\n'
 EOF
 
@@ -101,16 +105,18 @@ export PATH="$bin_root:$PATH"
 bash "$app_root/scripts/deploy_from_git.sh"
 [[ -f "$app_root/backup.called" ]]
 [[ -f "$app_root/compose.called" ]]
+[[ -f "$app_root/nginx-restarted.called" ]]
 [[ -f "$app_root/migrate.called" ]]
 [[ ! -e "$app_root/armazenamento/.maintenance" ]]
 [[ "$(cat "$test_root/head")" == "$target_commit" ]]
 
-rm -f "$app_root/backup.called" "$app_root/compose.called" "$app_root/migrate.called"
+rm -f "$app_root/backup.called" "$app_root/compose.called" "$app_root/nginx-restarted.called" "$app_root/migrate.called"
 printf '%s\n' "$current_commit" > "$test_root/head"
 TRACE_GIT_DEPLOY_TARGET_COMMIT="$target_commit" TRACE_GIT_DEPLOY_VERSION="$release_version" \
   bash "$app_root/scripts/deploy_from_git.sh"
 [[ -f "$app_root/backup.called" ]]
 [[ -f "$app_root/compose.called" ]]
+[[ -f "$app_root/nginx-restarted.called" ]]
 [[ -f "$app_root/migrate.called" ]]
 [[ ! -e "$app_root/armazenamento/.maintenance" ]]
 [[ "$(cat "$test_root/head")" == "$target_commit" ]]
