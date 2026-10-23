@@ -93,7 +93,7 @@ if [[ ! "$release_version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   release_version="$target_commit"
 fi
 if ! TRACE_DEPLOY_COMMIT="$target_commit" TRACE_DEPLOY_VERSION="$release_version" \
-  bash "$root_dir/scripts/deploy_production.sh" up -d --build --remove-orphans; then
+  bash "$root_dir/scripts/deploy_production.sh" "$root_dir/.env" up -d --build --remove-orphans; then
   printf 'commit=%s\nfailed_at=%s\nphase=compose\n' "$target_commit" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$failed_file"
   chmod 600 "$failed_file"
   echo "Compose falhou; o commit ficou registrado para revisão manual." >&2

@@ -9,6 +9,28 @@ permissions:
   contents: read
 
 jobs:
+  validate-server-deploy:
+    name: Validate guarded production deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out the exact tagged source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Parse deployment shell scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          for script in scripts/*.sh scripts/tests/*.sh; do
+            bash -n "$script"
+          done
+
+      - name: Test the guarded deploy contract
+        shell: bash
+        run: bash scripts/tests/test_deploy_from_git.sh
+
   build:
     name: Compile and validate TraceSetup.exe
     runs-on: windows-2022
