@@ -14,11 +14,6 @@ lock_file="${TRACE_GIT_DEPLOY_LOCK:-/run/lock/dallogix-trace-git-deploy.lock}"
   echo "Arquivo .env ausente; deploy pelo Git cancelado." >&2
   exit 2
 }
-[[ -s "$root_dir/secrets/cloudflare_tunnel_token" ]] || {
-  echo "Token do Cloudflare Tunnel ausente; deploy pelo Git cancelado." >&2
-  exit 2
-}
-
 mkdir -p "$(dirname "$lock_file")"
 exec 9>"$lock_file"
 if ! flock -n 9; then

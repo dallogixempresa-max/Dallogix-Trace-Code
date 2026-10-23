@@ -1,0 +1,89 @@
+name: Build Windows Installer
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Compile and validate TraceSetup.exe
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - name: Check out the exact tagged source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install .NET 8 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Install Inno Setup 6
+        shell: pwsh
+        run: choco install innosetup --yes --no-progress
+
+      - name: Parse installer PowerShell scripts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $files = Get-ChildItem -Path implantacao/windows -Filter '*.ps1' -File -Recurse
+          foreach ($file in $files) {
+            $tokens = $null
+            $parseErrors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              $file.FullName,
+              [ref]$tokens,
+              [ref]$parseErrors
+            ) | Out-Null
+            if ($parseErrors.Count -gt 0) {
+              $parseErrors | Format-List | Out-String | Write-Error
+            }
+          }
+          Write-Host "PowerShell parse passed for $($files.Count) installer scripts."
+
+      - name: Check installer environment and Compose arguments
+        shell: pwsh
+        run: ./implantacao/windows/Test-InstallerEnv.ps1
+
+      - name: Build and inspect installer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tag = (& git describe --tags --exact-match HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $tag -notmatch '^v\d+\.\d+\.\d+$') {
+            throw 'The workflow must build an exact semantic-version tag.'
+          }
+
+          & .\implantacao\windows\Build-TraceSetup.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'Build-TraceSetup.ps1 failed.' }
+
+          $setup = Get-Item .\implantacao\windows\Output\TraceSetup.exe
+          if ($setup.Length -lt 10MB) { throw 'TraceSetup.exe is unexpectedly small.' }
+          $hash = (Get-FileHash -LiteralPath $setup.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          $hashLine = "$hash  TraceSetup.exe"
+          Set-Content -LiteralPath .\implantacao\windows\Output\TraceSetup.sha256.txt -Value $hashLine -Encoding ascii
+          $signature = Get-AuthenticodeSignature -FilePath $setup.FullName
+          Write-Host "Version: $tag"
+          Write-Host "Commit:  $(git rev-parse HEAD)"
+          Write-Host "Bytes:   $($setup.Length)"
+          Write-Host "SHA256:  $hash"
+          Write-Host "Signature status: $($signature.Status)"
+          if ($signature.Status -ne 'Valid') {
+            Write-Warning 'The corporate Authenticode certificate is not configured; this artifact is unsigned.'
+          }
+
+      - name: Upload private build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TraceSetup-${{ github.ref_name }}
+          path: |
+            implantacao/windows/Output/TraceSetup.exe
+            implantacao/windows/Output/TraceSetup.sha256.txt
+          if-no-files-found: error
+          retention-days: 30

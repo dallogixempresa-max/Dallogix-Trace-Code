@@ -1,8 +1,8 @@
 # Dallogix Trace — auditoria e instalação no PC industrial
 
-Revisão feita em 23/10/2026 sobre o código local, o instalador publicado `v1.0.175` e o fluxo de implantação do PC industrial.
+Revisão feita em 23/10/2026 sobre o instalador `v1.0.175`, o código da branch `production`, a VM `trace-dallogix-prod` e o fluxo de implantação do PC industrial.
 
-> **Estado atual: não instale a release `v1.0.175` em um PC de produção.** O executável publicado não tem assinatura Authenticode e contém o erro de variáveis ausentes mostrado no PC. O código em `production` já corrige a geração das variáveis, passa o `.env` explicitamente ao Docker Compose e usa `https://trace.dallogix.com` como padrão. Essa correção está no commit `c48379506b6c05893a0201f985bb5dd5252ad43f` e já está na VM nova. Ainda falta publicar a VM no hostname `trace.dallogix.com` e gerar uma release Windows aprovada; o hostname público atualmente responde outro commit (`f924d10`).
+> **Estado atual: não reinstale a release `v1.0.175`.** O erro exibido no PC corresponde à inicialização do Docker Compose sem as quatro variáveis obrigatórias. A correção está no código da branch `production`: ele gera segredos em instalação realmente nova, preserva as credenciais de um banco existente e passa o caminho do `.env` ao Compose. O endereço `trace.dallogix.com` aponta para `trace-dallogix-prod` (`164.152.197.177`), e o endpoint público responde `status=ok`; porém, em 23/10/2026, ainda servia o commit `f924d10`, enquanto a branch `production` estava em `d21a5ed`. Portanto, o deploy do código corrigido ainda precisava ser confirmado. A release `v1.0.175` é antiga e sem assinatura Authenticode.
 
 ## Resultado da revisão
 
@@ -11,8 +11,8 @@ Revisão feita em 23/10/2026 sobre o código local, o instalador publicado `v1.0
 | Bloqueio de distribuição | `TraceSetup.exe` v1.0.175 não tem assinatura Authenticode. | O arquivo publicado tem 52.226.062 bytes e SHA-256 `e4f1e456fb6c1ad77e62186116bdff1693e77dc007aa923ad513c14105d10f40`. A tabela de certificado PE está vazia. O GitHub informa o mesmo digest do arquivo, o que valida a integridade do download, mas não identifica o publicador do programa. |
 | Bloqueio de instalação reproduzível | O executável v1.0.175 pode iniciar o Compose sem passar explicitamente o caminho do `.env`; isso produziu as mensagens de variáveis ausentes no PC. | O código `c483795` valida as quatro chaves necessárias e passa `--project-directory` e `--env-file`. A correção está no código da branch `production`, mas ainda não em um novo `TraceSetup.exe`. |
 | `.env` incompleto | O instalador v1.0.175 não completa chaves vazias em um `.env` já existente. | O código `c483795` gera segredos criptograficamente aleatórios quando não há banco existente. Se encontra banco ou instalação anterior, não troca as senhas do banco: orienta a restaurar as credenciais do backup para preservar os dados. |
-| Endereço de produção antigo | O executável v1.0.175 usava `https://trace.santocloud.com.br`. | O código atual define `https://trace.dallogix.com` como padrão. No momento desta revisão, o DNS público ainda aponta para o servidor anterior; a verificação do hostname responde o commit `f924d10`, não a VM nova (`c483795`). |
-| Release do repositório da empresa | O repositório é `dallogixempresa-max/Dallogix-Trace-Code`; a branch `production` contém o código atualizado, mas não há tags de release nem workflow de compilação em `.github/workflows`. | `Build-TraceSetup.ps1` exige uma tag exata `vN.N.N`; ainda não existe uma tag aprovada. A release `v1.0.175` está no repositório separado `VItoraaraujoo/Dallogix-Trace-System`. |
+| Endereço e versão Central | A instalação pública é a VM nova `trace-dallogix-prod`, IP `164.152.197.177`. | O DNS A de `trace.dallogix.com` resolve para esse IP e `/api/health.php` responde `status=ok`, `php=true`, `mysql=true`, mas com commit `f924d10`, anterior ao `production` (`d21a5ed`). O DNS do domínio raiz não foi alterado. |
+| Release do repositório da empresa | O código fica em `dallogixempresa-max/Dallogix-Trace-Code`; a branch `production` contém a correção do `.env`. | `Build-TraceSetup.ps1` exige uma tag exata `vN.N.N`. A release `v1.0.175` está no repositório separado `VItoraaraujoo/Dallogix-Trace-System`; não a use para instalar a correção. |
 | Publicação do atualizador | O instalador e o atualizador procuram o manifesto e os pacotes em `VItoraaraujoo/Dallogix-Trace-System`. | Esse repositório ainda serve a release `v1.0.175`, mas o proprietário é uma conta pessoal. Antes de transferir os artefatos para o repositório da empresa, atualize junto as URLs, a lista de origens permitidas, as assinaturas e o fluxo de release. |
 | Segredos locais | `.env` e `config\machine.json` contêm senhas e tokens. | Não encontrei etapa que aplique ACL restritiva a esses arquivos. Limite a leitura à conta técnica, Administradores e SYSTEM; não envie esses arquivos em chamados ou mensagens. |
 | Atualização central | O instalador exige que `/api/health.php` responda com a versão e o commit exatos do pacote. | O servidor Central precisa estar publicado antes de instalar o PC. Uma versão diferente é recusada intencionalmente. |
@@ -24,12 +24,12 @@ Revisão feita em 23/10/2026 sobre o código local, o instalador publicado `v1.0
 - Release publicada: [`v1.0.175`](https://github.com/VItoraaraujoo/Dallogix-Trace-System/releases/tag/v1.0.175), commit `556ef8d0bbe781651fa3d3636730e5277b21e965`.
 - `TraceSetup.exe`: 52.226.062 bytes; SHA-256 acima; formato PE x64/Windows e empacotado com Inno Setup 6.7.0; sem assinatura Authenticode.
 - Pacote estável do atualizador: `trace-v1.0.175.tar.gz`; SHA-256 `72a2577b40eeafc0841f9a6feb05ee8636fc2d2d10a5ba49ffdf624a61976f09`. O manifesto assinado protege esse pacote, não o `TraceSetup.exe`.
-- O arquivo foi baixado e inspecionado sem executar o instalador. Não foi possível compilar um novo `.exe` nesta estação: não há .NET SDK, PowerShell 7 nem `ISCC.exe`; o repositório da empresa também não tem tag de release.
+- O arquivo foi baixado e inspecionado sem executar o instalador. Esta estação não tem .NET SDK, PowerShell 7 nem `ISCC.exe`; a compilação nova é feita no Windows runner do GitHub Actions a partir de uma tag.
 
 ## O que precisa estar pronto antes de instalar
 
-1. Uma release aprovada e assinada do `TraceSetup.exe`, compilada a partir de uma tag do repositório da empresa.
-2. A VM nova publicada em `https://trace.dallogix.com`, com `version` e `commit` iguais aos da release do instalador. O DNS público ainda aponta para a instalação anterior; não prossiga com a instalação do PC até a verificação de saúde pública mostrar o commit de produção esperado.
+1. Uma compilação nova do `TraceSetup.exe`, feita a partir da mesma tag do repositório da empresa. O artefato continua sem Authenticode válido enquanto a empresa não configurar um certificado de assinatura.
+2. A VM nova publicada em `https://trace.dallogix.com`, com `version` e `commit` iguais aos da release do instalador. O DNS desse subdomínio já aponta para a VM nova; não prossiga com a instalação do PC até a verificação de saúde pública mostrar o commit de produção esperado.
 3. Manifesto estável e pacote assinado acessíveis no endereço oficial do atualizador.
 4. Um PC x64 com Windows atualizado, virtualização habilitada no BIOS/UEFI, WSL 2 e Docker Desktop. O Docker Desktop exige pelo menos 8 GB de RAM segundo sua documentação atual; para uso comercial em organizações maiores, confirme a licença antes da instalação.
 5. Código de ativação e credenciais do administrador da empresa no Trace. Se o PC já tiver banco local, faça e valide um backup antes de atualizar ou reparar.
@@ -55,9 +55,9 @@ git fetch --all --tags
 git ls-remote --tags origin
 ```
 
-O último comando precisa listar uma tag aprovada como `v1.0.176`. **Hoje o repositório consultado não tem tags; pare aqui até a equipe criar e publicar uma tag e o fluxo de release da empresa.** Não use a tag do repositório pessoal para compilar código que deveria vir do repositório da empresa.
+O último comando precisa listar uma tag de release aprovada. Ao publicar essa tag no GitHub, o workflow **Build Windows Installer** compila `TraceSetup.exe`, calcula o SHA-256 e guarda ambos como artefato privado do Actions por 30 dias. O workflow não cria uma release pública nem assina o executável. Não use uma tag do repositório pessoal para compilar código que deve vir do repositório da empresa.
 
-Quando a tag estiver disponível, cole o bloco abaixo e informe a tag aprovada quando solicitado:
+Para compilar localmente quando a tag estiver disponível, cole o bloco abaixo e informe a tag aprovada quando solicitado. Na compilação automatizada, abra **Actions → Build Windows Installer** depois de publicar a tag e baixe `TraceSetup-<tag>` em **Artifacts** quando o job terminar com sucesso.
 
 ```powershell
 $releaseTag = Read-Host 'Tag aprovada, por exemplo v1.0.176'
@@ -75,7 +75,7 @@ Get-FileHash -LiteralPath $setup.FullName -Algorithm SHA256
 Get-AuthenticodeSignature -FilePath $setup.FullName | Format-List Status, StatusMessage, SignerCertificate
 ```
 
-O build atual gera um executável **sem assinatura Authenticode**. Não distribua o resultado enquanto a assinatura corporativa não estiver configurada e `Get-AuthenticodeSignature` não retornar `Valid` com o certificado aprovado da Dallogix. O script também precisa ser ajustado para recusar arquivos não rastreados antes de empacotar.
+O build atual gera um executável **sem assinatura Authenticode**. O digest SHA-256 permite conferir que o arquivo baixado é o mesmo artefato produzido, mas não autentica quem publicou o instalador. Para remover esse bloqueio, configure um certificado de assinatura corporativo e assine o arquivo antes de distribuí-lo. O script de build já recusa arquivos alterados ou não rastreados antes de empacotar.
 
 ## B. Conferir o servidor Central antes de preparar o PC
 
@@ -159,30 +159,27 @@ if (-not $gitBash) { throw 'Git Bash não foi localizado. Reinstale Git for Wind
 
 ## D. Baixar e validar o instalador aprovado
 
-Este bloco busca o `TraceSetup.exe` da release e o digest publicado pelo GitHub, calcula o hash local e bloqueia a execução se o arquivo estiver sem assinatura Authenticode válida. Informe a tag aprovada:
+O repositório da empresa é privado. Em uma estação administrativa, entre no GitHub com uma conta autorizada, abra `dallogixempresa-max/Dallogix-Trace-Code` → **Actions** → **Build Windows Installer**, escolha a execução concluída para a tag aprovada e baixe o artefato `TraceSetup-<tag>`. Extraia `TraceSetup.exe` e `TraceSetup.sha256.txt` juntos para a pasta Downloads do PC industrial. O artefato expira após 30 dias; guarde a cópia aprovada no repositório interno de instaladores da empresa.
+
+No PowerShell, confira a integridade e a assinatura:
 
 ```powershell
-$releaseTag = Read-Host 'Tag aprovada do instalador, por exemplo v1.0.176'
-if ($releaseTag -notmatch '^v\d+\.\d+\.\d+$') { throw 'Tag inválida.' }
-$releaseApi = "https://api.github.com/repos/VItoraaraujoo/Dallogix-Trace-System/releases/tags/$releaseTag"
-$release = Invoke-RestMethod -Uri $releaseApi -Headers @{ 'User-Agent' = 'Dallogix-Trace-Installer' } -TimeoutSec 30
-$asset = $release.assets | Where-Object name -eq 'TraceSetup.exe' | Select-Object -First 1
-if (-not $asset -or $asset.digest -notmatch '^sha256:[0-9a-fA-F]{64}$') { throw 'A release não publicou TraceSetup.exe com digest SHA-256.' }
-$expectedHash = $asset.digest.Substring(7)
 $installerPath = Join-Path $env:USERPROFILE 'Downloads\TraceSetup.exe'
-Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $installerPath -TimeoutSec 300
+$hashPath = Join-Path $env:USERPROFILE 'Downloads\TraceSetup.sha256.txt'
+if (-not (Test-Path -LiteralPath $installerPath -PathType Leaf)) { throw 'TraceSetup.exe não foi encontrado.' }
+if (-not (Test-Path -LiteralPath $hashPath -PathType Leaf)) { throw 'TraceSetup.sha256.txt não foi encontrado.' }
+$expectedHash = ((Get-Content -LiteralPath $hashPath -Raw).Trim() -split '\s+')[0]
+if ($expectedHash -notmatch '^[0-9a-fA-F]{64}$') { throw 'Arquivo SHA-256 inválido.' }
 $actualHash = (Get-FileHash -LiteralPath $installerPath -Algorithm SHA256).Hash
-if ($actualHash -ine $expectedHash) { throw 'O SHA-256 local não corresponde ao digest da release. Não execute o arquivo.' }
-$signature = Get-AuthenticodeSignature -FilePath $installerPath
-$signature | Format-List Status, StatusMessage, SignerCertificate
-if ($signature.Status -ne 'Valid') { throw 'Instalador sem assinatura Authenticode válida. Não execute; solicite uma release assinada.' }
+if ($actualHash -ine $expectedHash) { throw 'O SHA-256 não corresponde. Não execute o arquivo; baixe novamente o artefato da execução aprovada.' }
+Get-AuthenticodeSignature -FilePath $installerPath | Format-List Status, StatusMessage, SignerCertificate
 ```
 
-Na data desta revisão, a release `v1.0.175` falha corretamente nessa última verificação porque está sem assinatura.
+O workflow registra se o executável tem assinatura Authenticode válida e avisa quando não tem. O digest confirma que o arquivo corresponde ao arquivo acompanhado pelo artefato, mas não substitui uma assinatura corporativa. **Não distribua o instalador para uso de produção até a Dallogix configurar e validar o certificado Authenticode.**
 
 ## E. Instalar e responder às perguntas do assistente
 
-Só depois de a seção D terminar sem erro, execute:
+Só depois de a seção D terminar sem erro e a assinatura Authenticode retornar `Valid` com o certificado corporativo aprovado, execute:
 
 ```powershell
 Start-Process -FilePath $installerPath -Verb RunAs -Wait
