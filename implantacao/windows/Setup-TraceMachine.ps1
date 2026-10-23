@@ -135,7 +135,7 @@ function Get-TraceUsbHidCandidates {
     }
 }
 
-$centralUrl = Ask "URL HTTPS do servidor central" "https://trace.santocloud.com.br"
+$centralUrl = Ask "URL HTTPS do servidor central" "https://trace.dallogix.com"
 $centralUri = $null
 if (-not [Uri]::TryCreate($centralUrl, [UriKind]::Absolute, [ref]$centralUri) -or
     $centralUri.Scheme -ne 'https' -or $centralUri.AbsolutePath -ne '/' -or

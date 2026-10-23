@@ -15,8 +15,8 @@ if (-not (Get-Command git.exe -ErrorAction SilentlyContinue)) { throw "Git for W
 $versionOutput = & git.exe -C $root describe --tags --exact-match HEAD
 $version = ([string]$versionOutput).Trim()
 if ($LASTEXITCODE -ne 0 -or $version -notmatch '^v\d+\.\d+\.\d+$') { throw "Compile o instalador a partir de uma tag de release aprovada (vN.N.N)." }
-$changed = @(& git.exe -C $root status --porcelain --untracked-files=no)
-if ($LASTEXITCODE -ne 0 -or $changed.Count -gt 0) { throw "O codigo rastreado possui alteracoes locais; use a tag de release limpa." }
+$changed = @(& git.exe -C $root status --porcelain --untracked-files=all)
+if ($LASTEXITCODE -ne 0 -or $changed.Count -gt 0) { throw "A arvore de trabalho possui alteracoes ou arquivos nao rastreados; use a tag de release limpa." }
 $versionFile = Join-Path $root 'trace-build-version.txt'
 if (Test-Path -LiteralPath $versionFile) { throw "Remova o marcador gerado de uma compilacao anterior: $versionFile" }
 $commitFile = Join-Path $root 'trace-build-commit.txt'

@@ -27,7 +27,7 @@ if (-not (Get-Command docker.exe -ErrorAction SilentlyContinue)) { throw "Docker
 
 Set-Location $InstallRoot
 Assert-TraceMySqlVolumeExists -InstallRoot $InstallRoot -RequireMarker | Out-Null
-& docker compose --profile industrial up -d
+& docker compose --project-directory $InstallRoot --env-file $EnvFile --profile industrial up -d
 
 $healthy = $false
 $lastActivationError = "A API ainda nao respondeu."

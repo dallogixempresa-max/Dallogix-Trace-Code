@@ -1,10 +1,16 @@
-function Get-TraceMySqlVolumeSnapshot([string]$InstallRoot) {
+function Get-TraceMySqlVolumeSnapshot([string]$InstallRoot, [string]$EnvPath) {
     $composeFile = Join-Path $InstallRoot 'docker-compose.yml'
     if (-not (Test-Path -LiteralPath $composeFile -PathType Leaf)) {
         throw "docker-compose.yml nao encontrado em $InstallRoot."
     }
 
-    $configOutput = & docker.exe compose --project-directory $InstallRoot config --format json 2>&1
+    if (-not $EnvPath) { $EnvPath = Join-Path $InstallRoot '.env' }
+    $composeArguments = @('--project-directory', $InstallRoot)
+    if (Test-Path -LiteralPath $EnvPath -PathType Leaf) {
+        $composeArguments += @('--env-file', $EnvPath)
+    }
+    $composeArguments += @('config', '--format', 'json')
+    $configOutput = & docker.exe compose @composeArguments 2>&1
     if ($LASTEXITCODE -ne 0) {
         throw "Nao foi possivel resolver o volume MySQL pelo Docker Compose: $(($configOutput | Out-String).Trim())"
     }
@@ -187,7 +193,7 @@ function Test-TraceMySqlApplicationSchema([string]$InstallRoot) {
     $query = 'SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 0x636172726567616d656e746f73;'
     $dockerCommand = Get-Command 'docker.exe' -ErrorAction Stop
     $arguments = @(
-        'compose', '--project-directory', $InstallRoot, '--profile', 'industrial',
+        'compose', '--project-directory', $InstallRoot, '--env-file', (Join-Path $InstallRoot '.env'), '--profile', 'industrial',
         'exec', '-T', '-i', 'mysql', 'sh', '-lc',
         'mysql -N -B -u$MYSQL_USER -p$MYSQL_PASSWORD $MYSQL_DATABASE'
     )

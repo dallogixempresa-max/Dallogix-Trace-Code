@@ -9,6 +9,8 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $PackageRoot = (Resolve-Path -LiteralPath $PackageRoot).Path
+$script:TraceComposeRoot = $PackageRoot
+$script:TraceComposeEnvFile = $null
 $DatabaseVolumeGuard = Join-Path $PSScriptRoot 'TraceDatabaseVolume.ps1'
 if (-not (Test-Path -LiteralPath $DatabaseVolumeGuard -PathType Leaf)) { throw "Protecao do volume MySQL ausente: $DatabaseVolumeGuard" }
 . $DatabaseVolumeGuard
@@ -17,6 +19,17 @@ function Assert-Success([string]$Stage, [int]$Code) {
     if ($Code -ne 0) {
         throw "$Stage falhou (codigo $Code). A instalacao parou sem apagar o banco ou a configuracao."
     }
+}
+
+function Invoke-TraceCompose([string[]]$Arguments) {
+    if (-not $script:TraceComposeEnvFile) {
+        throw "O contexto do Docker Compose do Trace ainda nao foi configurado."
+    }
+    $composeArguments = @(
+        "--project-directory", $script:TraceComposeRoot,
+        "--env-file", $script:TraceComposeEnvFile
+    ) + $Arguments
+    & docker.exe compose @composeArguments
 }
 
 function Find-GitBash {
@@ -115,12 +128,15 @@ function Ensure-NodeRedAdminAuth([string]$EnvPath, [hashtable]$Values) {
         }
 
         Write-Host "Preparando o gerador bcrypt local; a senha não será gravada nem exibida."
-        & docker.exe compose --profile industrial build node-red
+        Invoke-TraceCompose -Arguments @("--profile", "industrial", "build", "node-red")
         Assert-Success "Preparação do Node-RED para gerar o hash" $LASTEXITCODE
         $env:NODE_RED_ADMIN_PASSWORD = $plainPassword
-        $hashOutput = & docker.exe compose --profile industrial run --rm --no-deps `
-            -e NODE_RED_ADMIN_PASSWORD --entrypoint node node-red `
-            -e "console.log(require('bcryptjs').hashSync(process.env.NODE_RED_ADMIN_PASSWORD, 12))" 2>&1
+        $hashArguments = @(
+            "--profile", "industrial", "run", "--rm", "--no-deps",
+            "-e", "NODE_RED_ADMIN_PASSWORD", "--entrypoint", "node", "node-red",
+            "-e", "console.log(require('bcryptjs').hashSync(process.env.NODE_RED_ADMIN_PASSWORD, 12))"
+        )
+        $hashOutput = Invoke-TraceCompose -Arguments $hashArguments 2>&1
         $hashExitCode = $LASTEXITCODE
         if ($hashExitCode -ne 0) {
             $diagnostic = ($hashOutput | Out-String).Trim()
@@ -180,6 +196,49 @@ function New-HexSecret([Security.Cryptography.RandomNumberGenerator]$Generator) 
     return [System.BitConverter]::ToString($bytes).Replace("-", "")
 }
 
+function Ensure-RequiredEnvSecrets([string]$EnvPath, [string]$InstallRoot) {
+    $requiredKeys = @("MYSQL_PASSWORD", "MYSQL_ROOT_PASSWORD", "TRACE_DEVICE_TOKEN", "CAMERA_DEVICE_TOKEN")
+    $values = Read-EnvValues $EnvPath
+    $missingKeys = @($requiredKeys | Where-Object {
+        -not $values.ContainsKey($_) -or [string]::IsNullOrWhiteSpace([string]$values[$_])
+    })
+    if ($missingKeys.Count -eq 0) { return }
+
+    $generator = [Security.Cryptography.RandomNumberGenerator]::Create()
+    $generated = @{}
+    try {
+        foreach ($key in $missingKeys) { $generated[$key] = New-HexSecret $generator }
+    } finally {
+        $generator.Dispose()
+    }
+
+    $missingDatabaseCredentials = @($missingKeys | Where-Object { $_ -in @("MYSQL_PASSWORD", "MYSQL_ROOT_PASSWORD") })
+    if ($missingDatabaseCredentials.Count -gt 0) {
+        $savedEnvironment = @{}
+        $volumeSnapshot = $null
+        try {
+            foreach ($key in $missingKeys) {
+                $savedEnvironment[$key] = [Environment]::GetEnvironmentVariable($key, [EnvironmentVariableTarget]::Process)
+                [Environment]::SetEnvironmentVariable($key, $generated[$key], [EnvironmentVariableTarget]::Process)
+            }
+            $volumeSnapshot = Get-TraceMySqlVolumeSnapshot -InstallRoot $InstallRoot -EnvPath $EnvPath
+        } finally {
+            foreach ($key in $missingKeys) {
+                [Environment]::SetEnvironmentVariable($key, $savedEnvironment[$key], [EnvironmentVariableTarget]::Process)
+            }
+        }
+
+        $volumeMarker = Read-TraceMySqlVolumeMarker
+        $priorInstallEvidence = Test-TraceMySqlPriorInstallEvidence $InstallRoot
+        if ($volumeSnapshot.Exists -or $volumeMarker -or $priorInstallEvidence) {
+            throw "O .env está sem credenciais obrigatórias do banco, mas há um banco ou evidências de instalação anterior. Para proteger os dados, nenhuma senha foi substituída. Restaure MYSQL_PASSWORD e MYSQL_ROOT_PASSWORD do backup seguro e execute novamente."
+        }
+    }
+
+    Ensure-EnvDefaults $EnvPath $generated
+    Write-Host "Credenciais obrigatórias ausentes geradas com valores aleatórios. Os valores não serão exibidos."
+}
+
 function Get-CentralBaseUrl([string]$InputUrl) {
     $parsed = $null
     if (-not [Uri]::TryCreate($InputUrl.Trim(), [UriKind]::Absolute, [ref]$parsed) -or
@@ -236,7 +295,7 @@ function Initialize-DockerCli {
 }
 
 function Wait-MySqlHealthy {
-    $containerId = & docker.exe compose ps -q mysql
+    $containerId = Invoke-TraceCompose -Arguments @("ps", "-q", "mysql")
     Assert-Success "Localizacao do container MySQL" $LASTEXITCODE
     $containerId = ([string]$containerId).Trim()
     if (-not $containerId) {
@@ -249,13 +308,13 @@ function Wait-MySqlHealthy {
         if ($LASTEXITCODE -eq 0 -and ([string]$state).Trim() -in @('exited', 'dead')) { break }
         Start-Sleep -Seconds 3
     }
-    $logs = & docker.exe compose logs --no-color --tail=100 mysql 2>&1
+    $logs = Invoke-TraceCompose -Arguments @("logs", "--no-color", "--tail=100", "mysql") 2>&1
     $diagnostic = ($logs | Out-String).Trim()
     throw "O MySQL nao ficou saudavel antes das migrations. A instalacao foi interrompida. Logs recentes:`n$diagnostic"
 }
 
 function Wait-NodeRedHealthy {
-    $containerId = & docker.exe compose ps -q node-red
+    $containerId = Invoke-TraceCompose -Arguments @("ps", "-q", "node-red")
     Assert-Success "Localizacao do container Node-RED" $LASTEXITCODE
     $containerId = ([string]$containerId).Trim()
     if (-not $containerId) {
@@ -266,7 +325,7 @@ function Wait-NodeRedHealthy {
         if ($LASTEXITCODE -eq 0 -and ([string]$health).Trim() -eq 'healthy') { return }
         Start-Sleep -Seconds 2
     }
-    $logs = & docker.exe compose logs --no-color --tail=80 node-red 2>&1
+    $logs = Invoke-TraceCompose -Arguments @("logs", "--no-color", "--tail=80", "node-red") 2>&1
     $diagnostic = ($logs | Out-String).Trim()
     throw "O Node-RED nao ficou saudavel; a instalacao foi interrompida. Logs recentes:`n$diagnostic"
 }
@@ -300,7 +359,7 @@ try {
 
     $envPath = Join-Path $PackageRoot ".env"
     if (-not (Test-Path -LiteralPath $envPath)) {
-        $defaultCentral = "https://trace.santocloud.com.br"
+        $defaultCentral = "https://trace.dallogix.com"
         $answer = if ($CentralUrl) { $CentralUrl } else { Read-Host "URL HTTPS do servidor central [$defaultCentral]" }
         if ([string]::IsNullOrWhiteSpace($answer)) { $answer = $defaultCentral }
         $centralUrl = Get-CentralBaseUrl $answer
@@ -344,6 +403,9 @@ try {
     } else {
         Write-Host "Arquivo .env existente preservado. Conferindo campos obrigatorios..."
     }
+
+    $script:TraceComposeEnvFile = $envPath
+    Ensure-RequiredEnvSecrets -EnvPath $envPath -InstallRoot $PackageRoot
 
     # O perfil padrão usa somente a leitura do sensor M2052 informado para o
     # INVT TS621. Os valores continuam sobrescrevíveis para outro modelo, mas
@@ -406,12 +468,12 @@ try {
     if ($values.ContainsKey('COMPOSE_PROFILES') -and $values['COMPOSE_PROFILES'] -match '(^|,)industrial(,|$)') {
         Ensure-NodeRedAdminAuth $envPath $values
     }
-    & docker.exe compose config --quiet
+    Invoke-TraceCompose -Arguments @("config", "--quiet")
     Assert-Success "Configuracao do Docker Compose" $LASTEXITCODE
     $mysqlVolume = Initialize-TraceMySqlVolumeForInstall -InstallRoot $PackageRoot -AllowFreshDatabaseCreation:$AllowFreshDatabaseCreation
 
     Write-Host "[1/3] Iniciando banco e PHP..."
-    & docker.exe compose up -d --build mysql php
+    Invoke-TraceCompose -Arguments @("up", "-d", "--build", "mysql", "php")
     Assert-Success "Inicializacao do banco e PHP" $LASTEXITCODE
     Write-Host "Aguardando o MySQL concluir a inicializacao antes das migrations..."
     Wait-MySqlHealthy
@@ -427,7 +489,7 @@ try {
     Assert-Success "Migracoes do banco" $LASTEXITCODE
 
     Write-Host "[3/3] Iniciando os servicos locais..."
-    & docker.exe compose up -d --build
+    Invoke-TraceCompose -Arguments @("up", "-d", "--build")
     Assert-Success "Inicializacao do Trace" $LASTEXITCODE
     if ($values.ContainsKey('COMPOSE_PROFILES') -and $values['COMPOSE_PROFILES'] -match '(^|,)industrial(,|$)') {
         Write-Host "Aguardando o gateway Node-RED ficar saudavel..."
@@ -459,8 +521,8 @@ try {
         Start-Sleep -Seconds 3
     }
     if (-not $ready) {
-        $containerStatus = & docker.exe compose ps --all 2>&1
-        $serviceLogs = & docker.exe compose logs --no-color --tail=80 php mysql 2>&1
+        $containerStatus = Invoke-TraceCompose -Arguments @("ps", "--all") 2>&1
+        $serviceLogs = Invoke-TraceCompose -Arguments @("logs", "--no-color", "--tail=80", "php", "mysql") 2>&1
         $diagnostic = @(
             "Erro da sonda: $lastProbeError"
             "Estado dos containers:"
