@@ -46,10 +46,14 @@ cat > "$bin_root/git" <<'EOF'
 set -euo pipefail
 case "$1" in
   diff|fetch|merge-base) exit 0 ;;
+  cat-file)
+    [[ "$3" == "$TRACE_EXPECTED_COMMIT^{commit}" ]]
+    ;;
   rev-parse)
     case "$2" in
       FETCH_HEAD) printf '%s\n' "$TRACE_EXPECTED_COMMIT" ;;
       HEAD) cat "$TRACE_TEST_HEAD_FILE" ;;
+      "refs/tags/$TRACE_TEST_VERSION^{commit}") printf '%s\n' "$TRACE_EXPECTED_COMMIT" ;;
       *) echo "unexpected git rev-parse argument: $2" >&2; exit 98 ;;
     esac
     ;;
@@ -100,4 +104,14 @@ bash "$app_root/scripts/deploy_from_git.sh"
 [[ -f "$app_root/migrate.called" ]]
 [[ ! -e "$app_root/armazenamento/.maintenance" ]]
 [[ "$(cat "$test_root/head")" == "$target_commit" ]]
-printf 'PASS: guarded deploy passes .env, release identity, backup, migrations, and health validation.\n'
+
+rm -f "$app_root/backup.called" "$app_root/compose.called" "$app_root/migrate.called"
+printf '%s\n' "$current_commit" > "$test_root/head"
+TRACE_GIT_DEPLOY_TARGET_COMMIT="$target_commit" TRACE_GIT_DEPLOY_VERSION="$release_version" \
+  bash "$app_root/scripts/deploy_from_git.sh"
+[[ -f "$app_root/backup.called" ]]
+[[ -f "$app_root/compose.called" ]]
+[[ -f "$app_root/migrate.called" ]]
+[[ ! -e "$app_root/armazenamento/.maintenance" ]]
+[[ "$(cat "$test_root/head")" == "$target_commit" ]]
+printf 'PASS: guarded deploy validates branch-pull and GitHub-tag inputs, .env, backup, migrations, and health.\n'

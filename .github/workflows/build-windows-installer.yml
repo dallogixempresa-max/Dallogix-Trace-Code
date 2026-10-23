@@ -109,3 +109,64 @@ jobs:
             implantacao/windows/Output/TraceSetup.sha256.txt
           if-no-files-found: error
           retention-days: 30
+
+  deploy-production:
+    name: Deploy tagged release to trace.dallogix.com
+    runs-on: ubuntu-latest
+    needs:
+      - validate-server-deploy
+      - build
+    timeout-minutes: 25
+    concurrency:
+      group: trace-production-deploy
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the exact tagged source and production history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate release tag and production ancestry
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          [[ "$GITHUB_REF_TYPE" == tag && "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          git fetch --quiet --no-tags origin production
+          git merge-base --is-ancestor "$GITHUB_SHA" FETCH_HEAD
+          [[ "$(git rev-parse "refs/tags/$tag^{commit}")" == "$GITHUB_SHA" ]]
+
+      - name: Create the exact release bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          git bundle create "$RUNNER_TEMP/trace-release.bundle" "refs/tags/$GITHUB_REF_NAME"
+          git bundle verify "$RUNNER_TEMP/trace-release.bundle"
+
+      - name: Send the tagged release through the restricted deploy key
+        shell: bash
+        env:
+          TRACE_PROD_DEPLOY_KEY: ${{ secrets.TRACE_PROD_DEPLOY_KEY }}
+          TRACE_PROD_HOST: 164.152.197.177
+        run: |
+          set -euo pipefail
+          [[ -n "$TRACE_PROD_DEPLOY_KEY" ]] || {
+            echo 'Repository secret TRACE_PROD_DEPLOY_KEY is not configured.' >&2
+            exit 2
+          }
+          install -m 700 -d "$HOME/.ssh"
+          printf '%s\n' "$TRACE_PROD_DEPLOY_KEY" > "$HOME/.ssh/trace-production"
+          chmod 600 "$HOME/.ssh/trace-production"
+          ssh-keygen -y -f "$HOME/.ssh/trace-production" >/dev/null
+          ssh -T \
+            -i "$HOME/.ssh/trace-production" \
+            -o IdentitiesOnly=yes \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$GITHUB_WORKSPACE/deploy/trace-production-known-hosts" \
+            "trace-deploy@$TRACE_PROD_HOST" \
+            "deploy $GITHUB_REF_NAME $GITHUB_SHA" \
+            < "$RUNNER_TEMP/trace-release.bundle"
+          rm -f "$HOME/.ssh/trace-production"

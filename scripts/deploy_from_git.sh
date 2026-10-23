@@ -27,8 +27,26 @@ git diff --quiet && git diff --cached --quiet || {
   exit 2
 }
 
-git fetch --quiet --no-tags origin "$branch"
-target_commit="$(git rev-parse FETCH_HEAD)"
+target_commit="${TRACE_GIT_DEPLOY_TARGET_COMMIT:-}"
+release_version="${TRACE_GIT_DEPLOY_VERSION:-}"
+if [[ -n "$target_commit" || -n "$release_version" ]]; then
+  [[ "$target_commit" =~ ^[0-9a-f]{40}$ && "$release_version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+    echo "O commit e a versão enviados pelo workflow de release são inválidos." >&2
+    exit 2
+  }
+  git cat-file -e "$target_commit^{commit}" || {
+    echo "O commit recebido pelo workflow não está disponível no repositório local." >&2
+    exit 2
+  }
+  tag_commit="$(git rev-parse "refs/tags/$release_version^{commit}" 2>/dev/null || true)"
+  [[ "$tag_commit" == "$target_commit" ]] || {
+    echo "A tag $release_version não aponta para o commit informado; deploy cancelado." >&2
+    exit 2
+  }
+else
+  git fetch --quiet --no-tags origin "$branch"
+  target_commit="$(git rev-parse FETCH_HEAD)"
+fi
 current_commit="$(git rev-parse HEAD)"
 failed_file="$root_dir/armazenamento/.git-deploy-failed"
 if [[ -f "$failed_file" ]] && grep -Fqx "commit=$target_commit" "$failed_file"; then
@@ -88,7 +106,7 @@ TRACE_COMPOSE_ENV_FILE="$root_dir/.env" TRACE_COMPOSE_PRODUCTION=1 \
   bash "$root_dir/scripts/backup_db.sh" "$root_dir/armazenamento/backups/git-deploy"
 
 git checkout --detach "$target_commit"
-release_version="$(git describe --tags --exact-match HEAD 2>/dev/null || true)"
+release_version="${release_version:-$(git describe --tags --exact-match HEAD 2>/dev/null || true)}"
 if [[ ! "$release_version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   release_version="$target_commit"
 fi
