@@ -1,36 +1,38 @@
-# Dallogix Trace — auditoria e instalação no PC industrial
+# Dallogix Trace — revisão e instalação no PC industrial
 
-Revisão feita em 23/10/2026 sobre o instalador `v1.0.175`, o código da branch `production`, a VM `trace-dallogix-prod` e o fluxo de implantação do PC industrial.
+Revisão feita em 23/10/2026 sobre a falha do instalador `v1.0.175`, a release empresarial atual, a VM `trace-dallogix-prod` e o fluxo de instalação do PC industrial.
 
-> **Estado atual: não reinstale a release `v1.0.175`.** O erro exibido no PC corresponde à inicialização do Docker Compose sem as quatro variáveis obrigatórias. A correção está no código da branch `production`: ele gera segredos em instalação realmente nova, preserva as credenciais de um banco existente e passa o caminho do `.env` ao Compose. O endereço `trace.dallogix.com` aponta para `trace-dallogix-prod` (`164.152.197.177`), e o endpoint público responde `status=ok`; porém, em 23/10/2026, ainda servia o commit `f924d10`, enquanto a branch `production` estava em `d21a5ed`. Portanto, o deploy do código corrigido ainda precisava ser confirmado. A release `v1.0.175` é antiga e sem assinatura Authenticode.
+> **Não reutilize o `TraceSetup.exe` v1.0.175 que falhou.** Essa versão iniciou o Docker Compose sem entregar o `.env`, por isso o PC exibiu `MYSQL_PASSWORD`, `MYSQL_ROOT_PASSWORD`, `TRACE_DEVICE_TOKEN` e `CAMERA_DEVICE_TOKEN` ausentes. A correção do instalador empresarial gera credenciais aleatórias em uma instalação realmente nova, preserva as senhas de um banco existente e passa explicitamente o diretório do projeto e o `.env` ao Compose. O fluxo de deploy também preserva `TRACE_COMMIT` e `TRACE_VERSION` ao executar Docker Compose com `sudo`, para que a VM anuncie a versão que acabou de receber. Baixe somente o artefato `TraceSetup-v1.0.177` produzido com sucesso pelo workflow do repositório empresarial. O executável continua sem assinatura corporativa Authenticode; o SHA-256 confirma integridade do arquivo, não a identidade de quem o publicou.
 
 ## Resultado da revisão
 
 | Prioridade | Constatação | Evidência e efeito |
 |---|---|---|
-| Bloqueio de distribuição | `TraceSetup.exe` v1.0.175 não tem assinatura Authenticode. | O arquivo publicado tem 52.226.062 bytes e SHA-256 `e4f1e456fb6c1ad77e62186116bdff1693e77dc007aa923ad513c14105d10f40`. A tabela de certificado PE está vazia. O GitHub informa o mesmo digest do arquivo, o que valida a integridade do download, mas não identifica o publicador do programa. |
-| Bloqueio de instalação reproduzível | O executável v1.0.175 pode iniciar o Compose sem passar explicitamente o caminho do `.env`; isso produziu as mensagens de variáveis ausentes no PC. | O código `c483795` valida as quatro chaves necessárias e passa `--project-directory` e `--env-file`. A correção está no código da branch `production`, mas ainda não em um novo `TraceSetup.exe`. |
-| `.env` incompleto | O instalador v1.0.175 não completa chaves vazias em um `.env` já existente. | O código `c483795` gera segredos criptograficamente aleatórios quando não há banco existente. Se encontra banco ou instalação anterior, não troca as senhas do banco: orienta a restaurar as credenciais do backup para preservar os dados. |
-| Endereço e versão Central | A instalação pública é a VM nova `trace-dallogix-prod`, IP `164.152.197.177`. | O DNS A de `trace.dallogix.com` resolve para esse IP e `/api/health.php` responde `status=ok`, `php=true`, `mysql=true`, mas com commit `f924d10`, anterior ao `production` (`d21a5ed`). O DNS do domínio raiz não foi alterado. |
-| Release do repositório da empresa | O código fica em `dallogixempresa-max/Dallogix-Trace-Code`; a branch `production` contém a correção do `.env`. | `Build-TraceSetup.ps1` exige uma tag exata `vN.N.N`. A release `v1.0.175` está no repositório separado `VItoraaraujoo/Dallogix-Trace-System`; não a use para instalar a correção. |
-| Publicação do atualizador | O instalador e o atualizador procuram o manifesto e os pacotes em `VItoraaraujoo/Dallogix-Trace-System`. | Esse repositório ainda serve a release `v1.0.175`, mas o proprietário é uma conta pessoal. Antes de transferir os artefatos para o repositório da empresa, atualize junto as URLs, a lista de origens permitidas, as assinaturas e o fluxo de release. |
+| Assinatura do instalador | O `TraceSetup.exe` v1.0.177 não tem assinatura corporativa Authenticode. | O workflow empresarial calcula SHA-256, mas a assinatura requer um certificado de código da Dallogix. O arquivo não identifica criptograficamente o publicador. |
+| Erro reproduzido no PC | A versão v1.0.175 tentou interpolar o Compose sem as quatro credenciais obrigatórias. | O instalador empresarial atual valida e gera os segredos quando não há banco anterior e sempre passa `--project-directory` e `--env-file` ao Compose. A regressão é verificada por `Test-InstallerEnv.ps1` no workflow Windows. |
+| Proteção de banco existente | Não é seguro inventar senhas se o banco já foi inicializado. | O instalador recusa substituir `MYSQL_PASSWORD` e `MYSQL_ROOT_PASSWORD` quando detecta volume ou vestígios de uma instalação anterior. Restaure o `.env` seguro correspondente ao banco; não remova o volume. |
+| Metadados do deploy | O servidor usa `sudo` para executar Docker. | `scripts/docker_compose.sh` preserva somente `TRACE_COMMIT` e `TRACE_VERSION` para que o health check e a página pública indiquem o commit efetivamente implantado. |
+| Publicação GitHub → VM | O workflow empresarial atual compila e valida o instalador, mas não implanta a VM. A VM também não consegue ler o repositório privado sem credencial. | A atualização da VM deve ser executada pelo procedimento de deploy validado. O deploy automático exige configurar credencial e segredo no repositório empresarial; isso ainda não está ativo. |
+| Endereço e versão Central | A instalação pública é a VM nova `trace-dallogix-prod`, IP `164.152.197.177`. | O teste de saúde de `https://trace.dallogix.com/api/health.php` deve mostrar `status=ok`, `php=true`, `mysql=true`, `installation_mode=central` e o commit da release aprovada. O domínio raiz `dallogix.com` não faz parte do deploy. |
+| Release empresarial | O código oficial fica em `dallogixempresa-max/Dallogix-Trace-Code`. | `Build-TraceSetup.ps1` exige uma tag semântica exata. Use o artefato `TraceSetup-v1.0.177` do workflow empresarial; não use artefatos do repositório pessoal. |
+| Atualização automática dos PCs | O instalador e as tarefas do atualizador ainda consultam o manifesto assinado em `VItoraaraujoo/Dallogix-Trace-System`; a release empresarial não publica esse manifesto nem o pacote assinado. | A atualização automática empresarial ainda não está migrada. Não troque a URL apenas para apontar ao repositório novo: é necessário migrar o fluxo de publicação e a chave privada correspondente à chave pública já instalada nos PCs, depois validar assinatura e download ponta a ponta. |
 | Segredos locais | `.env` e `config\machine.json` contêm senhas e tokens. | Não encontrei etapa que aplique ACL restritiva a esses arquivos. Limite a leitura à conta técnica, Administradores e SYSTEM; não envie esses arquivos em chamados ou mensagens. |
 | Atualização central | O instalador exige que `/api/health.php` responda com a versão e o commit exatos do pacote. | O servidor Central precisa estar publicado antes de instalar o PC. Uma versão diferente é recusada intencionalmente. |
 | CLP físico | O assistente só habilita escrita física para o mapa reconhecido do INVT TS621, após confirmar o mapa e vincular um equipamento. | Sem esses dados, o Trace instala em modo sem escrita física. Isso não impede a instalação da interface, banco e sincronização. |
 | Backup | A instalação registra uma tarefa diária de backup do banco às 02:00 e valida o SHA-256 do arquivo. | A tarefa está prevista no código; a instalação por si só não comprova que um backup foi restaurado com sucesso. Faça uma restauração de homologação antes de considerar a rotina comprovada. |
 
-### Artefato que foi verificado
+### Validação do artefato empresarial
 
-- Release publicada: [`v1.0.175`](https://github.com/VItoraaraujoo/Dallogix-Trace-System/releases/tag/v1.0.175), commit `556ef8d0bbe781651fa3d3636730e5277b21e965`.
-- `TraceSetup.exe`: 52.226.062 bytes; SHA-256 acima; formato PE x64/Windows e empacotado com Inno Setup 6.7.0; sem assinatura Authenticode.
-- Pacote estável do atualizador: `trace-v1.0.175.tar.gz`; SHA-256 `72a2577b40eeafc0841f9a6feb05ee8636fc2d2d10a5ba49ffdf624a61976f09`. O manifesto assinado protege esse pacote, não o `TraceSetup.exe`.
-- O arquivo foi baixado e inspecionado sem executar o instalador. Esta estação não tem .NET SDK, PowerShell 7 nem `ISCC.exe`; a compilação nova é feita no Windows runner do GitHub Actions a partir de uma tag.
+- O workflow **Build Windows Installer** compila uma tag empresarial exata, analisa os scripts PowerShell, testa a criação das quatro variáveis do `.env`, confirma os parâmetros `--project-directory` e `--env-file`, inspeciona o executável e anexa o SHA-256.
+- Baixe `TraceSetup-v1.0.177` em **Actions → execução da tag → Artifacts**. Compare o SHA-256 do EXE com o arquivo `TraceSetup.sha256.txt` incluído no ZIP.
+- O instalador é x64/Windows e inclui o runtime publicado do aplicativo. O tamanho aproximado de 52 MB vem do aplicativo auto-contido, WebView2/bootstrapper e componentes necessários; o arquivo não é só o código PHP.
+- Não há certificado corporativo Authenticode. O artefato continua sujeito ao aviso do Windows para publicador desconhecido, mesmo que o hash corresponda.
 
 ## O que precisa estar pronto antes de instalar
 
-1. Uma compilação nova do `TraceSetup.exe`, feita a partir da mesma tag do repositório da empresa. O artefato continua sem Authenticode válido enquanto a empresa não configurar um certificado de assinatura.
-2. A VM nova publicada em `https://trace.dallogix.com`, com `version` e `commit` iguais aos da release do instalador. O DNS desse subdomínio já aponta para a VM nova; não prossiga com a instalação do PC até a verificação de saúde pública mostrar o commit de produção esperado.
-3. Manifesto estável e pacote assinado acessíveis no endereço oficial do atualizador.
+1. O artefato `TraceSetup-v1.0.177` do workflow empresarial concluído com sucesso. O artefato continua sem Authenticode válido enquanto a empresa não configurar um certificado de assinatura.
+2. A VM nova publicada em `https://trace.dallogix.com`, com `version` e `commit` iguais aos da release do instalador. Não prossiga até a verificação de saúde pública mostrar o commit de produção esperado.
+3. Para ativar atualização automática em novos PCs, primeiro conclua a migração do manifesto e do pacote assinado para a publicação empresarial. Até essa migração, o atualizador continua dependente do repositório pessoal indicado no `.env`.
 4. Um PC x64 com Windows atualizado, virtualização habilitada no BIOS/UEFI, WSL 2 e Docker Desktop. O Docker Desktop exige pelo menos 8 GB de RAM segundo sua documentação atual; para uso comercial em organizações maiores, confirme a licença antes da instalação.
 5. Código de ativação e credenciais do administrador da empresa no Trace. Se o PC já tiver banco local, faça e valide um backup antes de atualizar ou reparar.
 
@@ -60,7 +62,7 @@ O último comando precisa listar uma tag de release aprovada. Ao publicar essa t
 Para compilar localmente quando a tag estiver disponível, cole o bloco abaixo e informe a tag aprovada quando solicitado. Na compilação automatizada, abra **Actions → Build Windows Installer** depois de publicar a tag e baixe `TraceSetup-<tag>` em **Artifacts** quando o job terminar com sucesso.
 
 ```powershell
-$releaseTag = Read-Host 'Tag aprovada, por exemplo v1.0.176'
+$releaseTag = Read-Host 'Tag aprovada, por exemplo v1.0.177'
 if ($releaseTag -notmatch '^v\d+\.\d+\.\d+$') { throw 'Tag inválida.' }
 git fetch --tags origin
 git checkout --detach $releaseTag
