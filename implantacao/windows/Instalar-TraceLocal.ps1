@@ -395,6 +395,12 @@ try {
         throw "TRACE_MODBUS_HEARTBEAT_REGISTER deve ser um valor entre 0 e 65535."
     }
     $centralUrl = Get-CentralBaseUrl $values["TRACE_CENTRAL_URL"]
+    if ($centralUrl -eq 'https://trace.santocloud.com.br') {
+        $centralUrl = 'https://trace.dallogix.com'
+        Set-EnvValue $envPath 'TRACE_CENTRAL_URL' $centralUrl
+        $values['TRACE_CENTRAL_URL'] = $centralUrl
+        Write-Host 'Servidor Central legado convertido para trace.dallogix.com.'
+    }
     if ($centralUrl -ne $values["TRACE_CENTRAL_URL"].TrimEnd('/')) {
         throw "TRACE_CENTRAL_URL deve conter apenas a origem HTTPS do servidor, sem caminho de pagina."
     }

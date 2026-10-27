@@ -8,6 +8,7 @@ $PackageRoot = (Resolve-Path -LiteralPath $PackageRoot).Path
 $taskName = 'Dallogix Trace Atualizacao Estavel'
 $legacyTaskName = 'Dallogix Trace Atualizacao'
 $manifestUrl = 'https://github.com/dallogixempresa-max/Dallogix-Trace-Code/releases/latest/download/manifest.json'
+$legacyManifestUrl = 'https://github.com/VItoraaraujoo/Dallogix-Trace-System/releases/latest/download/manifest.json'
 $publicKey = Join-Path $PackageRoot 'servidor\configuracao\trace-update-public.pem'
 $envPath = Join-Path $PackageRoot '.env'
 $updater = Join-Path $PackageRoot 'implantacao\windows\TraceUpdater.ps1'
@@ -42,7 +43,9 @@ foreach ($line in [IO.File]::ReadAllLines($envPath)) {
         $key = $matches[1]
         if ($seen.ContainsKey($key)) { throw "O .env repete $key. Corrija antes de habilitar atualizacoes." }
         $seen[$key] = $true
-        if ([string]::IsNullOrWhiteSpace($matches[2])) {
+        $configuredValue = $matches[2].Trim().Trim('"').Trim("'")
+        if ([string]::IsNullOrWhiteSpace($configuredValue) -or
+            ($key -eq 'UPDATE_MANIFEST_URL' -and $configuredValue -eq $legacyManifestUrl)) {
             $lines.Add("$key=$($defaults[$key])")
             $changed = $true
         } else {

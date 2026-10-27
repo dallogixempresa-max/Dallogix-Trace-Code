@@ -14,12 +14,15 @@ if (-not $inno) {
 }
 if (-not $inno) { throw "Instale o Inno Setup antes de gerar o TraceSetup.exe." }
 if (-not (Get-Command git.exe -ErrorAction SilentlyContinue)) { throw "Git for Windows e necessario para identificar a release." }
-$versionOutput = & git.exe -C $root describe --tags --exact-match HEAD
-$version = ([string]$versionOutput).Trim()
-if ($LASTEXITCODE -ne 0 -or $version -notmatch '^v\d+\.\d+\.\d+$') {
+$tagOutput = @(& git.exe -C $root tag --points-at HEAD)
+$tagExitCode = $LASTEXITCODE
+$releaseTags = @($tagOutput | Where-Object { [string]$_ -match '^v\d+\.\d+\.\d+$' })
+$version = if ($releaseTags.Count -eq 1) { [string]$releaseTags[0] } else { '' }
+if ($tagExitCode -ne 0 -or $version -notmatch '^v\d+\.\d+\.\d+$') {
     if (-not $AllowUnreleased) { throw "Compile o instalador a partir de uma tag de release aprovada (vN.N.N)." }
     $version = 'v0.0.0'
 }
+if ($releaseTags.Count -gt 1) { throw 'A release não pode ter mais de uma tag SemVer no mesmo commit.' }
 $changed = @(& git.exe -C $root status --porcelain --untracked-files=no)
 if ($LASTEXITCODE -ne 0 -or $changed.Count -gt 0) { throw "O codigo rastreado possui alteracoes locais; use a tag de release limpa." }
 $versionFile = Join-Path $root 'trace-build-version.txt'

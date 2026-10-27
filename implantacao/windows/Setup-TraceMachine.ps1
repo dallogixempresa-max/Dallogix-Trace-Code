@@ -126,8 +126,9 @@ if (-not [Uri]::TryCreate($centralUrl, [UriKind]::Absolute, [ref]$centralUri) -o
 }
 $expectedVersion = [IO.File]::ReadAllText((Join-Path $PackageRoot 'trace-build-version.txt')).Trim()
 $expectedCommit = [IO.File]::ReadAllText((Join-Path $PackageRoot 'trace-build-commit.txt')).Trim()
+$legacyManifestUrl = 'https://github.com/VItoraaraujoo/Dallogix-Trace-System/releases/latest/download/manifest.json'
 $updateManifestUrl = Get-TraceEnvValue 'UPDATE_MANIFEST_URL'
-if ([string]::IsNullOrWhiteSpace($updateManifestUrl)) {
+if ([string]::IsNullOrWhiteSpace($updateManifestUrl) -or $updateManifestUrl -eq $legacyManifestUrl) {
     $updateManifestUrl = 'https://github.com/dallogixempresa-max/Dallogix-Trace-Code/releases/latest/download/manifest.json'
 }
 $manifestHeaders = @{}
@@ -184,7 +185,10 @@ foreach ($entry in $updateDefaults.GetEnumerator()) {
         if ($envLines[$index] -match $pattern) {
             $found = $true
             $configuredValue = $Matches[1].Trim().Trim('"').Trim("'")
-            if (-not $configuredValue) { $envLines[$index] = "$($entry.Key)=$($entry.Value)" }
+            if (-not $configuredValue -or
+                ($entry.Key -eq 'UPDATE_MANIFEST_URL' -and $configuredValue -eq $legacyManifestUrl)) {
+                $envLines[$index] = "$($entry.Key)=$($entry.Value)"
+            }
             break
         }
     }

@@ -12,6 +12,11 @@ if [[ -f "$root_dir/.env" ]]; then
   . "$root_dir/.env"
   set +a
 fi
+legacy_manifest_url='https://github.com/VItoraaraujoo/Dallogix-Trace-System/releases/latest/download/manifest.json'
+if [[ "${UPDATE_MANIFEST_URL:-}" == "$legacy_manifest_url" ]]; then
+  UPDATE_MANIFEST_URL='https://github.com/dallogixempresa-max/Dallogix-Trace-Code/releases/latest/download/manifest.json'
+  export UPDATE_MANIFEST_URL
+fi
 compose_common_args=(--project-directory "$root_dir")
 installation_mode="$(printf '%s' "${TRACE_INSTALLATION_MODE:-}" | tr '[:upper:]' '[:lower:]')"
 compose_industrial=0
