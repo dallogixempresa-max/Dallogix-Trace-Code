@@ -92,18 +92,41 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  validate-release-ref:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Validate release tag before exposing environment secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$(git rev-parse "refs/tags/$tag^{commit}")" == "$GITHUB_SHA" ]]
+          git fetch --quiet --no-tags origin \
+            refs/heads/main:refs/remotes/origin/main \
+            refs/heads/production:refs/remotes/origin/production
+          git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main
+          git merge-base --is-ancestor refs/remotes/origin/production "$GITHUB_SHA"
+
   preflight-signing:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: windows-2022
     environment: production-release
+    needs: validate-release-ref
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - name: Validate signing materials before production deployment
         shell: pwsh
         env:
-          AUTHENTICODE_CERTIFICATE_PFX_BASE64: ${{ secrets.AUTHENTICODE_CERTIFICATE_PFX_BASE64 }}
-          AUTHENTICODE_CERTIFICATE_PASSWORD: ${{ secrets.AUTHENTICODE_CERTIFICATE_PASSWORD }}
+          ESIGNER_USERNAME: ${{ secrets.ESIGNER_USERNAME }}
+          ESIGNER_PASSWORD: ${{ secrets.ESIGNER_PASSWORD }}
+          ESIGNER_TOTP_SECRET: ${{ secrets.ESIGNER_TOTP_SECRET }}
           AUTHENTICODE_CERTIFICATE_THUMBPRINT: ${{ vars.AUTHENTICODE_CERTIFICATE_THUMBPRINT }}
           UPDATE_SIGNING_PRIVATE_KEY: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY }}
         run: ./implantacao/windows/Test-TraceReleaseSigningPrerequisites.ps1
@@ -232,58 +255,29 @@ jobs:
             }
           }
           & ./implantacao/windows/Test-TraceIndustrialConfiguration.ps1
-      - name: Build and sign installer with corporate Authenticode certificate
+      - name: Build unsigned release installer
         shell: pwsh
-        env:
-          SIGNING_PFX_BASE64: ${{ secrets.AUTHENTICODE_CERTIFICATE_PFX_BASE64 }}
-          SIGNING_PFX_PASSWORD: ${{ secrets.AUTHENTICODE_CERTIFICATE_PASSWORD }}
-          SIGNING_EXPECTED_THUMBPRINT: ${{ vars.AUTHENTICODE_CERTIFICATE_THUMBPRINT }}
         run: |
           $ErrorActionPreference = 'Stop'
-          foreach ($name in @('SIGNING_PFX_BASE64', 'SIGNING_PFX_PASSWORD', 'SIGNING_EXPECTED_THUMBPRINT')) {
-            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
-              throw "Production environment setting $name is required; no installer will be published unsigned."
-            }
-          }
-          $pfxPath = Join-Path $env:RUNNER_TEMP 'dallogix-codesign.pfx'
-          $pfxBytes = [Convert]::FromBase64String($env:SIGNING_PFX_BASE64)
-          [IO.File]::WriteAllBytes($pfxPath, $pfxBytes)
-          $securePassword = ConvertTo-SecureString $env:SIGNING_PFX_PASSWORD -AsPlainText -Force
-          try {
-            $pfx = Get-PfxData -FilePath $pfxPath -Password $securePassword
-            $certificate = @($pfx.EndEntityCertificates)[0]
-            if (-not $certificate) { throw 'PFX does not contain an end-entity certificate.' }
-            if ($certificate.Thumbprint -ne ($env:SIGNING_EXPECTED_THUMBPRINT -replace '\s', '').ToUpperInvariant()) {
-              throw 'PFX thumbprint does not match AUTHENTICODE_CERTIFICATE_THUMBPRINT.'
-            }
-            if ($certificate.NotBefore.ToUniversalTime() -gt [DateTime]::UtcNow -or
-                $certificate.NotAfter.ToUniversalTime() -le [DateTime]::UtcNow) {
-              throw 'The corporate signing certificate is outside its validity period.'
-            }
-            $ekuExtension = $certificate.Extensions | Where-Object { $_.Oid.Value -eq '2.5.29.37' } | Select-Object -First 1
-            $hasCodeSigningEku = $false
-            if ($ekuExtension) {
-              $hasCodeSigningEku = @(([Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension]$ekuExtension).EnhancedKeyUsages | Where-Object { $_.Value -eq '1.3.6.1.5.5.7.3.3' }).Count -gt 0
-            }
-            if (-not $hasCodeSigningEku) { throw 'The configured certificate does not have the Code Signing EKU.' }
-            Import-PfxCertificate -FilePath $pfxPath -CertStoreLocation Cert:\CurrentUser\My -Password $securePassword | Out-Null
-          } finally {
-            Remove-Item -LiteralPath $pfxPath -Force -ErrorAction SilentlyContinue
-          }
-
           & ./implantacao/windows/Build-TraceSetup.ps1
           if ($LASTEXITCODE -ne 0) { throw 'TraceSetup build failed.' }
           $setup = Get-Item ./implantacao/windows/Output/TraceSetup.exe
           if ($setup.Length -lt 10MB) { throw 'TraceSetup.exe is unexpectedly small.' }
-          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Filter signtool.exe -File -Recurse |
-            Where-Object { $_.FullName -match '\\x64\\' } |
-            Sort-Object { [version]$_.VersionInfo.FileVersion } -Descending |
-            Select-Object -First 1
-          if (-not $signtool) { throw 'Windows SDK signtool.exe was not found.' }
-          & $signtool.FullName sign /sha1 $certificate.Thumbprint /s My /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $setup.FullName
-          if ($LASTEXITCODE -ne 0) { throw 'Authenticode signing failed.' }
-          & $signtool.FullName verify /pa /v $setup.FullName
-          if ($LASTEXITCODE -ne 0) { throw 'Authenticode verification failed.' }
+
+      - name: Sign installer with SSL.com eSigner
+        shell: pwsh
+        env:
+          ESIGNER_USERNAME: ${{ secrets.ESIGNER_USERNAME }}
+          ESIGNER_PASSWORD: ${{ secrets.ESIGNER_PASSWORD }}
+          ESIGNER_TOTP_SECRET: ${{ secrets.ESIGNER_TOTP_SECRET }}
+          AUTHENTICODE_CERTIFICATE_THUMBPRINT: ${{ vars.AUTHENTICODE_CERTIFICATE_THUMBPRINT }}
+        run: ./implantacao/windows/Sign-TraceAuthenticode.ps1 -PathToSign ./implantacao/windows/Output/TraceSetup.exe
+
+      - name: Create signed installer checksum
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $setup = Get-Item ./implantacao/windows/Output/TraceSetup.exe
           $hash = (Get-FileHash -LiteralPath $setup.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
           Set-Content -LiteralPath ./implantacao/windows/Output/TraceSetup.sha256.txt -Value "$hash  TraceSetup.exe" -Encoding ascii
       - name: Create signed updater package and manifest
@@ -306,47 +300,52 @@ jobs:
           $payloadPath = Join-Path $env:RUNNER_TEMP 'manifest-payload.txt'
           $signaturePath = Join-Path $env:RUNNER_TEMP 'manifest-signature.bin'
           $manifestPath = Join-Path $env:RUNNER_TEMP 'manifest.json'
-          New-Item -ItemType Directory -Force -Path $stage | Out-Null
-          & git archive --format=zip "--output=$archiveZip" HEAD
-          if ($LASTEXITCODE -ne 0) { throw 'Could not export the exact tagged source tree.' }
-          Expand-Archive -LiteralPath $archiveZip -DestinationPath $stage
-          [IO.File]::WriteAllText((Join-Path $stage 'trace-build-version.txt'), "$tag`n", (New-Object System.Text.UTF8Encoding($false)))
-          [IO.File]::WriteAllText((Join-Path $stage 'trace-build-commit.txt'), "$commit`n", (New-Object System.Text.UTF8Encoding($false)))
-          & tar.exe -czf $archivePath -C $stage .
-          if ($LASTEXITCODE -ne 0) { throw 'Could not create updater package.' }
+          try {
+            New-Item -ItemType Directory -Force -Path $stage | Out-Null
+            & git archive --format=zip "--output=$archiveZip" HEAD
+            if ($LASTEXITCODE -ne 0) { throw 'Could not export the exact tagged source tree.' }
+            Expand-Archive -LiteralPath $archiveZip -DestinationPath $stage
+            [IO.File]::WriteAllText((Join-Path $stage 'trace-build-version.txt'), "$tag`n", (New-Object System.Text.UTF8Encoding($false)))
+            [IO.File]::WriteAllText((Join-Path $stage 'trace-build-commit.txt'), "$commit`n", (New-Object System.Text.UTF8Encoding($false)))
+            & tar.exe -czf $archivePath -C $stage .
+            if ($LASTEXITCODE -ne 0) { throw 'Could not create updater package.' }
 
-          [IO.File]::WriteAllText($privatePath, $env:UPDATE_PRIVATE_KEY, (New-Object System.Text.UTF8Encoding($false)))
-          $openssl = Join-Path $env:ProgramFiles 'Git\usr\bin\openssl.exe'
-          if (-not (Test-Path -LiteralPath $openssl -PathType Leaf)) { throw 'OpenSSL from Git for Windows was not found.' }
-          & $openssl pkey -in $privatePath -pubout -outform DER -out $derivedPublic
-          if ($LASTEXITCODE -ne 0) { throw 'The updater private key could not be parsed.' }
-          & $openssl pkey -pubin -in ./servidor/configuracao/trace-update-public.pem -outform DER -out $expectedPublic
-          if ($LASTEXITCODE -ne 0) { throw 'The tracked updater public key could not be parsed.' }
-          $derivedHash = (Get-FileHash -LiteralPath $derivedPublic -Algorithm SHA256).Hash
-          $expectedHash = (Get-FileHash -LiteralPath $expectedPublic -Algorithm SHA256).Hash
-          if ($derivedHash -ne $expectedHash) { throw 'UPDATE_SIGNING_PRIVATE_KEY does not match the tracked updater public key.' }
+            [IO.File]::WriteAllText($privatePath, $env:UPDATE_PRIVATE_KEY, (New-Object System.Text.UTF8Encoding($false)))
+            $openssl = Join-Path $env:ProgramFiles 'Git\usr\bin\openssl.exe'
+            if (-not (Test-Path -LiteralPath $openssl -PathType Leaf)) { throw 'OpenSSL from Git for Windows was not found.' }
+            & $openssl pkey -in $privatePath -pubout -outform DER -out $derivedPublic
+            if ($LASTEXITCODE -ne 0) { throw 'The updater private key could not be parsed.' }
+            & $openssl pkey -pubin -in ./servidor/configuracao/trace-update-public.pem -outform DER -out $expectedPublic
+            if ($LASTEXITCODE -ne 0) { throw 'The tracked updater public key could not be parsed.' }
+            $derivedHash = (Get-FileHash -LiteralPath $derivedPublic -Algorithm SHA256).Hash
+            $expectedHash = (Get-FileHash -LiteralPath $expectedPublic -Algorithm SHA256).Hash
+            if ($derivedHash -ne $expectedHash) { throw 'UPDATE_SIGNING_PRIVATE_KEY does not match the tracked updater public key.' }
 
-          $artifactUrl = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$tag/trace-$tag.tar.gz"
-          $packageHash = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
-          [IO.File]::WriteAllText($payloadPath, "$tag`n$artifactUrl`n$packageHash`n", (New-Object System.Text.UTF8Encoding($false)))
-          & $openssl dgst -sha256 -sign $privatePath -out $signaturePath $payloadPath
-          if ($LASTEXITCODE -ne 0) { throw 'Updater manifest signing failed.' }
-          $signature = [Convert]::ToBase64String([IO.File]::ReadAllBytes($signaturePath))
-          $manifest = [ordered]@{
-            version = $tag
-            channel = 'stable'
-            artifact_url = $artifactUrl
-            sha256 = $packageHash
-            signature = $signature
-          } | ConvertTo-Json -Depth 4
-          [IO.File]::WriteAllText($manifestPath, $manifest + "`n", (New-Object System.Text.UTF8Encoding($false)))
-          $manifestDirectory = Join-Path $env:RUNNER_TEMP 'trace-release-assets'
-          New-Item -ItemType Directory -Force -Path $manifestDirectory | Out-Null
-          Copy-Item $archivePath (Join-Path $manifestDirectory "trace-$tag.tar.gz")
-          Copy-Item $manifestPath (Join-Path $manifestDirectory 'manifest.json')
-          Copy-Item ./implantacao/windows/Output/TraceSetup.exe $manifestDirectory
-          Copy-Item ./implantacao/windows/Output/TraceSetup.sha256.txt $manifestDirectory
-          Remove-Item -LiteralPath $privatePath -Force -ErrorAction SilentlyContinue
+            $artifactUrl = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$tag/trace-$tag.tar.gz"
+            $packageHash = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+            [IO.File]::WriteAllText($payloadPath, "$tag`n$artifactUrl`n$packageHash`n", (New-Object System.Text.UTF8Encoding($false)))
+            & $openssl dgst -sha256 -sign $privatePath -out $signaturePath $payloadPath
+            if ($LASTEXITCODE -ne 0) { throw 'Updater manifest signing failed.' }
+            $signature = [Convert]::ToBase64String([IO.File]::ReadAllBytes($signaturePath))
+            $manifest = [ordered]@{
+              version = $tag
+              channel = 'stable'
+              artifact_url = $artifactUrl
+              sha256 = $packageHash
+              signature = $signature
+            } | ConvertTo-Json -Depth 4
+            [IO.File]::WriteAllText($manifestPath, $manifest + "`n", (New-Object System.Text.UTF8Encoding($false)))
+            $manifestDirectory = Join-Path $env:RUNNER_TEMP 'trace-release-assets'
+            New-Item -ItemType Directory -Force -Path $manifestDirectory | Out-Null
+            Copy-Item $archivePath (Join-Path $manifestDirectory "trace-$tag.tar.gz")
+            Copy-Item $manifestPath (Join-Path $manifestDirectory 'manifest.json')
+            Copy-Item ./implantacao/windows/Output/TraceSetup.exe $manifestDirectory
+            Copy-Item ./implantacao/windows/Output/TraceSetup.sha256.txt $manifestDirectory
+          } finally {
+            if (Test-Path -LiteralPath $privatePath -PathType Leaf) {
+              Remove-Item -LiteralPath $privatePath -Force
+            }
+          }
       - name: Publish signed GitHub release
         shell: pwsh
         env:
