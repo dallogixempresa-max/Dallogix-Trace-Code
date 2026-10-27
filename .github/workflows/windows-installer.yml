@@ -300,47 +300,52 @@ jobs:
           $payloadPath = Join-Path $env:RUNNER_TEMP 'manifest-payload.txt'
           $signaturePath = Join-Path $env:RUNNER_TEMP 'manifest-signature.bin'
           $manifestPath = Join-Path $env:RUNNER_TEMP 'manifest.json'
-          New-Item -ItemType Directory -Force -Path $stage | Out-Null
-          & git archive --format=zip "--output=$archiveZip" HEAD
-          if ($LASTEXITCODE -ne 0) { throw 'Could not export the exact tagged source tree.' }
-          Expand-Archive -LiteralPath $archiveZip -DestinationPath $stage
-          [IO.File]::WriteAllText((Join-Path $stage 'trace-build-version.txt'), "$tag`n", (New-Object System.Text.UTF8Encoding($false)))
-          [IO.File]::WriteAllText((Join-Path $stage 'trace-build-commit.txt'), "$commit`n", (New-Object System.Text.UTF8Encoding($false)))
-          & tar.exe -czf $archivePath -C $stage .
-          if ($LASTEXITCODE -ne 0) { throw 'Could not create updater package.' }
+          try {
+            New-Item -ItemType Directory -Force -Path $stage | Out-Null
+            & git archive --format=zip "--output=$archiveZip" HEAD
+            if ($LASTEXITCODE -ne 0) { throw 'Could not export the exact tagged source tree.' }
+            Expand-Archive -LiteralPath $archiveZip -DestinationPath $stage
+            [IO.File]::WriteAllText((Join-Path $stage 'trace-build-version.txt'), "$tag`n", (New-Object System.Text.UTF8Encoding($false)))
+            [IO.File]::WriteAllText((Join-Path $stage 'trace-build-commit.txt'), "$commit`n", (New-Object System.Text.UTF8Encoding($false)))
+            & tar.exe -czf $archivePath -C $stage .
+            if ($LASTEXITCODE -ne 0) { throw 'Could not create updater package.' }
 
-          [IO.File]::WriteAllText($privatePath, $env:UPDATE_PRIVATE_KEY, (New-Object System.Text.UTF8Encoding($false)))
-          $openssl = Join-Path $env:ProgramFiles 'Git\usr\bin\openssl.exe'
-          if (-not (Test-Path -LiteralPath $openssl -PathType Leaf)) { throw 'OpenSSL from Git for Windows was not found.' }
-          & $openssl pkey -in $privatePath -pubout -outform DER -out $derivedPublic
-          if ($LASTEXITCODE -ne 0) { throw 'The updater private key could not be parsed.' }
-          & $openssl pkey -pubin -in ./servidor/configuracao/trace-update-public.pem -outform DER -out $expectedPublic
-          if ($LASTEXITCODE -ne 0) { throw 'The tracked updater public key could not be parsed.' }
-          $derivedHash = (Get-FileHash -LiteralPath $derivedPublic -Algorithm SHA256).Hash
-          $expectedHash = (Get-FileHash -LiteralPath $expectedPublic -Algorithm SHA256).Hash
-          if ($derivedHash -ne $expectedHash) { throw 'UPDATE_SIGNING_PRIVATE_KEY does not match the tracked updater public key.' }
+            [IO.File]::WriteAllText($privatePath, $env:UPDATE_PRIVATE_KEY, (New-Object System.Text.UTF8Encoding($false)))
+            $openssl = Join-Path $env:ProgramFiles 'Git\usr\bin\openssl.exe'
+            if (-not (Test-Path -LiteralPath $openssl -PathType Leaf)) { throw 'OpenSSL from Git for Windows was not found.' }
+            & $openssl pkey -in $privatePath -pubout -outform DER -out $derivedPublic
+            if ($LASTEXITCODE -ne 0) { throw 'The updater private key could not be parsed.' }
+            & $openssl pkey -pubin -in ./servidor/configuracao/trace-update-public.pem -outform DER -out $expectedPublic
+            if ($LASTEXITCODE -ne 0) { throw 'The tracked updater public key could not be parsed.' }
+            $derivedHash = (Get-FileHash -LiteralPath $derivedPublic -Algorithm SHA256).Hash
+            $expectedHash = (Get-FileHash -LiteralPath $expectedPublic -Algorithm SHA256).Hash
+            if ($derivedHash -ne $expectedHash) { throw 'UPDATE_SIGNING_PRIVATE_KEY does not match the tracked updater public key.' }
 
-          $artifactUrl = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$tag/trace-$tag.tar.gz"
-          $packageHash = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
-          [IO.File]::WriteAllText($payloadPath, "$tag`n$artifactUrl`n$packageHash`n", (New-Object System.Text.UTF8Encoding($false)))
-          & $openssl dgst -sha256 -sign $privatePath -out $signaturePath $payloadPath
-          if ($LASTEXITCODE -ne 0) { throw 'Updater manifest signing failed.' }
-          $signature = [Convert]::ToBase64String([IO.File]::ReadAllBytes($signaturePath))
-          $manifest = [ordered]@{
-            version = $tag
-            channel = 'stable'
-            artifact_url = $artifactUrl
-            sha256 = $packageHash
-            signature = $signature
-          } | ConvertTo-Json -Depth 4
-          [IO.File]::WriteAllText($manifestPath, $manifest + "`n", (New-Object System.Text.UTF8Encoding($false)))
-          $manifestDirectory = Join-Path $env:RUNNER_TEMP 'trace-release-assets'
-          New-Item -ItemType Directory -Force -Path $manifestDirectory | Out-Null
-          Copy-Item $archivePath (Join-Path $manifestDirectory "trace-$tag.tar.gz")
-          Copy-Item $manifestPath (Join-Path $manifestDirectory 'manifest.json')
-          Copy-Item ./implantacao/windows/Output/TraceSetup.exe $manifestDirectory
-          Copy-Item ./implantacao/windows/Output/TraceSetup.sha256.txt $manifestDirectory
-          Remove-Item -LiteralPath $privatePath -Force -ErrorAction SilentlyContinue
+            $artifactUrl = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$tag/trace-$tag.tar.gz"
+            $packageHash = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+            [IO.File]::WriteAllText($payloadPath, "$tag`n$artifactUrl`n$packageHash`n", (New-Object System.Text.UTF8Encoding($false)))
+            & $openssl dgst -sha256 -sign $privatePath -out $signaturePath $payloadPath
+            if ($LASTEXITCODE -ne 0) { throw 'Updater manifest signing failed.' }
+            $signature = [Convert]::ToBase64String([IO.File]::ReadAllBytes($signaturePath))
+            $manifest = [ordered]@{
+              version = $tag
+              channel = 'stable'
+              artifact_url = $artifactUrl
+              sha256 = $packageHash
+              signature = $signature
+            } | ConvertTo-Json -Depth 4
+            [IO.File]::WriteAllText($manifestPath, $manifest + "`n", (New-Object System.Text.UTF8Encoding($false)))
+            $manifestDirectory = Join-Path $env:RUNNER_TEMP 'trace-release-assets'
+            New-Item -ItemType Directory -Force -Path $manifestDirectory | Out-Null
+            Copy-Item $archivePath (Join-Path $manifestDirectory "trace-$tag.tar.gz")
+            Copy-Item $manifestPath (Join-Path $manifestDirectory 'manifest.json')
+            Copy-Item ./implantacao/windows/Output/TraceSetup.exe $manifestDirectory
+            Copy-Item ./implantacao/windows/Output/TraceSetup.sha256.txt $manifestDirectory
+          } finally {
+            if (Test-Path -LiteralPath $privatePath -PathType Leaf) {
+              Remove-Item -LiteralPath $privatePath -Force
+            }
+          }
       - name: Publish signed GitHub release
         shell: pwsh
         env:
