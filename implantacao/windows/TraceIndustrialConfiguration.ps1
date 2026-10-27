@@ -327,6 +327,7 @@ function Show-TraceIndustrialSettingsDialog {
     $form.CancelButton = $cancelButton
 
     if ($modelIndex -eq 0) { $mapCheck.Enabled = $false; $enableCheck.Enabled = $false }
+    while ($true) {
     $dialogResult = $form.ShowDialog()
     if ($dialogResult -ne [System.Windows.Forms.DialogResult]::OK) { return $null }
 
@@ -364,7 +365,18 @@ function Show-TraceIndustrialSettingsDialog {
         scanner_usb_pattern = [string]$scannerItem.Pattern
         scanner_no_read_timeout_ms = $timeoutField.Text
     }
-    $settings = ConvertTo-TraceIndustrialSettings $values
+    try {
+        $settings = ConvertTo-TraceIndustrialSettings $values
+    } catch {
+        [System.Windows.Forms.MessageBox]::Show(
+            $_.Exception.Message,
+            'Revise os parâmetros',
+            [System.Windows.Forms.MessageBoxButtons]::OK,
+            [System.Windows.Forms.MessageBoxIcon]::Error
+        ) | Out-Null
+        $form.DialogResult = [System.Windows.Forms.DialogResult]::None
+        continue
+    }
     if ($ConfirmNoActiveLoad) {
         $confirmation = [System.Windows.Forms.MessageBox]::Show(
             'Aplicar vai reiniciar a API e a integração industrial por alguns instantes. Confirme que não há carregamento ativo.',
@@ -372,9 +384,13 @@ function Show-TraceIndustrialSettingsDialog {
             [System.Windows.Forms.MessageBoxButtons]::YesNo,
             [System.Windows.Forms.MessageBoxIcon]::Warning
         )
-        if ($confirmation -ne [System.Windows.Forms.DialogResult]::Yes) { return $null }
+        if ($confirmation -ne [System.Windows.Forms.DialogResult]::Yes) {
+            $form.DialogResult = [System.Windows.Forms.DialogResult]::None
+            continue
+        }
     }
     return $settings
+    }
 }
 
 function Set-TraceEnvValues {
