@@ -42,6 +42,8 @@ Source: "TraceLauncher.cmd"; DestDir: "{app}\implantacao\windows"; Flags: ignore
 Source: "Install-TraceMachine.ps1"; DestDir: "{app}\implantacao\windows"; Flags: ignoreversion
 Source: "Start-TraceDocker.ps1"; DestDir: "{app}\implantacao\windows"; Flags: ignoreversion
 Source: "Setup-TraceMachine.ps1"; DestDir: "{app}\implantacao\windows"; Flags: ignoreversion
+Source: "TraceIndustrialConfiguration.ps1"; DestDir: "{app}\implantacao\windows"; Flags: ignoreversion
+Source: "Configure-TraceIndustrial.ps1"; DestDir: "{app}\implantacao\windows"; Flags: ignoreversion
 Source: "..\..\desktop\DallogixTrace\trace.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Dirs]
@@ -52,6 +54,7 @@ Name: "{app}\logs"
 [Icons]
 Name: "{commondesktop}\Dallogix Trace"; Filename: "{app}\DallogixTrace.exe"; WorkingDir: "{app}"; IconFilename: "{app}\trace.ico"
 Name: "{autoprograms}\Dallogix Trace"; Filename: "{app}\DallogixTrace.exe"; WorkingDir: "{app}"; IconFilename: "{app}\trace.ico"
+Name: "{autoprograms}\Configurar CLP e leitor do Dallogix Trace"; Filename: "powershell.exe"; Parameters: "-NoLogo -NoProfile -ExecutionPolicy Bypass -STA -File ""{app}\implantacao\windows\Configure-TraceIndustrial.ps1"" -PackageRoot ""{app}"""; WorkingDir: "{app}"; IconFilename: "{app}\trace.ico"; Comment: "Configura os parâmetros do CLP e do leitor USB HID"
 
 [Registry]
 Root: HKLM; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "Dallogix Trace"; ValueData: """{app}\DallogixTrace.exe"""; Flags: uninsdeletevalue
@@ -131,7 +134,7 @@ var
   Parameters: String;
 begin
   if CurStep <> ssPostInstall then Exit;
-  Parameters := '-NoLogo -NoProfile -ExecutionPolicy Bypass -File "' +
+  Parameters := '-NoLogo -NoProfile -ExecutionPolicy Bypass -STA -File "' +
     ExpandConstant('{app}\implantacao\windows\Setup-TraceMachine.ps1') +
     '" -PackageRoot "' + ExpandConstant('{app}') + '"';
   if not Exec('powershell.exe', Parameters, ExpandConstant('{app}'),

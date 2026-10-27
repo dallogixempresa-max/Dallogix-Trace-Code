@@ -102,7 +102,7 @@ while ($true) {
                 Send-DeviceHeartbeat "SCANNER" $scannerStatus @{
                     machine_id = [string]$config.machine_id
                     equipment_code = [string]$config.equipment_code
-                    scanner_model = "Elgin EL8600"
+                    scanner_model = if ([string]::IsNullOrWhiteSpace([string]$config.scanner_model)) { "USB HID" } else { [string]$config.scanner_model }
                     signal_source = "WINDOWS_PNP_USB_HID"
                 }
                 $lastReportedScannerStatus = $scannerStatus

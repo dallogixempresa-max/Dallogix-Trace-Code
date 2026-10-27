@@ -1,12 +1,16 @@
 param(
     [string]$PackageRoot = (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path))),
-    [string]$MachineConfig = (Join-Path $PSScriptRoot "machine-config.json")
+    [string]$MachineConfig = (Join-Path $PSScriptRoot "machine-config.json"),
+    [switch]$IndustrialOnly
 )
 $ErrorActionPreference = "Stop"
 
 $databaseVolumeGuard = Join-Path $PSScriptRoot 'TraceDatabaseVolume.ps1'
 if (-not (Test-Path -LiteralPath $databaseVolumeGuard -PathType Leaf)) { throw "Protecao do volume MySQL ausente: $databaseVolumeGuard" }
 . $databaseVolumeGuard
+$industrialConfigScript = Join-Path $PSScriptRoot 'TraceIndustrialConfiguration.ps1'
+if (-not (Test-Path -LiteralPath $industrialConfigScript -PathType Leaf)) { throw "Configurador industrial ausente: $industrialConfigScript" }
+. $industrialConfigScript
 
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     throw "Execute a preparação inicial com uma conta técnica administradora."
@@ -20,6 +24,7 @@ if (-not (Get-Command docker.exe -ErrorAction SilentlyContinue)) { throw "Docker
 
 $config = Get-Content $MachineConfig -Raw | ConvertFrom-Json
 if (-not $config.machine_id -or -not $config.central_api_url) { throw "machine.json sem identidade ou servidor central." }
+$industrialSettings = ConvertTo-TraceIndustrialSettings -Configuration $config
 $equipmentId = if ($null -eq $config.equipment_id) { 0 } else { [int]$config.equipment_id }
 $equipmentCode = if ($null -eq $config.equipment_code) { "" } else { [string]$config.equipment_code }
 $deviceToken = if ($null -eq $config.device_token) { "" } else { [string]$config.device_token }
@@ -33,10 +38,10 @@ if (-not $hasEquipment -and (-not [string]::IsNullOrWhiteSpace($equipmentCode) -
 if ($null -ne $config.physical_clp_enabled -and $config.physical_clp_enabled -isnot [bool]) {
     throw "physical_clp_enabled deve ser booleano (true ou false)."
 }
-$physicalClpEnabled = $config.physical_clp_enabled -eq $true
-$ioMapStatus = if ([string]::IsNullOrWhiteSpace([string]$config.io_map_status)) { "CONFIRMAR" } else { [string]$config.io_map_status }
+$physicalClpEnabled = $industrialSettings.physical_clp_enabled
+$ioMapStatus = $industrialSettings.io_map_status
 if ($ioMapStatus -notin @("CONFIRMAR", "APPROVED")) { throw "io_map_status deve ser CONFIRMAR ou APPROVED." }
-$modbusMap = $config.modbus_map
+$modbusMap = $industrialSettings.modbus_map
 $modbusSignals = @("conveyor_run_coil", "reverse_command_coil", "emergency_command_coil", "emergency_feedback_coil")
 $modbusAddresses = @{}
 if ($physicalClpEnabled) {
@@ -83,7 +88,22 @@ $nodeRedEnvLines = @($nodeRedEnvValues.GetEnumerator() | ForEach-Object { "$($_.
     (($nodeRedEnvLines -join [Environment]::NewLine) + [Environment]::NewLine),
     ([System.Text.UTF8Encoding]::new($false))
 )
+Set-TraceEnvValues -Path $envFile -Values (ConvertTo-TraceIndustrialEnvValues -Settings $industrialSettings)
 Set-Location $PackageRoot
+
+& docker.exe compose --profile industrial config --quiet
+if ($LASTEXITCODE -ne 0) { throw "A configuração validada do Docker Compose não passou. Nenhum container foi reiniciado." }
+
+if ($IndustrialOnly) {
+    & docker.exe compose --profile industrial up -d --no-deps node-red
+    if ($LASTEXITCODE -ne 0) { throw "O Node-RED não foi reiniciado com a configuração industrial salva." }
+    if ($hasEquipment -and (Get-ScheduledTask -TaskName "Dallogix Trace Agent" -ErrorAction SilentlyContinue)) {
+        Stop-ScheduledTask -TaskName "Dallogix Trace Agent" -ErrorAction SilentlyContinue
+        Start-ScheduledTask -TaskName "Dallogix Trace Agent"
+    }
+    Write-Output "Configuração industrial aplicada. Node-RED e agente atualizados; banco e volumes não foram alterados."
+    return
+}
 
 # O Docker Desktop precisa ser iniciado na sessão interativa do operador. A
 # tarefa antiga apontava para um .cmd em Downloads, que pode ser apagado ou

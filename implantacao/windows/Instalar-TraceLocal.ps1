@@ -300,7 +300,7 @@ try {
 
     $envPath = Join-Path $PackageRoot ".env"
     if (-not (Test-Path -LiteralPath $envPath)) {
-        $defaultCentral = "https://trace.santocloud.com.br"
+        $defaultCentral = "https://trace.dallogix.com"
         $answer = if ($CentralUrl) { $CentralUrl } else { Read-Host "URL HTTPS do servidor central [$defaultCentral]" }
         if ([string]::IsNullOrWhiteSpace($answer)) { $answer = $defaultCentral }
         $centralUrl = Get-CentralBaseUrl $answer

@@ -4,17 +4,26 @@
   "equipment_id": 1,
   "equipment_code": "EST-001",
   "trace_url": "http://127.0.0.1:8080",
-  "central_api_url": "https://api.seudominio.com.br",
+  "central_api_url": "https://trace.dallogix.com",
   "device_token": "PREENCHER_FORA_DO_REPOSITORIO",
   "heartbeat_seconds": 15,
+  "scanner_model": "",
   "scanner_usb_pattern": "",
+  "scanner_no_read_timeout_ms": 1500,
   "operation_mode": "SIMULATED",
+  "plc_model": "",
   "physical_clp_enabled": false,
-  "io_map_status": "APPROVED",
+  "io_map_status": "CONFIRMAR",
+  "modbus_unit_id": 1,
+  "modbus_heartbeat_function": 1,
+  "modbus_heartbeat_register": 2052,
+  "modbus_sensor_register": 2052,
+  "sensor_active_level": "1",
+  "sensor_signal_mode": "rising_edge",
   "modbus_map": {
-    "conveyor_run_coil": 2049,
-    "reverse_command_coil": 2050,
-    "emergency_command_coil": 2051,
-    "emergency_feedback_coil": 17
+    "conveyor_run_coil": null,
+    "reverse_command_coil": null,
+    "emergency_command_coil": null,
+    "emergency_feedback_coil": null
   }
 }

@@ -126,7 +126,7 @@ if ($loading["state"] !== "CARREGANDO") {
 }
 
 $loadingValidCount = (int) $loading["leituras_validas"];
-// O Elgin EL8600 envia o código como teclado USB. Associe a leitura ao evento
+// Leitores em modo de teclado USB HID enviam o código como teclado. Associe a leitura ao evento
 // de passagem mais recente ainda dentro da janela, sem exigir outro pedido do navegador.
 if (!$sensorEventId && $barcode !== "") {
     $associationWindowMs = max(500, min(10000, (int) (getenv("TRACE_SCANNER_NO_READ_TIMEOUT_MS") ?: 1500)));

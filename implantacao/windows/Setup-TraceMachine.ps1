@@ -4,6 +4,11 @@ param(
 $ErrorActionPreference = "Stop"
 
 $resolvedPackageRoot = (Resolve-Path -LiteralPath $PackageRoot).Path
+$industrialConfigScript = Join-Path $resolvedPackageRoot "implantacao\windows\TraceIndustrialConfiguration.ps1"
+if (-not (Test-Path -LiteralPath $industrialConfigScript -PathType Leaf)) {
+    throw "Configurador industrial do Trace não encontrado: $industrialConfigScript"
+}
+. $industrialConfigScript
 $legacyRoot = Join-Path $env:ProgramData "DallogixTrace"
 if ((Test-Path -LiteralPath (Join-Path $legacyRoot "docker-compose.yml") -PathType Leaf) -and
     ($resolvedPackageRoot -ne (Resolve-Path -LiteralPath $legacyRoot).Path)) {
@@ -82,7 +87,7 @@ function Test-TraceReleaseAccess([string]$ManifestUrl, [string]$MinimumVersion, 
 
     $artifactUri = $null
     $versionPath = [regex]::Escape([string]$manifest.version)
-    $artifactPathPattern = "^/VItoraaraujoo/Dallogix-Trace-System/releases/download/$versionPath/trace-$versionPath\.tar\.gz$"
+    $artifactPathPattern = "^/dallogixempresa-max/Dallogix-Trace-Code/releases/download/$versionPath/trace-$versionPath\.tar\.gz$"
     if (-not [Uri]::TryCreate([string]$manifest.artifact_url, [UriKind]::Absolute, [ref]$artifactUri) -or
         $artifactUri.Scheme -ne 'https' -or
         $artifactUri.Host -ne 'github.com' -or
@@ -112,30 +117,7 @@ function Ask([string]$Label, [string]$Default = "") {
     return $value
 }
 
-function Get-TraceUsbHidCandidates {
-    try {
-        $devices = @(Get-PnpDevice -PresentOnly -ErrorAction Stop | Where-Object {
-            $_.Class -in @("Keyboard", "HIDClass") -and
-            ([string]$_.InstanceId) -like "USB\VID_*" -and
-            $_.Status -eq "OK"
-        })
-        $candidates = foreach ($device in $devices) {
-            $instanceId = [string]$device.InstanceId
-            if ($instanceId -match '\A(USB\\VID_[0-9A-F]{4}&PID_[0-9A-F]{4}(?:&MI_[0-9A-F]{2})?)') {
-                [pscustomobject]@{
-                    Name = [string]$device.FriendlyName
-                    Pattern = $Matches[1]
-                }
-            }
-        }
-        return @($candidates | Sort-Object Pattern -Unique)
-    } catch {
-        Write-Warning "Não foi possível listar dispositivos USB HID: $($_.Exception.Message)"
-        return @()
-    }
-}
-
-$centralUrl = Ask "URL HTTPS do servidor central" "https://trace.santocloud.com.br"
+$centralUrl = Ask "URL HTTPS do servidor central" "https://trace.dallogix.com"
 $centralUri = $null
 if (-not [Uri]::TryCreate($centralUrl, [UriKind]::Absolute, [ref]$centralUri) -or
     $centralUri.Scheme -ne 'https' -or $centralUri.AbsolutePath -ne '/' -or
@@ -146,7 +128,7 @@ $expectedVersion = [IO.File]::ReadAllText((Join-Path $PackageRoot 'trace-build-v
 $expectedCommit = [IO.File]::ReadAllText((Join-Path $PackageRoot 'trace-build-commit.txt')).Trim()
 $updateManifestUrl = Get-TraceEnvValue 'UPDATE_MANIFEST_URL'
 if ([string]::IsNullOrWhiteSpace($updateManifestUrl)) {
-    $updateManifestUrl = 'https://github.com/VItoraaraujoo/Dallogix-Trace-System/releases/latest/download/manifest.json'
+    $updateManifestUrl = 'https://github.com/dallogixempresa-max/Dallogix-Trace-Code/releases/latest/download/manifest.json'
 }
 $manifestHeaders = @{}
 $manifestToken = Get-TraceEnvValue 'UPDATE_MANIFEST_TOKEN'
@@ -242,38 +224,28 @@ if (-not [string]::IsNullOrWhiteSpace($equipmentIdText)) {
     }
 }
 $traceUrl = Ask "URL local do Trace" "http://127.0.0.1:8080"
-$scannerUsbPattern = ""
-$scannerCandidates = @(Get-TraceUsbHidCandidates)
-if ($scannerCandidates.Count -gt 0) {
-    Write-Output "Dispositivos USB HID encontrados. Selecione somente o Elgin EL8600; deixe 0 se não conseguir identificá-lo agora."
-    for ($index = 0; $index -lt $scannerCandidates.Count; $index++) {
-        Write-Output ("{0}. {1} — {2}" -f ($index + 1), $scannerCandidates[$index].Name, $scannerCandidates[$index].Pattern)
-    }
-    $scannerSelectionText = Ask "Número do Elgin EL8600 (0 para configurar depois)" "0"
-    $scannerSelection = 0
-    if (-not [int]::TryParse($scannerSelectionText, [ref]$scannerSelection) -or
-        $scannerSelection -lt 0 -or $scannerSelection -gt $scannerCandidates.Count) {
-        throw "Seleção USB inválida. Nenhuma configuração foi aplicada."
-    }
-    if ($scannerSelection -gt 0) {
-        $scannerUsbPattern = $scannerCandidates[$scannerSelection - 1].Pattern
-    }
-} else {
-    Write-Warning "Nenhum dispositivo USB HID elegível encontrado. A detecção do scanner ficará sem configuração."
+$currentIndustrial = [ordered]@{
+    equipment_id = if ($null -eq $equipmentId) { 0 } else { $equipmentId }
+    plc_model = ""
+    physical_clp_enabled = $false
+    io_map_status = "CONFIRMAR"
+    modbus_map = $null
+    scanner_usb_pattern = ""
+    scanner_model = ""
+    scanner_no_read_timeout_ms = 1500
+    modbus_unit_id = 1
+    modbus_heartbeat_function = 1
+    modbus_heartbeat_register = 2052
+    modbus_sensor_register = 2052
+    sensor_active_level = "1"
+    sensor_signal_mode = "rising_edge"
 }
-$physicalConnection = (Ask "A máquina terá conexão prevista com CLP físico? (S/N)" "N").ToUpperInvariant() -eq "S"
-$plcModel = if ($physicalConnection) { Ask "Modelo do CLP (digite INVT TS621 para selecionar o mapa aprovado)" "" } else { "" }
-$hasApprovedTs621Map = $physicalConnection -and $plcModel.Trim().Equals("INVT TS621", [StringComparison]::OrdinalIgnoreCase)
-$approvedMapConfirmed = $false
-if ($hasApprovedTs621Map) {
-    $approvedMapConfirmed = (Ask "Confirma que esta Dala usa o mapa aprovado: motor M2049, reversão M2050, emergência M2051 e retorno M17? (S/N)" "N").ToUpperInvariant() -eq "S"
-}
-$enablePhysicalCommands = $false
-if ($approvedMapConfirmed -and $equipmentId -gt 0) {
-    $enablePhysicalCommands = (Ask "Habilitar comandos físicos usando o mapa aprovado deste INVT TS621? (S/N)" "N").ToUpperInvariant() -eq "S"
-} elseif ($approvedMapConfirmed) {
-    Write-Warning "Vincule primeiro esta máquina a uma Dala. O mapa aprovado será salvo, mas os comandos físicos ficarão desabilitados."
-}
+$linkedEquipmentId = if ($null -eq $equipmentId) { 0 } else { [int]$equipmentId }
+$industrialSettings = Show-TraceIndustrialSettingsDialog -CurrentConfig $currentIndustrial -EquipmentId $linkedEquipmentId -CentralUrl $centralUrl
+if ($null -eq $industrialSettings) { throw "A instalação foi cancelada na configuração industrial." }
+$physicalConnection = $industrialSettings.plc_model -eq "INVT TS621"
+$approvedMapConfirmed = $industrialSettings.io_map_status -eq "APPROVED"
+$enablePhysicalCommands = $industrialSettings.physical_clp_enabled
 
 $machineConfig = [ordered]@{
     machine_id = $machineId
@@ -283,16 +255,20 @@ $machineConfig = [ordered]@{
     device_token = $deviceToken
     trace_url = $traceUrl
     heartbeat_seconds = 30
-    scanner_usb_pattern = $scannerUsbPattern
+    scanner_model = $industrialSettings.scanner_model
+    scanner_usb_pattern = $industrialSettings.scanner_usb_pattern
+    scanner_no_read_timeout_ms = $industrialSettings.scanner_no_read_timeout_ms
     operation_mode = if ($physicalConnection) { "PHYSICAL" } else { "SIMULATED" }
     physical_clp_enabled = $enablePhysicalCommands
-    io_map_status = if ($approvedMapConfirmed) { "APPROVED" } else { "CONFIRMAR" }
-    modbus_map = [ordered]@{
-        conveyor_run_coil = if ($approvedMapConfirmed) { 2049 } else { $null }
-        reverse_command_coil = if ($approvedMapConfirmed) { 2050 } else { $null }
-        emergency_command_coil = if ($approvedMapConfirmed) { 2051 } else { $null }
-        emergency_feedback_coil = if ($approvedMapConfirmed) { 17 } else { $null }
-    }
+    plc_model = $industrialSettings.plc_model
+    io_map_status = $industrialSettings.io_map_status
+    modbus_unit_id = $industrialSettings.modbus_unit_id
+    modbus_heartbeat_function = $industrialSettings.modbus_heartbeat_function
+    modbus_heartbeat_register = $industrialSettings.modbus_heartbeat_register
+    modbus_sensor_register = $industrialSettings.modbus_sensor_register
+    sensor_active_level = $industrialSettings.sensor_active_level
+    sensor_signal_mode = $industrialSettings.sensor_signal_mode
+    modbus_map = $industrialSettings.modbus_map
 }
 $machineConfig | ConvertTo-Json -Depth 5 | Set-Content -Path (Join-Path $configDir "machine.json") -Encoding UTF8
 

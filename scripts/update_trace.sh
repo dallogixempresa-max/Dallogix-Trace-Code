@@ -107,7 +107,7 @@ curl_download() {
   fi
 }
 
-manifest_url="${UPDATE_MANIFEST_URL:-https://github.com/VItoraaraujoo/Dallogix-Trace-System/releases/latest/download/manifest.json}"
+manifest_url="${UPDATE_MANIFEST_URL:-https://github.com/dallogixempresa-max/Dallogix-Trace-Code/releases/latest/download/manifest.json}"
 public_key="${UPDATE_PUBLIC_KEY_FILE:-$root_dir/servidor/configuracao/trace-update-public.pem}"
 channel="${UPDATE_CHANNEL:-stable}"
 dry_run="${TRACE_UPDATE_DRY_RUN:-0}"

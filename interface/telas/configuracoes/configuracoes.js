@@ -2,7 +2,7 @@ import { button, esc } from "../../js/funcoes/html.js";
 
 const DEVICE_TYPES = [
   ["SENSOR", "Sensor", "Sinal de passagem no CLP"],
-  ["SCANNER", "Scanner", "Elgin EL8600 · USB HID"],
+  ["SCANNER", "Scanner", "Leitor configurado · USB HID"],
   ["CLP", "CLP", "Controle da esteira"],
   ["CAMERA", "Câmera", "Registro visual"],
   ["SERVER", "Servidor", "API desta instalação"],
@@ -45,7 +45,7 @@ export function apresentacaoStatusDispositivo(value, type = "") {
         online: true,
         tone: "online",
         label: "CONECTADO",
-        detail: "Elgin EL8600 detectado no USB.",
+        detail: "Leitor USB HID detectado no PC industrial.",
       };
     }
     if (normalized === "OFFLINE") {
@@ -54,7 +54,7 @@ export function apresentacaoStatusDispositivo(value, type = "") {
         online: false,
         tone: "offline",
         label: "DESCONECTADO",
-        detail: "Elgin EL8600 não detectado no USB.",
+        detail: "Leitor USB HID não detectado no PC industrial.",
       };
     }
     if (normalized === "ERRO") {
