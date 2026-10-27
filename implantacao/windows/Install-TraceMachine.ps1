@@ -95,13 +95,13 @@ Set-Location $PackageRoot
 if ($LASTEXITCODE -ne 0) { throw "A configuração validada do Docker Compose não passou. Nenhum container foi reiniciado." }
 
 if ($IndustrialOnly) {
-    & docker.exe compose --profile industrial up -d --no-deps node-red
-    if ($LASTEXITCODE -ne 0) { throw "O Node-RED não foi reiniciado com a configuração industrial salva." }
+    & docker.exe compose --profile industrial up -d --no-deps --wait --wait-timeout 120 php node-red
+    if ($LASTEXITCODE -ne 0) { throw "A API e o Node-RED não ficaram saudáveis com a configuração industrial salva." }
     if ($hasEquipment -and (Get-ScheduledTask -TaskName "Dallogix Trace Agent" -ErrorAction SilentlyContinue)) {
         Stop-ScheduledTask -TaskName "Dallogix Trace Agent" -ErrorAction SilentlyContinue
         Start-ScheduledTask -TaskName "Dallogix Trace Agent"
     }
-    Write-Output "Configuração industrial aplicada. Node-RED e agente atualizados; banco e volumes não foram alterados."
+    Write-Output "Configuração industrial aplicada. API, Node-RED e agente atualizados; banco e volumes não foram alterados."
     return
 }
 

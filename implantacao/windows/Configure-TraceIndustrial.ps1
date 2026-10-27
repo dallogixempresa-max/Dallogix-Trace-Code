@@ -40,7 +40,8 @@ if ($null -ne $config.equipment_id -and
 $settings = Show-TraceIndustrialSettingsDialog `
     -CurrentConfig $config `
     -EquipmentId $equipmentId `
-    -CentralUrl ([string]$config.central_api_url)
+    -CentralUrl ([string]$config.central_api_url) `
+    -ConfirmNoActiveLoad
 if ($null -eq $settings) { exit 0 }
 
 foreach ($name in @(

@@ -159,7 +159,8 @@ function Show-TraceIndustrialSettingsDialog {
     param(
         [object]$CurrentConfig,
         [int]$EquipmentId = 0,
-        [string]$CentralUrl = "https://trace.dallogix.com"
+        [string]$CentralUrl = "https://trace.dallogix.com",
+        [switch]$ConfirmNoActiveLoad
     )
     Add-Type -AssemblyName System.Windows.Forms
     Add-Type -AssemblyName System.Drawing
@@ -304,6 +305,7 @@ function Show-TraceIndustrialSettingsDialog {
     $timeoutField = & $textbox "scanner_no_read_timeout_ms" ([string](Get-TraceConfigProperty $CurrentConfig "scanner_no_read_timeout_ms" 1500)) 22 505 120
     & $label "Prazo sem leitura antes de registrar SEM_LEITURA (500–10000 ms)" 22 482 640 20
     & $label "Leitores USB HID funcionam como teclado. O KEYENCE SR-X100W via Ethernet/TCP não está integrado neste pacote; não selecione como USB se estiver configurado apenas pela rede." 22 538 645 48
+    & $label "Aplicar uma alteração reinicia a API e a integração por alguns instantes. Faça isso entre carregamentos." 22 590 645 36
 
     $buttons = New-Object System.Windows.Forms.FlowLayoutPanel
     $buttons.FlowDirection = "RightToLeft"
@@ -362,7 +364,17 @@ function Show-TraceIndustrialSettingsDialog {
         scanner_usb_pattern = [string]$scannerItem.Pattern
         scanner_no_read_timeout_ms = $timeoutField.Text
     }
-    return ConvertTo-TraceIndustrialSettings $values
+    $settings = ConvertTo-TraceIndustrialSettings $values
+    if ($ConfirmNoActiveLoad) {
+        $confirmation = [System.Windows.Forms.MessageBox]::Show(
+            'Aplicar vai reiniciar a API e a integração industrial por alguns instantes. Confirme que não há carregamento ativo.',
+            'Confirmar aplicação da configuração',
+            [System.Windows.Forms.MessageBoxButtons]::YesNo,
+            [System.Windows.Forms.MessageBoxIcon]::Warning
+        )
+        if ($confirmation -ne [System.Windows.Forms.DialogResult]::Yes) { return $null }
+    }
+    return $settings
 }
 
 function Set-TraceEnvValues {
