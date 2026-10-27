@@ -127,8 +127,7 @@ services:
       retries: 10
 
   mysql:
-    image: trace-industrial-pc-mysql:8.4.12-minimal
-    platform: linux/amd64
+    image: trace-industrial-pc-mysql:8.4.13-community
     build:
       context: ./docker/mysql
       dockerfile: Dockerfile

@@ -119,10 +119,19 @@ internal sealed class TraceForm : Form
     private async Task StartAsync()
     {
         var root = AppContext.BaseDirectory;
+        var composeProjectDirectory = root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         var compose = Path.Combine(root, "docker-compose.yml");
         if (!File.Exists(compose)) { ShowFailure("Instalação incompleta: docker-compose.yml não encontrado."); return; }
+        var envFile = Path.Combine(root, ".env");
+        if (!File.Exists(envFile)) { ShowFailure("Arquivo de configuração .env não encontrado. Execute novamente o instalador do Trace."); return; }
         try
         {
+            var missingEnvKeys = FindMissingRequiredEnvKeys(envFile);
+            if (missingEnvKeys.Length > 0)
+            {
+                ShowFailure($"A configuração local está incompleta: {string.Join(", ", missingEnvKeys)}. Execute novamente o instalador do Trace para concluir a configuração.");
+                return;
+            }
             SetLoadingStatus("Localizando o Docker Desktop...");
             var docker = FindDockerCli();
             SetLoadingStatus("Iniciando o mecanismo Linux do Docker...");
@@ -130,7 +139,7 @@ internal sealed class TraceForm : Form
             SetLoadingStatus("Iniciando os serviços do Trace...");
             var composeResult = await RunProcessAsync(
                 docker,
-                "compose --profile industrial up -d",
+                $"compose --project-directory \"{composeProjectDirectory}\" --env-file \"{envFile}\" --profile industrial up -d",
                 root,
                 TimeSpan.FromMinutes(2)
             );
@@ -282,6 +291,35 @@ internal sealed class TraceForm : Form
         {
             webRecoveryInProgress = false;
         }
+    }
+
+    private static string[] FindMissingRequiredEnvKeys(string envFile)
+    {
+        var values = new System.Collections.Generic.Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var rawLine in File.ReadLines(envFile))
+        {
+            var line = rawLine.Trim();
+            if (line.Length == 0 || line.StartsWith('#')) continue;
+            var separator = line.IndexOf('=');
+            if (separator <= 0) continue;
+
+            var key = line[..separator].Trim();
+            var value = line[(separator + 1)..].Trim();
+            if (value.Length >= 2 &&
+                ((value[0] == '"' && value[^1] == '"') || (value[0] == '\'' && value[^1] == '\'')))
+            {
+                value = value[1..^1].Trim();
+            }
+            values[key] = value;
+        }
+
+        var requiredKeys = new[] { "MYSQL_PASSWORD", "MYSQL_ROOT_PASSWORD", "TRACE_DEVICE_TOKEN", "CAMERA_DEVICE_TOKEN" };
+        var missing = new System.Collections.Generic.List<string>();
+        foreach (var key in requiredKeys)
+        {
+            if (!values.TryGetValue(key, out var value) || string.IsNullOrWhiteSpace(value)) missing.Add(key);
+        }
+        return missing.ToArray();
     }
 
     private static string FindDockerCli()

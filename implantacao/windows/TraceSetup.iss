@@ -56,9 +56,6 @@ Name: "{commondesktop}\Dallogix Trace"; Filename: "{app}\DallogixTrace.exe"; Wor
 Name: "{autoprograms}\Dallogix Trace"; Filename: "{app}\DallogixTrace.exe"; WorkingDir: "{app}"; IconFilename: "{app}\trace.ico"
 Name: "{autoprograms}\Configurar CLP e leitor do Dallogix Trace"; Filename: "powershell.exe"; Parameters: "-NoLogo -NoProfile -ExecutionPolicy Bypass -STA -File ""{app}\implantacao\windows\Configure-TraceIndustrial.ps1"" -PackageRoot ""{app}"""; WorkingDir: "{app}"; IconFilename: "{app}\trace.ico"; Comment: "Configura os parâmetros do CLP e do leitor USB HID"
 
-[Registry]
-Root: HKLM; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "Dallogix Trace"; ValueData: """{app}\DallogixTrace.exe"""; Flags: uninsdeletevalue
-
 [Code]
 function ParseTraceVersion(Value: String; var Packed: Int64): Boolean;
 var
@@ -142,4 +139,13 @@ begin
     RaiseException('Não foi possível iniciar a configuração do Trace: ' + SysErrorMessage(ResultCode));
   if ResultCode <> 0 then
     RaiseException('A configuração do Trace falhou. Código: ' + IntToStr(ResultCode) + '. Veja o erro exibido na janela de configuração.');
+  if not RegWriteStringValue(HKLM, 'Software\Microsoft\Windows\CurrentVersion\Run',
+    'Dallogix Trace', '"' + ExpandConstant('{app}\DallogixTrace.exe') + '"') then
+    RaiseException('A configuração foi concluída, mas não foi possível registrar o início automático do Trace.');
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usPostUninstall then
+    RegDeleteValue(HKLM, 'Software\Microsoft\Windows\CurrentVersion\Run', 'Dallogix Trace');
 end;
