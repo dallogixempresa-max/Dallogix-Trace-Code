@@ -2,13 +2,13 @@
 
 Revisão feita em 23/10/2026 sobre a falha do instalador `v1.0.175`, a release empresarial atual, a VM `trace-dallogix-prod` e o fluxo de instalação do PC industrial.
 
-> **Não reutilize o `TraceSetup.exe` v1.0.175 que falhou.** Essa versão iniciou o Docker Compose sem entregar o `.env`, por isso o PC exibiu `MYSQL_PASSWORD`, `MYSQL_ROOT_PASSWORD`, `TRACE_DEVICE_TOKEN` e `CAMERA_DEVICE_TOKEN` ausentes. A correção do instalador empresarial gera credenciais aleatórias em uma instalação realmente nova, preserva as senhas de um banco existente e passa explicitamente o diretório do projeto e o `.env` ao Compose. O fluxo protegido preserva `TRACE_COMMIT` e `TRACE_VERSION`, passa o `.env` ao Compose, reinicia o Nginx para atualizar o endereço interno do PHP e valida o commit exato no health check. Use o artefato `TraceSetup-v1.0.181` somente depois que os jobs de build e deploy do GitHub terminarem com sucesso. O executável continua sem assinatura corporativa Authenticode; o SHA-256 confirma integridade do arquivo, não a identidade de quem o publicou.
+> **Não reutilize o `TraceSetup.exe` v1.0.175 que falhou.** Essa versão iniciou o Docker Compose sem entregar o `.env`, por isso o PC exibiu `MYSQL_PASSWORD`, `MYSQL_ROOT_PASSWORD`, `TRACE_DEVICE_TOKEN` e `CAMERA_DEVICE_TOKEN` ausentes. A correção do instalador empresarial gera credenciais aleatórias em uma instalação realmente nova, preserva as senhas de um banco existente e passa explicitamente o diretório do projeto e o `.env` ao Compose. O fluxo protegido preserva `TRACE_COMMIT` e `TRACE_VERSION`, passa o `.env` ao Compose, reinicia o Nginx para atualizar o endereço interno do PHP e valida o commit exato no health check. O instalador empresarial é publicado sem assinatura Authenticode; confira o SHA-256 no asset da release oficial antes de executar. O hash confirma integridade, não a identidade do publicador.
 
 ## Resultado da revisão
 
 | Prioridade | Constatação | Evidência e efeito |
 |---|---|---|
-| Assinatura do instalador | O instalador empresarial continua sem assinatura corporativa Authenticode. | O workflow empresarial calcula SHA-256, mas a assinatura requer um certificado de código da Dallogix. O arquivo não identifica criptograficamente o publicador. |
+| Assinatura do instalador | O instalador empresarial é publicado sem assinatura Authenticode. | O SHA-256 confirma que o arquivo corresponde ao asset da release oficial, mas não identifica criptograficamente o publicador. O Windows pode exibir publicador desconhecido ou aviso do SmartScreen. |
 | Erro reproduzido no PC | A versão v1.0.175 tentou interpolar o Compose sem as quatro credenciais obrigatórias. | O instalador empresarial atual valida e gera os segredos quando não há banco anterior e sempre passa `--project-directory` e `--env-file` ao Compose. A regressão é verificada por `Test-InstallerEnv.ps1` no workflow Windows. |
 | Proteção de banco existente | Não é seguro inventar senhas se o banco já foi inicializado. | O instalador recusa substituir `MYSQL_PASSWORD` e `MYSQL_ROOT_PASSWORD` quando detecta volume ou vestígios de uma instalação anterior. Restaure o `.env` seguro correspondente ao banco; não remova o volume. |
 | Metadados do deploy | O servidor usa `sudo` para executar Docker. | `scripts/docker_compose.sh` preserva somente `TRACE_COMMIT` e `TRACE_VERSION` para que o health check e a página pública indiquem o commit efetivamente implantado. |
@@ -24,14 +24,14 @@ Revisão feita em 23/10/2026 sobre a falha do instalador `v1.0.175`, a release e
 
 ### Validação do artefato empresarial
 
-- O workflow **Build Windows Installer** compila uma tag empresarial exata, analisa os scripts PowerShell, testa a criação das quatro variáveis do `.env`, confirma os parâmetros `--project-directory` e `--env-file`, inspeciona o executável e anexa o SHA-256.
-- Baixe `TraceSetup-v1.0.181` em **Actions → execução da tag → Artifacts** após o workflow terminar com sucesso. Compare o SHA-256 do EXE com o arquivo `TraceSetup.sha256.txt` incluído no ZIP.
+- O workflow **Windows installer** compila a tag empresarial exata depois que a implantação e o health check confirmam a mesma versão e o mesmo commit no Central. Ele analisa os scripts PowerShell, testa a criação das quatro variáveis do `.env`, confirma os parâmetros `--project-directory` e `--env-file`, inspeciona o executável e publica o SHA-256 com a release.
+- Baixe o instalador e `TraceSetup.sha256.txt` nos assets da release oficial da empresa. Compare o SHA-256 antes de executar; não use um EXE sem o arquivo de hash correspondente.
 - O instalador é x64/Windows e inclui o runtime publicado do aplicativo. O tamanho aproximado de 52 MB vem do aplicativo auto-contido, WebView2/bootstrapper e componentes necessários; o arquivo não é só o código PHP.
-- Não há certificado corporativo Authenticode. O artefato continua sujeito ao aviso do Windows para publicador desconhecido, mesmo que o hash corresponda.
+- O instalador não identifica criptograficamente o publicador e o Windows pode exibir avisos mesmo com o hash correto. O download oficial e a conferência do SHA-256 são obrigatórios neste fluxo sem Authenticode.
 
 ## O que precisa estar pronto antes de instalar
 
-1. O artefato `TraceSetup-v1.0.181` do workflow empresarial concluído com sucesso. O artefato continua sem Authenticode válido enquanto a empresa não configurar um certificado de assinatura.
+1. O instalador e `TraceSetup.sha256.txt` da release oficial empresarial, publicados somente após o health check exato do Central. O instalador não tem assinatura Authenticode.
 2. A VM nova publicada em `https://trace.dallogix.com`, com `version` e `commit` iguais aos da release do instalador. Não prossiga até a verificação de saúde pública mostrar o commit de produção esperado.
 3. Para ativar atualização automática em novos PCs, primeiro conclua a migração do manifesto e do pacote assinado para a publicação empresarial. Até essa migração, o atualizador continua dependente do repositório pessoal indicado no `.env`.
 4. Um PC x64 com Windows atualizado, virtualização habilitada no BIOS/UEFI, WSL 2 e Docker Desktop. O Docker Desktop exige pelo menos 8 GB de RAM segundo sua documentação atual; para uso comercial em organizações maiores, confirme a licença antes da instalação.
@@ -58,7 +58,7 @@ git fetch --all --tags
 git ls-remote --tags origin
 ```
 
-O último comando precisa listar uma tag de release aprovada. Uma tag semântica criada sobre a branch `production` aciona o workflow **Build Windows Installer**: ele valida os scripts, testa o contrato de deploy, compila `TraceSetup.exe`, calcula o SHA-256, guarda o artefato privado do Actions por 30 dias e, após os testes, envia a mesma tag para `trace.dallogix.com`. A VM confirma a versão implantada em `/api/health.php`. O executável não tem assinatura corporativa Authenticode. Não use uma tag do repositório pessoal para publicar código empresarial.
+O último comando precisa listar uma tag de release aprovada. Uma tag semântica sobre um commit de `main` que descende de `production` aciona o workflow **Windows installer**: ele valida a chave do manifesto do atualizador, envia o bundle da tag à VM, confirma a versão e o commit no health check, avança `production` por fast-forward, compila `TraceSetup.exe` sem Authenticode, calcula o SHA-256 e publica a release empresarial. Não use uma tag do repositório pessoal para publicar código empresarial.
 
 Para compilar localmente quando a tag estiver disponível, cole o bloco abaixo e informe a tag aprovada quando solicitado. Na compilação automatizada, abra **Actions → Build Windows Installer** depois de publicar a tag e baixe `TraceSetup-<tag>` em **Artifacts** quando todos os jobs terminarem com sucesso. O job `Deploy tagged release to trace.dallogix.com` só termina depois de validar o commit exato no health check público.
 
@@ -78,7 +78,7 @@ Get-FileHash -LiteralPath $setup.FullName -Algorithm SHA256
 Get-AuthenticodeSignature -FilePath $setup.FullName | Format-List Status, StatusMessage, SignerCertificate
 ```
 
-O build atual gera um executável **sem assinatura Authenticode**. O digest SHA-256 permite conferir que o arquivo baixado é o mesmo artefato produzido, mas não autentica quem publicou o instalador. Para remover esse bloqueio, configure um certificado de assinatura corporativo e assine o arquivo antes de distribuí-lo. O script de build já recusa arquivos alterados ou não rastreados antes de empacotar.
+O build atual gera um executável **sem assinatura Authenticode** por decisão do fluxo empresarial. O digest SHA-256 permite conferir que o arquivo baixado é o mesmo asset da release oficial, mas não autentica quem publicou o instalador. O Windows pode avisar que o publicador é desconhecido; só continue quando o download veio da release oficial e o SHA-256 corresponde. O script de build recusa arquivos alterados ou não rastreados antes de empacotar.
 
 ## B. Conferir o servidor Central antes de preparar o PC
 
@@ -174,15 +174,15 @@ if (-not (Test-Path -LiteralPath $hashPath -PathType Leaf)) { throw 'TraceSetup.
 $expectedHash = ((Get-Content -LiteralPath $hashPath -Raw).Trim() -split '\s+')[0]
 if ($expectedHash -notmatch '^[0-9a-fA-F]{64}$') { throw 'Arquivo SHA-256 inválido.' }
 $actualHash = (Get-FileHash -LiteralPath $installerPath -Algorithm SHA256).Hash
-if ($actualHash -ine $expectedHash) { throw 'O SHA-256 não corresponde. Não execute o arquivo; baixe novamente o artefato da execução aprovada.' }
+if ($actualHash -ine $expectedHash) { throw 'O SHA-256 não corresponde. Não execute o arquivo; baixe novamente o asset da release oficial.' }
 Get-AuthenticodeSignature -FilePath $installerPath | Format-List Status, StatusMessage, SignerCertificate
 ```
 
-O workflow registra se o executável tem assinatura Authenticode válida e avisa quando não tem. O digest confirma que o arquivo corresponde ao arquivo acompanhado pelo artefato, mas não substitui uma assinatura corporativa. **Não distribua o instalador para uso de produção até a Dallogix configurar e validar o certificado Authenticode.**
+O resultado `NotSigned` é esperado. O digest confirma que o arquivo corresponde ao asset publicado, mas não autentica o publicador. Continue somente se o arquivo veio da release oficial e o SHA-256 confere; o Windows pode exibir um aviso de publicador desconhecido.
 
 ## E. Instalar e responder às perguntas do assistente
 
-Só depois de a seção D terminar sem erro e a assinatura Authenticode retornar `Valid` com o certificado corporativo aprovado, execute:
+Só depois de a seção D terminar sem erro e o SHA-256 corresponder ao asset da release oficial, execute:
 
 ```powershell
 Start-Process -FilePath $installerPath -Verb RunAs -Wait

@@ -1,21 +1,7 @@
 $ErrorActionPreference = 'Stop'
 
-$requiredVariables = @(
-    'ESIGNER_USERNAME',
-    'ESIGNER_PASSWORD',
-    'ESIGNER_TOTP_SECRET',
-    'AUTHENTICODE_CERTIFICATE_THUMBPRINT',
-    'UPDATE_SIGNING_PRIVATE_KEY'
-)
-foreach ($name in $requiredVariables) {
-    if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
-        throw "Production environment setting $name is required; deployment will not start."
-    }
-}
-
-$expectedThumbprint = ($env:AUTHENTICODE_CERTIFICATE_THUMBPRINT -replace '\s', '').ToUpperInvariant()
-if ($expectedThumbprint -notmatch '^[A-F0-9]{40}$') {
-    throw 'AUTHENTICODE_CERTIFICATE_THUMBPRINT must be a 40-character SHA-1 thumbprint.'
+if ([string]::IsNullOrWhiteSpace($env:UPDATE_SIGNING_PRIVATE_KEY)) {
+    throw 'UPDATE_SIGNING_PRIVATE_KEY is required; deployment will not start.'
 }
 
 $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
@@ -48,8 +34,7 @@ try {
         throw 'UPDATE_SIGNING_PRIVATE_KEY does not match the tracked updater public key.'
     }
 
-    & (Join-Path $PSScriptRoot 'Sign-TraceAuthenticode.ps1') -PrepareOnly
-    Write-Output 'Production signing account, certificate, and updater key passed validation.'
+    Write-Output 'Production updater signing key passed validation.'
 } finally {
     foreach ($path in @($privatePath, $derivedPublic, $expectedPublic)) {
         if (Test-Path -LiteralPath $path) {

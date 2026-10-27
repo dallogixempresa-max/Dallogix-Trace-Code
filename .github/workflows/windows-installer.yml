@@ -113,7 +113,7 @@ jobs:
           git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main
           git merge-base --is-ancestor refs/remotes/origin/production "$GITHUB_SHA"
 
-  preflight-signing:
+  preflight-updater-signing:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: windows-2022
     environment: production-release
@@ -121,19 +121,15 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Validate signing materials before production deployment
+      - name: Validate updater signing key before production deployment
         shell: pwsh
         env:
-          ESIGNER_USERNAME: ${{ secrets.ESIGNER_USERNAME }}
-          ESIGNER_PASSWORD: ${{ secrets.ESIGNER_PASSWORD }}
-          ESIGNER_TOTP_SECRET: ${{ secrets.ESIGNER_TOTP_SECRET }}
-          AUTHENTICODE_CERTIFICATE_THUMBPRINT: ${{ vars.AUTHENTICODE_CERTIFICATE_THUMBPRINT }}
           UPDATE_SIGNING_PRIVATE_KEY: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY }}
-        run: ./implantacao/windows/Test-TraceReleaseSigningPrerequisites.ps1
+        run: ./implantacao/windows/Test-TraceUpdaterSigningPrerequisites.ps1
 
   deploy-production:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    needs: preflight-signing
+    needs: preflight-updater-signing
     runs-on: ubuntu-latest
     concurrency:
       group: trace-production-deploy
@@ -221,7 +217,7 @@ jobs:
           git merge-base --is-ancestor refs/remotes/origin/production "$GITHUB_SHA"
           git push origin "$GITHUB_SHA:refs/heads/production"
 
-  signed-release:
+  publish-release:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     needs: validate-release
     runs-on: windows-2022
@@ -264,16 +260,7 @@ jobs:
           $setup = Get-Item ./implantacao/windows/Output/TraceSetup.exe
           if ($setup.Length -lt 10MB) { throw 'TraceSetup.exe is unexpectedly small.' }
 
-      - name: Sign installer with SSL.com eSigner
-        shell: pwsh
-        env:
-          ESIGNER_USERNAME: ${{ secrets.ESIGNER_USERNAME }}
-          ESIGNER_PASSWORD: ${{ secrets.ESIGNER_PASSWORD }}
-          ESIGNER_TOTP_SECRET: ${{ secrets.ESIGNER_TOTP_SECRET }}
-          AUTHENTICODE_CERTIFICATE_THUMBPRINT: ${{ vars.AUTHENTICODE_CERTIFICATE_THUMBPRINT }}
-        run: ./implantacao/windows/Sign-TraceAuthenticode.ps1 -PathToSign ./implantacao/windows/Output/TraceSetup.exe
-
-      - name: Create signed installer checksum
+      - name: Create unsigned installer checksum
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -346,7 +333,7 @@ jobs:
               Remove-Item -LiteralPath $privatePath -Force
             }
           }
-      - name: Publish signed GitHub release
+      - name: Publish GitHub release with unsigned installer
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -359,5 +346,5 @@ jobs:
             (Join-Path $assets 'TraceSetup.exe') `
             (Join-Path $assets 'TraceSetup.sha256.txt') `
             --verify-tag --title $env:GITHUB_REF_NAME `
-            --notes 'Signed Trace release. This release was built from the same commit already deployed to trace.dallogix.com.'
-          if ($LASTEXITCODE -ne 0) { throw 'Could not publish the signed GitHub release.' }
+            --notes 'The Windows installer is not Authenticode signed. Verify TraceSetup.sha256.txt before running it; Windows may show an unknown-publisher warning. The updater manifest is RSA-signed. This release was built from the same commit already deployed to trace.dallogix.com.'
+          if ($LASTEXITCODE -ne 0) { throw 'Could not publish the GitHub release.' }
