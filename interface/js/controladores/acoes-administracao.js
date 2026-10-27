@@ -27,6 +27,29 @@ export function criarTratadorAcoesAdministracao({
   render,
   copiarTexto,
 }) {
+  const pcActionsInFlight = new Set();
+
+  const lockIndustrialPcActions = (node) => {
+    const installationId = String(node?.dataset?.id || "");
+    if (!installationId || pcActionsInFlight.has(installationId)) return null;
+
+    const card = node.closest(".industrial-pc-row");
+    const buttons = Array.from(card?.querySelectorAll("button") || []);
+    pcActionsInFlight.add(installationId);
+    card?.setAttribute("aria-busy", "true");
+    buttons.forEach((button) => {
+      button.disabled = true;
+    });
+
+    return () => {
+      pcActionsInFlight.delete(installationId);
+      card?.removeAttribute("aria-busy");
+      buttons.forEach((button) => {
+        button.disabled = false;
+      });
+    };
+  };
+
   const executarAcaoAdministrativa = async (acao, node) => {
     switch (acao) {
       case "archive-company": {
@@ -111,6 +134,8 @@ export function criarTratadorAcoesAdministracao({
         }
         return true;
       case "toggle-industrial-pc-access": {
+        const unlock = lockIndustrialPcActions(node);
+        if (!unlock) return true;
         const blocked = node.dataset.blocked === "true";
         const activated = node.dataset.activated === "true";
         const name = node.dataset.name || "este PC industrial";
@@ -121,8 +146,8 @@ export function criarTratadorAcoesAdministracao({
           : activated
             ? `Liberar o acesso remoto do PC industrial "${name}"? A sincronização será retomada.`
             : `Liberar a ativação do PC industrial "${name}" para permitir a geração de um código?`;
-        if (!await confirmarAcao(confirmation)) return true;
         try {
+          if (!await confirmarAcao(confirmation)) return true;
           await store.setIndustrialAccessBlocked(node.dataset.id, blocked);
           render();
           notificar(blocked
@@ -130,18 +155,24 @@ export function criarTratadorAcoesAdministracao({
             : (activated ? "Acesso remoto liberado novamente." : "Ativação liberada. Agora é possível gerar um código."));
         } catch (error) {
           notificar(error.message);
+        } finally {
+          unlock();
         }
         return true;
       }
       case "archive-industrial-pc": {
+        const unlock = lockIndustrialPcActions(node);
+        if (!unlock) return true;
         const name = node.dataset.name || "este PC industrial";
-        if (!await confirmarAcao(`Arquivar "${name}"? O acesso e o código serão revogados. A Dala e o histórico serão preservados.`)) return true;
         try {
+          if (!await confirmarAcao(`Arquivar "${name}"? O acesso e o código serão revogados. A Dala e o histórico serão preservados.`)) return true;
           await store.setIndustrialInstallationArchived(node.dataset.id, true);
           render();
           notificar("PC industrial arquivado. Para usá-lo novamente, restaure o cadastro e faça uma nova ativação.");
         } catch (error) {
           notificar(error.message);
+        } finally {
+          unlock();
         }
         return true;
       }

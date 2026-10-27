@@ -27,6 +27,23 @@ jobs:
           set -euo pipefail
           docker compose --env-file .env.example --profile industrial config --quiet
 
+  deploy-guard-tests:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse production deploy scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          for script in scripts/*.sh scripts/tests/*.sh; do
+            bash -n "$script"
+          done
+      - name: Test the guarded deployment contract
+        shell: bash
+        run: bash scripts/tests/test_deploy_from_git.sh
+
   pull-request-build:
     if: github.event_name == 'pull_request'
     runs-on: windows-2022
@@ -55,6 +72,7 @@ jobs:
             }
           }
           & ./implantacao/windows/Test-TraceIndustrialConfiguration.ps1
+          & ./implantacao/windows/Test-InstallerEnv.ps1
       - name: Build unsigned review installer
         shell: pwsh
         run: |
@@ -74,10 +92,87 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  preflight-signing:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-2022
+    environment: production-release
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate signing materials before production deployment
+        shell: pwsh
+        env:
+          AUTHENTICODE_CERTIFICATE_PFX_BASE64: ${{ secrets.AUTHENTICODE_CERTIFICATE_PFX_BASE64 }}
+          AUTHENTICODE_CERTIFICATE_PASSWORD: ${{ secrets.AUTHENTICODE_CERTIFICATE_PASSWORD }}
+          AUTHENTICODE_CERTIFICATE_THUMBPRINT: ${{ vars.AUTHENTICODE_CERTIFICATE_THUMBPRINT }}
+          UPDATE_SIGNING_PRIVATE_KEY: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY }}
+        run: ./implantacao/windows/Test-TraceReleaseSigningPrerequisites.ps1
+
+  deploy-production:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: preflight-signing
+    runs-on: ubuntu-latest
+    concurrency:
+      group: trace-production-deploy
+      cancel-in-progress: false
+    timeout-minutes: 25
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Validate release tag and fast-forward ancestry
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$(git rev-parse "refs/tags/$tag^{commit}")" == "$GITHUB_SHA" ]]
+          git fetch --quiet --no-tags origin \
+            refs/heads/main:refs/remotes/origin/main \
+            refs/heads/production:refs/remotes/origin/production
+          git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main
+          git merge-base --is-ancestor refs/remotes/origin/production "$GITHUB_SHA"
+      - name: Create and verify the exact release bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          git bundle create "$RUNNER_TEMP/trace-release.bundle" "refs/tags/$GITHUB_REF_NAME"
+          git bundle verify "$RUNNER_TEMP/trace-release.bundle"
+      - name: Send the tagged release through the restricted deploy key
+        shell: bash
+        env:
+          TRACE_PROD_DEPLOY_KEY: ${{ secrets.TRACE_PROD_DEPLOY_KEY }}
+          TRACE_PROD_HOST: 164.152.197.177
+        run: |
+          set -euo pipefail
+          [[ -n "$TRACE_PROD_DEPLOY_KEY" ]] || {
+            echo 'Repository secret TRACE_PROD_DEPLOY_KEY is not configured.' >&2
+            exit 2
+          }
+          install -m 700 -d "$HOME/.ssh"
+          printf '%s\n' "$TRACE_PROD_DEPLOY_KEY" > "$HOME/.ssh/trace-production"
+          chmod 600 "$HOME/.ssh/trace-production"
+          ssh-keygen -y -f "$HOME/.ssh/trace-production" >/dev/null
+          ssh -T \
+            -i "$HOME/.ssh/trace-production" \
+            -o IdentitiesOnly=yes \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$GITHUB_WORKSPACE/deploy/trace-production-known-hosts" \
+            "trace-deploy@$TRACE_PROD_HOST" \
+            "deploy $GITHUB_REF_NAME $GITHUB_SHA" \
+            < "$RUNNER_TEMP/trace-release.bundle"
+          rm -f "$HOME/.ssh/trace-production"
+
   validate-release:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: deploy-production
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -95,6 +190,13 @@ jobs:
           jq -e --arg version "$tag" --arg commit "$GITHUB_SHA" \
             '.status == "ok" and .installation_mode == "central" and .version == $version and (.commit | ascii_downcase) == ($commit | ascii_downcase)' \
             <<< "$health" >/dev/null
+      - name: Advance the production branch to the deployed release
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --quiet --no-tags origin refs/heads/production:refs/remotes/origin/production
+          git merge-base --is-ancestor refs/remotes/origin/production "$GITHUB_SHA"
+          git push origin "$GITHUB_SHA:refs/heads/production"
 
   signed-release:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')

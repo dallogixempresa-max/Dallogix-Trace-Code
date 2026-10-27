@@ -1,0 +1,12 @@
+[Unit]
+Description=Verifica periodicamente atualizações aprovadas do Dallogix Trace
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+RandomizedDelaySec=45s
+Persistent=true
+Unit=dallogix-trace-git-deploy.service
+
+[Install]
+WantedBy=timers.target
