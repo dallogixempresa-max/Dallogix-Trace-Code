@@ -102,8 +102,9 @@ jobs:
       - name: Validate signing materials before production deployment
         shell: pwsh
         env:
-          AUTHENTICODE_CERTIFICATE_PFX_BASE64: ${{ secrets.AUTHENTICODE_CERTIFICATE_PFX_BASE64 }}
-          AUTHENTICODE_CERTIFICATE_PASSWORD: ${{ secrets.AUTHENTICODE_CERTIFICATE_PASSWORD }}
+          ESIGNER_USERNAME: ${{ secrets.ESIGNER_USERNAME }}
+          ESIGNER_PASSWORD: ${{ secrets.ESIGNER_PASSWORD }}
+          ESIGNER_TOTP_SECRET: ${{ secrets.ESIGNER_TOTP_SECRET }}
           AUTHENTICODE_CERTIFICATE_THUMBPRINT: ${{ vars.AUTHENTICODE_CERTIFICATE_THUMBPRINT }}
           UPDATE_SIGNING_PRIVATE_KEY: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY }}
         run: ./implantacao/windows/Test-TraceReleaseSigningPrerequisites.ps1
@@ -232,58 +233,29 @@ jobs:
             }
           }
           & ./implantacao/windows/Test-TraceIndustrialConfiguration.ps1
-      - name: Build and sign installer with corporate Authenticode certificate
+      - name: Build unsigned release installer
         shell: pwsh
-        env:
-          SIGNING_PFX_BASE64: ${{ secrets.AUTHENTICODE_CERTIFICATE_PFX_BASE64 }}
-          SIGNING_PFX_PASSWORD: ${{ secrets.AUTHENTICODE_CERTIFICATE_PASSWORD }}
-          SIGNING_EXPECTED_THUMBPRINT: ${{ vars.AUTHENTICODE_CERTIFICATE_THUMBPRINT }}
         run: |
           $ErrorActionPreference = 'Stop'
-          foreach ($name in @('SIGNING_PFX_BASE64', 'SIGNING_PFX_PASSWORD', 'SIGNING_EXPECTED_THUMBPRINT')) {
-            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
-              throw "Production environment setting $name is required; no installer will be published unsigned."
-            }
-          }
-          $pfxPath = Join-Path $env:RUNNER_TEMP 'dallogix-codesign.pfx'
-          $pfxBytes = [Convert]::FromBase64String($env:SIGNING_PFX_BASE64)
-          [IO.File]::WriteAllBytes($pfxPath, $pfxBytes)
-          $securePassword = ConvertTo-SecureString $env:SIGNING_PFX_PASSWORD -AsPlainText -Force
-          try {
-            $pfx = Get-PfxData -FilePath $pfxPath -Password $securePassword
-            $certificate = @($pfx.EndEntityCertificates)[0]
-            if (-not $certificate) { throw 'PFX does not contain an end-entity certificate.' }
-            if ($certificate.Thumbprint -ne ($env:SIGNING_EXPECTED_THUMBPRINT -replace '\s', '').ToUpperInvariant()) {
-              throw 'PFX thumbprint does not match AUTHENTICODE_CERTIFICATE_THUMBPRINT.'
-            }
-            if ($certificate.NotBefore.ToUniversalTime() -gt [DateTime]::UtcNow -or
-                $certificate.NotAfter.ToUniversalTime() -le [DateTime]::UtcNow) {
-              throw 'The corporate signing certificate is outside its validity period.'
-            }
-            $ekuExtension = $certificate.Extensions | Where-Object { $_.Oid.Value -eq '2.5.29.37' } | Select-Object -First 1
-            $hasCodeSigningEku = $false
-            if ($ekuExtension) {
-              $hasCodeSigningEku = @(([Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension]$ekuExtension).EnhancedKeyUsages | Where-Object { $_.Value -eq '1.3.6.1.5.5.7.3.3' }).Count -gt 0
-            }
-            if (-not $hasCodeSigningEku) { throw 'The configured certificate does not have the Code Signing EKU.' }
-            Import-PfxCertificate -FilePath $pfxPath -CertStoreLocation Cert:\CurrentUser\My -Password $securePassword | Out-Null
-          } finally {
-            Remove-Item -LiteralPath $pfxPath -Force -ErrorAction SilentlyContinue
-          }
-
           & ./implantacao/windows/Build-TraceSetup.ps1
           if ($LASTEXITCODE -ne 0) { throw 'TraceSetup build failed.' }
           $setup = Get-Item ./implantacao/windows/Output/TraceSetup.exe
           if ($setup.Length -lt 10MB) { throw 'TraceSetup.exe is unexpectedly small.' }
-          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Filter signtool.exe -File -Recurse |
-            Where-Object { $_.FullName -match '\\x64\\' } |
-            Sort-Object { [version]$_.VersionInfo.FileVersion } -Descending |
-            Select-Object -First 1
-          if (-not $signtool) { throw 'Windows SDK signtool.exe was not found.' }
-          & $signtool.FullName sign /sha1 $certificate.Thumbprint /s My /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $setup.FullName
-          if ($LASTEXITCODE -ne 0) { throw 'Authenticode signing failed.' }
-          & $signtool.FullName verify /pa /v $setup.FullName
-          if ($LASTEXITCODE -ne 0) { throw 'Authenticode verification failed.' }
+
+      - name: Sign installer with SSL.com eSigner
+        shell: pwsh
+        env:
+          ESIGNER_USERNAME: ${{ secrets.ESIGNER_USERNAME }}
+          ESIGNER_PASSWORD: ${{ secrets.ESIGNER_PASSWORD }}
+          ESIGNER_TOTP_SECRET: ${{ secrets.ESIGNER_TOTP_SECRET }}
+          AUTHENTICODE_CERTIFICATE_THUMBPRINT: ${{ vars.AUTHENTICODE_CERTIFICATE_THUMBPRINT }}
+        run: ./implantacao/windows/Sign-TraceAuthenticode.ps1 -PathToSign ./implantacao/windows/Output/TraceSetup.exe
+
+      - name: Create signed installer checksum
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $setup = Get-Item ./implantacao/windows/Output/TraceSetup.exe
           $hash = (Get-FileHash -LiteralPath $setup.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
           Set-Content -LiteralPath ./implantacao/windows/Output/TraceSetup.sha256.txt -Value "$hash  TraceSetup.exe" -Encoding ascii
       - name: Create signed updater package and manifest
