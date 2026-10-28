@@ -35,7 +35,6 @@ Source: "TraceUpdater.ps1"; DestDir: "{app}\implantacao\windows"; Flags: ignorev
 Source: "Register-TraceUpdater.ps1"; DestDir: "{app}\implantacao\windows"; Flags: ignoreversion
 Source: "Instalar-TraceLocal.ps1"; DestDir: "{app}\implantacao\windows"; Flags: ignoreversion
 Source: "TraceAgent.ps1"; DestDir: "{app}\implantacao\windows"; Flags: ignoreversion
-Source: "Configure-TraceScanner.ps1"; DestDir: "{app}\implantacao\windows"; Flags: ignoreversion
 Source: "Build-TraceSetup.ps1"; DestDir: "{app}\implantacao\windows"; Flags: ignoreversion
 Source: "..\..\desktop\DallogixTrace\bin\Release\net8.0-windows\win-x64\publish\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
 Source: "TraceLauncher.cmd"; DestDir: "{app}\implantacao\windows"; Flags: ignoreversion
@@ -54,7 +53,7 @@ Name: "{app}\logs"
 [Icons]
 Name: "{commondesktop}\Dallogix Trace"; Filename: "{app}\DallogixTrace.exe"; WorkingDir: "{app}"; IconFilename: "{app}\trace.ico"
 Name: "{autoprograms}\Dallogix Trace"; Filename: "{app}\DallogixTrace.exe"; WorkingDir: "{app}"; IconFilename: "{app}\trace.ico"
-Name: "{autoprograms}\Configurar CLP e leitor do Dallogix Trace"; Filename: "powershell.exe"; Parameters: "-NoLogo -NoProfile -ExecutionPolicy Bypass -STA -File ""{app}\implantacao\windows\Configure-TraceIndustrial.ps1"" -PackageRoot ""{app}"""; WorkingDir: "{app}"; IconFilename: "{app}\trace.ico"; Comment: "Configura os parâmetros do CLP e do leitor USB HID"
+Name: "{autoprograms}\Configurar CLP e leitor do Dallogix Trace"; Filename: "powershell.exe"; Parameters: "-NoLogo -NoProfile -ExecutionPolicy Bypass -STA -File ""{app}\implantacao\windows\Configure-TraceIndustrial.ps1"" -PackageRoot ""{app}"""; WorkingDir: "{app}"; IconFilename: "{app}\trace.ico"; Comment: "Configura o CLP e o leitor USB HID ou KEYENCE SR-X100W por Ethernet/TCP"
 
 [Code]
 function ParseTraceVersion(Value: String; var Packed: Int64): Boolean;
