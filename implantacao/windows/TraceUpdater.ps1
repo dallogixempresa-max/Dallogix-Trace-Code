@@ -635,6 +635,36 @@ try {
     $rollbackRequired = $true
     Get-ChildItem -Path $InstallRoot -Force | Where-Object { $_.Name -notin $preservedNames } | Remove-Item -Recurse -Force
     Get-ChildItem $source -Force | Where-Object { $_.Name -notin $preservedNames } | Copy-Item -Destination $InstallRoot -Recurse -Force
+    foreach ($requiredDesktopFile in @('DallogixTrace.exe', 'WebView2Loader.dll', 'trace.ico')) {
+        $releaseDesktopFile = Join-Path $source $requiredDesktopFile
+        $installedDesktopFile = Join-Path $InstallRoot $requiredDesktopFile
+        if (-not (Test-Path -LiteralPath $releaseDesktopFile -PathType Leaf)) {
+            throw "Pacote sem arquivo obrigatório do aplicativo Windows: $requiredDesktopFile."
+        }
+        if (-not (Test-Path -LiteralPath $installedDesktopFile -PathType Leaf)) {
+            throw "Arquivo obrigatório do aplicativo Windows não foi instalado: $requiredDesktopFile."
+        }
+
+        $releaseDesktopHash = (Get-FileHash -LiteralPath $releaseDesktopFile -Algorithm SHA256).Hash.ToLowerInvariant()
+        $installedDesktopHash = (Get-FileHash -LiteralPath $installedDesktopFile -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($requiredDesktopFile -eq 'DallogixTrace.exe' -and $installedDesktopHash -ne $releaseDesktopHash) {
+            # Some Windows file-copy paths can leave an existing desktop EXE in
+            # place without surfacing a useful error. Stage and hash the signed
+            # release binary, replace it from the same volume, then verify again.
+            $stagedDesktopFile = Join-Path $work 'DallogixTrace.exe.staged'
+            Copy-Item -LiteralPath $releaseDesktopFile -Destination $stagedDesktopFile -Force
+            $stagedDesktopHash = (Get-FileHash -LiteralPath $stagedDesktopFile -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($stagedDesktopHash -ne $releaseDesktopHash) {
+                throw 'A cópia temporária do executável Windows não corresponde ao pacote da release.'
+            }
+            Move-Item -LiteralPath $stagedDesktopFile -Destination $installedDesktopFile -Force
+            $installedDesktopHash = (Get-FileHash -LiteralPath $installedDesktopFile -Algorithm SHA256).Hash.ToLowerInvariant()
+        }
+        if ($installedDesktopHash -ne $releaseDesktopHash) {
+            throw "Hash do arquivo instalado diverge do pacote da release: $requiredDesktopFile."
+        }
+        Append-UpdateLog $ComposeLogPath "Arquivo Windows validado após instalação: $requiredDesktopFile ($installedDesktopHash)."
+    }
     Ensure-TraceShortcuts
     $releaseMetadata = @{ version = $manifest.version; commit = $releaseCommit } | ConvertTo-Json -Compress
     Write-AtomicTextFile (Join-Path $InstallRoot 'servidor\.release.json') ($releaseMetadata + "`n")

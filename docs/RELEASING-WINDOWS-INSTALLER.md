@@ -22,7 +22,7 @@ Não coloque a chave privada no repositório, em artefatos ou no chat. O ambient
 
 O workflow envia à VM o bundle exato da tag pela chave de deploy restrita. O aplicador remoto faz backup validado, adia o deploy enquanto houver carregamento ativo ou manutenção, aplica migrations e confirma a versão/commit pelo health check. O workflow confere `https://trace.dallogix.com/api/health.php`, avança `production` por fast-forward e só então compila o instalador, calcula o SHA-256, assina o manifesto do atualizador e publica a release. Se o deploy ou o health check falhar, nenhuma release é publicada.
 
-O pacote do atualizador inclui a saída completa do mesmo `dotnet publish` usada pelo instalador, além de `trace.ico`. O `TraceUpdater.ps1` substitui os arquivos da aplicação e recria os atalhos; por isso o workflow valida que o tar contém `DallogixTrace.exe`, `WebView2Loader.dll` e `trace.ico` antes de assinar e publicar o manifesto.
+O pacote do atualizador inclui a saída completa do mesmo `dotnet publish` usada pelo instalador, além de `trace.ico`. O workflow valida esses arquivos no tar antes de assinar o manifesto. No PC industrial, o `TraceUpdater.ps1` confere os hashes instalados contra o pacote e, se o executável divergir, faz a troca por uma cópia temporária verificada. Qualquer divergência interrompe a atualização e aciona o rollback existente.
 
 Se a chave RSA do atualizador for rotacionada, atualize a chave pública versionada neste repositório. Instalações existentes que ainda confiam na chave antiga precisam receber manualmente ou com assistência um novo instalador antes de aceitar pacotes assinados pela chave nova.
 
