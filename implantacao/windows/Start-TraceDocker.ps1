@@ -15,6 +15,8 @@ $desktopCandidates = @(
     (Join-Path $env:ProgramFiles 'Docker\Docker\Docker Desktop.exe'),
     (Join-Path $env:LOCALAPPDATA 'Programs\DockerDesktop\Docker Desktop.exe')
 )
+$programFilesX86 = [Environment]::GetEnvironmentVariable('ProgramFiles(x86)')
+if ($programFilesX86) { $desktopCandidates += Join-Path $programFilesX86 'Docker\Docker\Docker Desktop.exe' }
 $desktop = $desktopCandidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
 if (-not $desktop) {
     Write-DockerStartLog 'Docker Desktop nao encontrado.'
@@ -50,6 +52,7 @@ $dockerCandidates = @(
     (Join-Path $env:ProgramFiles 'Docker\Docker\resources\bin\docker.exe'),
     (Join-Path $env:LOCALAPPDATA 'Programs\DockerDesktop\resources\bin\docker.exe')
 )
+if ($programFilesX86) { $dockerCandidates += Join-Path $programFilesX86 'Docker\Docker\resources\bin\docker.exe' }
 $docker = $dockerCandidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
 if (-not $docker) {
     Write-DockerStartLog 'Docker CLI nao encontrado para validar o motor Linux.'

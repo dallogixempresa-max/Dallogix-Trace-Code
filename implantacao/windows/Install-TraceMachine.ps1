@@ -11,6 +11,9 @@ if (-not (Test-Path -LiteralPath $databaseVolumeGuard -PathType Leaf)) { throw "
 $industrialConfigScript = Join-Path $PSScriptRoot 'TraceIndustrialConfiguration.ps1'
 if (-not (Test-Path -LiteralPath $industrialConfigScript -PathType Leaf)) { throw "Configurador industrial ausente: $industrialConfigScript" }
 . $industrialConfigScript
+$traceFileSecurity = Join-Path $PSScriptRoot 'TraceFileSecurity.ps1'
+if (-not (Test-Path -LiteralPath $traceFileSecurity -PathType Leaf)) { throw "Proteção da configuração industrial ausente: $traceFileSecurity" }
+. $traceFileSecurity
 
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     throw "Execute a preparação inicial com uma conta técnica administradora."
@@ -72,6 +75,7 @@ New-Item -ItemType Directory -Force -Path $configDir | Out-Null
 if ((Resolve-Path -LiteralPath $MachineConfig).Path -ne (Join-Path $configDir "machine.json")) {
     Copy-Item $MachineConfig (Join-Path $configDir "machine.json") -Force
 }
+Protect-TraceMachineConfiguration -InstallRoot $PackageRoot
 $nodeRedEnvPath = Join-Path $configDir "node-red-clp.env"
 $nodeRedEnvValues = [ordered]@{
     TRACE_PHYSICAL_CLP_ENABLED = if ($physicalClpEnabled) { "1" } else { "0" }
@@ -117,6 +121,7 @@ Set-Location $PackageRoot
     ([System.Text.UTF8Encoding]::new($false))
 )
 Set-Location $PackageRoot
+Protect-TraceMachineConfiguration -InstallRoot $PackageRoot
 
 & docker.exe compose --profile industrial config --quiet
 if ($LASTEXITCODE -ne 0) { throw "A configuração validada do Docker Compose não passou. Nenhum container foi reiniciado." }
@@ -140,6 +145,8 @@ $dockerDesktopCandidates = @(
     (Join-Path $env:ProgramFiles "Docker\Docker\Docker Desktop.exe"),
     (Join-Path $env:LOCALAPPDATA "Programs\DockerDesktop\Docker Desktop.exe")
 )
+$programFilesX86 = [Environment]::GetEnvironmentVariable("ProgramFiles(x86)")
+if ($programFilesX86) { $dockerDesktopCandidates += Join-Path $programFilesX86 "Docker\Docker\Docker Desktop.exe" }
 $dockerDesktop = $dockerDesktopCandidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
 if (-not $dockerDesktop) { throw "Docker Desktop não foi encontrado para configurar a inicialização automática." }
 $dockerStartScript = Join-Path $PackageRoot "implantacao\windows\Start-TraceDocker.ps1"

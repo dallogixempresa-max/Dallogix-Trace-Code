@@ -4,6 +4,17 @@ Revisão inicial feita em 23/10/2026 e atualizada em 28/10/2026 para a release e
 
 > **Não reutilize o `TraceSetup.exe` v1.0.175 que falhou.** Essa versão iniciou o Docker Compose sem entregar o `.env`. O instalador empresarial atual gera credenciais aleatórias em uma instalação realmente nova, preenche os segredos recém-adicionados do leitor sem trocar senhas de banco existente e passa explicitamente o diretório do projeto e o `.env` ao Compose. O fluxo protegido preserva `TRACE_COMMIT` e `TRACE_VERSION`, passa o `.env` ao Compose, reinicia o Nginx para atualizar o endereço interno do PHP e valida o commit exato no health check. O instalador empresarial é publicado sem assinatura Authenticode; confira o SHA-256 no asset da release oficial antes de executar. O hash confirma integridade, não a identidade do publicador.
 
+## Caminho recomendado de instalação
+
+1. Confirme que o servidor Central está ativo e serve a mesma versão do instalador. O próprio assistente verifica versão, commit, manifesto estável e acesso ao pacote antes de iniciar.
+2. No PC, o mecanismo Linux/WSL 2 e a virtualização precisam estar disponíveis. Se o Docker Desktop estiver ausente, o assistente oferece instalá-lo pelo Windows Package Manager; aceite os termos somente depois de confirmar que a licença de uso se aplica à empresa. A primeira abertura pode exigir configuração e reinício do Windows.
+3. Baixe `TraceSetup.exe` e `TraceSetup.sha256.txt` nos assets da [última release empresarial](https://github.com/dallogixempresa-max/Dallogix-Trace-Code/releases/latest). Execute `TraceSetup.exe` como administrador. Se estiver com uma cópia do repositório, `Instalar-PC-Windows.cmd` baixa os mesmos assets e confere o SHA-256 automaticamente.
+4. Na primeira janela, confira servidor Central, identificação sugerida com o nome do PC, endereço local e, se a Dala já estiver cadastrada, ID, código e token SERVER. O vínculo pode ser feito depois.
+5. Na segunda janela, selecione o modelo do CLP e o sensor, e escolha o KEYENCE SR-X100W ou o leitor USB. Para Keyence, informe os IPs fixos do PC e do leitor na rede isolada. A configuração Keyence do leitor no software KEYENCE e a conexão física precisam estar prontas.
+6. Defina a senha administrativa do Node-RED na janela protegida e guarde-a no gerenciador técnico da empresa. Ao terminar, o instalador valida os serviços e oferece abrir o Trace.
+
+Se a instalação não concluir, leia a mensagem na tela e `C:\DallogixTrace\armazenamento\logs\installation-setup.log`. Os diálogos principais são anteriores à inicialização do banco e dos serviços, para evitar deixar um ambiente parcialmente configurado se a máquina ou o leitor forem cancelados.
+
 ## Resultado da revisão
 
 | Prioridade | Constatação | Evidência e efeito |
@@ -17,7 +28,7 @@ Revisão inicial feita em 23/10/2026 e atualizada em 28/10/2026 para a release e
 | Endereço e versão Central | A instalação pública é a VM nova `trace-dallogix-prod`, IP `164.152.197.177`. | O teste de saúde de `https://trace.dallogix.com/api/health.php` deve mostrar `status=ok`, `php=true`, `mysql=true`, `installation_mode=central` e o commit da release aprovada. O domínio raiz `dallogix.com` não faz parte do deploy. |
 | Release empresarial | O código oficial fica em `dallogixempresa-max/Dallogix-Trace-Code`. | `Build-TraceSetup.ps1` exige uma tag semântica exata. A release empresarial atual é `v1.0.184`; baixe `TraceSetup.exe` e `TraceSetup.sha256.txt` dos assets da GitHub Release. Artefatos de revisão de pull request não são instaladores de produção. |
 | Atualização automática dos PCs | A partir da v1.0.183, o instalador empresarial configura o manifesto e a chave pública do repositório da empresa. O registro do atualizador migra URL vazia ou a URL pessoal antiga para `dallogixempresa-max/Dallogix-Trace-Code`. A release v1.0.184 publica o manifesto assinado e o pacote; assinatura e SHA-256 foram verificados contra a chave pública empresarial. | O fluxo de publicação e integridade dos artefatos está validado. Ainda é necessário confirmar no PC industrial que a tarefa agendada está registrada e executando, que o `.env` aponta para a chave e o manifesto empresariais e que o preflight passa. Instalações com uma chave pública diferente precisam da migração aprovada antes de aceitar releases empresariais; a versão do Central não comprova, por si só, a atualização do PC. |
-| Segredos locais | `.env` e `config\machine.json` contêm senhas e tokens. | Não encontrei etapa que aplique ACL restritiva a esses arquivos. Limite a leitura à conta técnica, Administradores e SYSTEM; não envie esses arquivos em chamados ou mensagens. |
+| Segredos locais | `.env`, `config\machine.json` e `config\node-red-clp.env` contêm credenciais e dados da máquina. | O instalador restringe as permissões NTFS da pasta `config` e do `.env` à conta que instalou, Administradores e SYSTEM. Não envie esses arquivos em chamados ou mensagens. |
 | Atualização central | O instalador exige que `/api/health.php` responda com a versão e o commit exatos do pacote. | O servidor Central precisa estar publicado antes de instalar o PC. Uma versão diferente é recusada intencionalmente. |
 | CLP físico | O assistente só habilita escrita física para o mapa reconhecido do INVT TS621, após confirmar o mapa e vincular um equipamento. | Sem esses dados, o Trace instala em modo sem escrita física. Isso não impede a instalação da interface, banco e sincronização. |
 | Backup | A instalação registra uma tarefa diária de backup do banco às 02:00 e valida o SHA-256 do arquivo. | A tarefa está prevista no código; a instalação por si só não comprova que um backup foi restaurado com sucesso. Faça uma restauração de homologação antes de considerar a rotina comprovada. |
@@ -197,18 +208,15 @@ Só depois de a seção D terminar sem erro e o SHA-256 corresponder ao asset da
 Start-Process -FilePath $installerPath -Verb RunAs -Wait
 ```
 
-O instalador exige interação para não inventar os vínculos e credenciais da máquina. Responda assim:
+O assistente tem duas janelas de configuração, antes de iniciar banco e serviços:
 
-1. **URL HTTPS do servidor central:** `https://trace.dallogix.com`.
-2. **Identificação da máquina:** um código único definido pela empresa, por exemplo `PC-INDUSTRIAL-001`.
-3. **ID do equipamento:** deixe vazio para vincular a Dala depois. Se preencher, informe também o código e o token real do dispositivo `SERVER` emitidos no Trace Central. Não use token de exemplo.
-4. **URL local do Trace:** mantenha `http://127.0.0.1:8080`, salvo se a equipe tiver definido outra porta.
-5. **Scanner USB:** selecione o dispositivo identificado como Elgin EL8600. Se não souber qual é, escolha `0` e configure depois.
-6. **CLP físico:** responda `S` somente quando a Dala estiver vinculada e o modelo/mapa do CLP tiver sido confirmado. Para o mapa incluído, o assistente exige `INVT TS621` e confirmação das bobinas. Sem confirmação, responda `N`; a instalação continua sem escrita física.
-7. **Senha do Node-RED:** informe e confirme uma senha com pelo menos 15 caracteres e no máximo 72 bytes em UTF-8. Ela é digitada no prompt do PowerShell; não a coloque em um comando ou arquivo de texto.
-8. Aguarde a construção dos containers e as migrations. Não feche o PowerShell durante esse processo.
+1. **Dados da máquina:** o servidor Central já vem preenchido; o identificador sugerido vem do nome deste PC. Mantenha o endereço local padrão, a menos que a empresa tenha definido outra porta. Se a Dala já estiver cadastrada, marque o vínculo e preencha o ID, código e token `SERVER`. Caso contrário, deixe desmarcado e conclua o vínculo depois.
+2. **CLP, sensor e leitor:** escolha o modelo instalado. Só confirme o mapa do INVT TS621 e habilite escrita física quando modelo, mapa e vínculo da Dala estiverem confirmados. Para o KEYENCE SR-X100W, informe os IPs fixos do PC e do leitor na rede isolada; configure o leitor no software KEYENCE para TCP/19000 e FTP passivo/2121. Se usar um leitor USB HID, conecte-o antes de abrir a janela para identificá-lo automaticamente.
+3. **Senha do Node-RED:** informe e confirme uma senha de pelo menos 15 caracteres na janela protegida. Guarde-a no gerenciador de credenciais técnico.
+4. **Docker Desktop:** se estiver ausente, o instalador oferece instalá-lo pelo Windows Package Manager. Confirme que a licença se aplica à empresa. A primeira abertura pode pedir aceite de termos, configuração do WSL 2 ou reinício; depois do reinício, abra o TraceSetup novamente se solicitado.
+5. Aguarde o Trace validar e iniciar os serviços. Na última página, deixe marcada a opção para abrir o aplicativo se quiser iniciar a ativação imediatamente.
 
-O `.env` é criado localmente e não é incluído na release. Não copie o `.env` de outro PC: ele contém credenciais próprias daquele banco. Se o assistente detectar um banco existente sem as senhas correspondentes, pare e restaure o `.env` do backup seguro; não remova o volume MySQL.
+O `.env` é criado localmente e não é incluído na release. Não copie o `.env` de outro PC: ele contém credenciais próprias daquele banco. Se o assistente detectar um banco existente sem as senhas correspondentes, pare e restaure o `.env` do backup seguro; não remova o volume MySQL. Os campos preenchidos e o `.env` existente são preservados ao reabrir o instalador para concluir ou reparar uma instalação.
 
 Após a preparação, abra o Trace local, informe o código de ativação emitido no Central e entre com o administrador da empresa. Não use o perfil master do banco como login da interface.
 

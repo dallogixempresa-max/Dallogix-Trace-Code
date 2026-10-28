@@ -176,14 +176,15 @@ function Show-TraceIndustrialSettingsDialog {
         [object]$CurrentConfig,
         [int]$EquipmentId = 0,
         [string]$CentralUrl = "https://trace.dallogix.com",
-        [switch]$ConfirmNoActiveLoad
+        [switch]$ConfirmNoActiveLoad,
+        [switch]$InitialSetup
     )
     Add-Type -AssemblyName System.Windows.Forms
     Add-Type -AssemblyName System.Drawing
     [System.Windows.Forms.Application]::EnableVisualStyles()
 
     $form = New-Object System.Windows.Forms.Form
-    $form.Text = "Configuração industrial do Dallogix Trace"
+    $form.Text = if ($InitialSetup) { "Instalação do Dallogix Trace — CLP, sensor e leitor" } else { "Configuração industrial do Dallogix Trace" }
     $form.StartPosition = "CenterScreen"
     $form.FormBorderStyle = "FixedDialog"
     $form.MaximizeBox = $false
@@ -239,8 +240,13 @@ function Show-TraceIndustrialSettingsDialog {
         return $control
     }
 
-    & $label "Central: $CentralUrl" 22 14 640 24
-    & $label "IP e porta Modbus TCP são cadastrados no registro da Dala no Central." 22 40 640 24
+    if ($InitialSetup) {
+        & $label "Etapa 2 de 2 — CLP, sensor e leitor" 22 14 640 24
+        & $label "Defina o equipamento desta linha. A escrita física começa bloqueada e só pode ser habilitada com Dala vinculada e mapa confirmado." 22 40 640 32
+    } else {
+        & $label "Central: $CentralUrl" 22 14 640 24
+        & $label "IP e porta Modbus TCP são cadastrados no registro da Dala no Central." 22 40 640 24
+    }
     & $label "CLP E SENSOR" 22 78 640 24
 
     $currentModel = [string](Get-TraceConfigProperty $CurrentConfig "plc_model" "")
@@ -347,7 +353,7 @@ function Show-TraceIndustrialSettingsDialog {
     $buttons.Padding = New-Object System.Windows.Forms.Padding(8)
     $form.Controls.Add($buttons)
     $saveButton = New-Object System.Windows.Forms.Button
-    $saveButton.Text = "Salvar configuração"
+    $saveButton.Text = if ($InitialSetup) { "Concluir configuração" } else { "Salvar configuração" }
     $saveButton.Width = 150
     $saveButton.DialogResult = [System.Windows.Forms.DialogResult]::OK
     $cancelButton = New-Object System.Windows.Forms.Button
@@ -453,7 +459,9 @@ function Set-TraceEnvValues {
     $temporaryPath = "$Path.$([guid]::NewGuid().ToString('N')).tmp"
     $backupPath = "$Path.$([guid]::NewGuid().ToString('N')).bak"
     try {
+        $originalAcl = Get-Acl -LiteralPath $Path
         [System.IO.File]::WriteAllLines($temporaryPath, $lines, $encoding)
+        Set-Acl -LiteralPath $temporaryPath -AclObject $originalAcl
         if (Test-Path -LiteralPath $Path -PathType Leaf) {
             [System.IO.File]::Replace($temporaryPath, $Path, $backupPath)
         } else {

@@ -14,6 +14,9 @@ $script:TraceComposeEnvFile = $null
 $DatabaseVolumeGuard = Join-Path $PSScriptRoot 'TraceDatabaseVolume.ps1'
 if (-not (Test-Path -LiteralPath $DatabaseVolumeGuard -PathType Leaf)) { throw "Protecao do volume MySQL ausente: $DatabaseVolumeGuard" }
 . $DatabaseVolumeGuard
+$TraceFileSecurity = Join-Path $PSScriptRoot 'TraceFileSecurity.ps1'
+if (-not (Test-Path -LiteralPath $TraceFileSecurity -PathType Leaf)) { throw "Protecao da configuracao industrial ausente: $TraceFileSecurity" }
+. $TraceFileSecurity
 
 function Assert-Success([string]$Stage, [int]$Code) {
     if ($Code -ne 0) {
@@ -93,6 +96,103 @@ function ConvertFrom-SecureStringToPlainText([System.Security.SecureString]$Valu
     }
 }
 
+function Show-NodeRedPasswordDialog([string]$Username) {
+    Add-Type -AssemblyName System.Windows.Forms
+    Add-Type -AssemblyName System.Drawing
+    [System.Windows.Forms.Application]::EnableVisualStyles()
+
+    $form = New-Object System.Windows.Forms.Form
+    $form.Text = 'Proteção do painel industrial'
+    $form.StartPosition = 'CenterScreen'
+    $form.FormBorderStyle = 'FixedDialog'
+    $form.MaximizeBox = $false
+    $form.MinimizeBox = $false
+    $form.ClientSize = New-Object System.Drawing.Size(500, 285)
+    $form.Font = New-Object System.Drawing.Font('Segoe UI', 9)
+
+    $title = New-Object System.Windows.Forms.Label
+    $title.Text = "Defina a senha do usuário administrativo $Username"
+    $title.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
+    $title.Location = New-Object System.Drawing.Point(20, 18)
+    $title.Size = New-Object System.Drawing.Size(460, 28)
+    $form.Controls.Add($title)
+
+    $note = New-Object System.Windows.Forms.Label
+    $note.Text = 'Use pelo menos 15 caracteres e até 72 bytes em UTF-8. Guarde-a no gerenciador de credenciais técnico. A senha não será exibida nem registrada.'
+    $note.Location = New-Object System.Drawing.Point(20, 51)
+    $note.Size = New-Object System.Drawing.Size(460, 44)
+    $form.Controls.Add($note)
+
+    $passwordLabel = New-Object System.Windows.Forms.Label
+    $passwordLabel.Text = 'Senha'
+    $passwordLabel.Location = New-Object System.Drawing.Point(20, 105)
+    $passwordLabel.Size = New-Object System.Drawing.Size(440, 20)
+    $form.Controls.Add($passwordLabel)
+    $passwordField = New-Object System.Windows.Forms.TextBox
+    $passwordField.UseSystemPasswordChar = $true
+    $passwordField.Location = New-Object System.Drawing.Point(20, 128)
+    $passwordField.Size = New-Object System.Drawing.Size(460, 25)
+    $form.Controls.Add($passwordField)
+
+    $confirmationLabel = New-Object System.Windows.Forms.Label
+    $confirmationLabel.Text = 'Confirme a senha'
+    $confirmationLabel.Location = New-Object System.Drawing.Point(20, 165)
+    $confirmationLabel.Size = New-Object System.Drawing.Size(440, 20)
+    $form.Controls.Add($confirmationLabel)
+    $confirmationField = New-Object System.Windows.Forms.TextBox
+    $confirmationField.UseSystemPasswordChar = $true
+    $confirmationField.Location = New-Object System.Drawing.Point(20, 188)
+    $confirmationField.Size = New-Object System.Drawing.Size(460, 25)
+    $form.Controls.Add($confirmationField)
+
+    $buttons = New-Object System.Windows.Forms.FlowLayoutPanel
+    $buttons.FlowDirection = 'RightToLeft'
+    $buttons.Dock = 'Bottom'
+    $buttons.Height = 48
+    $buttons.Padding = New-Object System.Windows.Forms.Padding(8)
+    $form.Controls.Add($buttons)
+    $continue = New-Object System.Windows.Forms.Button
+    $continue.Text = 'Continuar'
+    $continue.Width = 110
+    $continue.DialogResult = [System.Windows.Forms.DialogResult]::OK
+    $cancel = New-Object System.Windows.Forms.Button
+    $cancel.Text = 'Cancelar'
+    $cancel.Width = 100
+    $cancel.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
+    [void]$buttons.Controls.Add($continue)
+    [void]$buttons.Controls.Add($cancel)
+    $form.AcceptButton = $continue
+    $form.CancelButton = $cancel
+
+    while ($true) {
+        if ($form.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) { return $null }
+        $password = $passwordField.Text
+        $confirmation = $confirmationField.Text
+        $errorMessage = ''
+        if ($password.Length -lt 15) {
+            $errorMessage = 'A senha precisa ter pelo menos 15 caracteres.'
+        } elseif ([System.Text.Encoding]::UTF8.GetByteCount($password) -gt 72) {
+            $errorMessage = 'A senha deve ter no máximo 72 bytes em UTF-8 para evitar truncamento pelo bcrypt.'
+        } elseif (-not [string]::Equals($password, $confirmation, [StringComparison]::Ordinal)) {
+            $errorMessage = 'As senhas não conferem. Revise os dois campos.'
+        }
+        if ($errorMessage) {
+            $password = $null
+            $confirmation = $null
+            [System.Windows.Forms.MessageBox]::Show($errorMessage, 'Confira a senha', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning) | Out-Null
+            $form.DialogResult = [System.Windows.Forms.DialogResult]::None
+            continue
+        }
+
+        $securePassword = ConvertTo-SecureString -String $password -AsPlainText -Force
+        $password = $null
+        $confirmation = $null
+        $passwordField.Clear()
+        $confirmationField.Clear()
+        return $securePassword
+    }
+}
+
 function Ensure-NodeRedAdminAuth([string]$EnvPath, [hashtable]$Values) {
     $username = [string]$Values['NODE_RED_ADMIN_USER']
     if ($username -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$') {
@@ -108,21 +208,12 @@ function Ensure-NodeRedAdminAuth([string]$EnvPath, [hashtable]$Values) {
         return
     }
 
-    Write-Host "O perfil industrial exige uma senha administrativa do Node-RED."
-    Write-Host "Use uma senha com pelo menos 15 caracteres e guarde-a no gerenciador de credenciais técnico."
-    $securePassword = Read-Host "Senha do usuário $username" -AsSecureString
-    $secureConfirmation = Read-Host "Confirme a senha do Node-RED" -AsSecureString
+    Write-Host "Defina a senha administrativa do Node-RED na janela segura."
+    $securePassword = Show-NodeRedPasswordDialog $username
+    if ($null -eq $securePassword) { throw 'Instalação cancelada antes de iniciar os serviços industriais.' }
     $plainPassword = $null
-    $confirmation = $null
     try {
-        if ($securePassword.Length -lt 15) {
-            throw "A senha do Node-RED precisa ter pelo menos 15 caracteres."
-        }
         $plainPassword = ConvertFrom-SecureStringToPlainText $securePassword
-        $confirmation = ConvertFrom-SecureStringToPlainText $secureConfirmation
-        if (-not [string]::Equals($plainPassword, $confirmation, [StringComparison]::Ordinal)) {
-            throw "As senhas não conferem. Execute o instalador novamente."
-        }
         if ([System.Text.Encoding]::UTF8.GetByteCount($plainPassword) -gt 72) {
             throw "A senha do Node-RED deve ter no máximo 72 bytes em UTF-8 para evitar truncamento pelo bcrypt."
         }
@@ -149,9 +240,7 @@ function Ensure-NodeRedAdminAuth([string]$EnvPath, [hashtable]$Values) {
     } finally {
         Remove-Item Env:NODE_RED_ADMIN_PASSWORD -ErrorAction SilentlyContinue
         $plainPassword = $null
-        $confirmation = $null
         $securePassword.Dispose()
-        $secureConfirmation.Dispose()
     }
 
     Set-EnvValue $EnvPath 'NODE_RED_ADMIN_PASSWORD_HASH' $hash
@@ -267,6 +356,8 @@ function Check-DockerReady {
         (Join-Path $env:ProgramFiles "Docker\Docker\Docker Desktop.exe"),
         (Join-Path $env:LOCALAPPDATA "Programs\DockerDesktop\Docker Desktop.exe")
     )
+    $programFilesX86 = [Environment]::GetEnvironmentVariable("ProgramFiles(x86)")
+    if ($programFilesX86) { $desktopCandidates += Join-Path $programFilesX86 "Docker\Docker\Docker Desktop.exe" }
     $desktop = $desktopCandidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
     if ($desktop) {
         Write-Host "Iniciando Docker Desktop e aguardando o mecanismo Linux..."
@@ -285,13 +376,53 @@ function Initialize-DockerCli {
         (Join-Path $env:ProgramFiles "Docker\Docker\resources\bin\docker.exe"),
         (Join-Path $env:LOCALAPPDATA "Programs\DockerDesktop\resources\bin\docker.exe")
     )
+    $programFilesX86 = [Environment]::GetEnvironmentVariable('ProgramFiles(x86)')
+    if ($programFilesX86) { $dockerCandidates += Join-Path $programFilesX86 'Docker\Docker\resources\bin\docker.exe' }
+    $dockerDesktopCandidates = @(
+        (Join-Path $env:ProgramFiles 'Docker\Docker\Docker Desktop.exe'),
+        (Join-Path $env:LOCALAPPDATA 'Programs\DockerDesktop\Docker Desktop.exe')
+    )
+    if ($programFilesX86) { $dockerDesktopCandidates += Join-Path $programFilesX86 'Docker\Docker\Docker Desktop.exe' }
+
     foreach ($candidate in $dockerCandidates) {
         if (Test-Path -LiteralPath $candidate -PathType Leaf) {
             $env:PATH = "$(Split-Path -Parent $candidate);$env:PATH"
-            if (Get-Command docker.exe -ErrorAction SilentlyContinue) { return }
+            return
         }
     }
-    throw "Docker Desktop nao encontrado. Instale-o pelo CMD com: winget install --exact --id Docker.DockerDesktop --accept-source-agreements --accept-package-agreements. Depois abra o Docker Desktop, conclua a configuracao do WSL e execute este instalador novamente."
+
+    $winget = Get-Command winget.exe -ErrorAction SilentlyContinue
+    if (-not $winget) {
+        throw 'Docker Desktop não está instalado e o Windows Package Manager (winget) não está disponível. Instale o Docker Desktop pelo site oficial https://docs.docker.com/desktop/setup/install/windows-install/, abra-o e conclua a configuração do WSL 2; depois execute o TraceSetup novamente.'
+    }
+
+    Add-Type -AssemblyName System.Windows.Forms
+    $choice = [System.Windows.Forms.MessageBox]::Show(
+        "O Dallogix Trace precisa do Docker Desktop para executar o banco e os serviços locais.`r`n`r`nDeseja instalar agora pelo Windows Package Manager? A instalação pode pedir aceite dos termos e uma reinicialização. O responsável da empresa deve confirmar que a licença de uso do Docker Desktop se aplica à organização.",
+        'Pré-requisito: Docker Desktop',
+        [System.Windows.Forms.MessageBoxButtons]::YesNo,
+        [System.Windows.Forms.MessageBoxIcon]::Information
+    )
+    if ($choice -ne [System.Windows.Forms.DialogResult]::Yes) {
+        throw 'A instalação foi pausada porque o Docker Desktop ainda não está instalado. Instale-o e execute o TraceSetup novamente.'
+    }
+
+    Write-Host 'Instalando Docker Desktop. Se o instalador pedir aceite de termos, confirme somente após a validação da licença pela empresa.'
+    & $winget.Source install --exact --id Docker.DockerDesktop --accept-source-agreements
+    if ($LASTEXITCODE -ne 0) {
+        throw "O Windows Package Manager não concluiu a instalação do Docker Desktop (código $LASTEXITCODE). Instale-o pelo site oficial e execute o TraceSetup novamente."
+    }
+
+    foreach ($candidate in $dockerCandidates) {
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+            $env:PATH = "$(Split-Path -Parent $candidate);$env:PATH"
+            return
+        }
+    }
+    if ($dockerDesktopCandidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf }) {
+        throw 'Docker Desktop foi instalado. Reinicie o Windows se solicitado, abra o Docker Desktop, conclua a configuração do WSL 2 e execute o TraceSetup novamente.'
+    }
+    throw 'O Docker Desktop informou instalação concluída, mas o comando docker não foi localizado. Reinicie o Windows e execute o TraceSetup novamente.'
 }
 
 function Wait-MySqlHealthy {
@@ -334,7 +465,7 @@ try {
     if (-not (Test-Path -LiteralPath (Join-Path $PackageRoot "docker-compose.yml") -PathType Leaf) -or
         -not (Test-Path -LiteralPath (Join-Path $PackageRoot ".env.example") -PathType Leaf) -or
         -not (Test-Path -LiteralPath (Join-Path $PackageRoot "scripts\migrate.sh") -PathType Leaf)) {
-        throw "Pacote incompleto. Extraia o ZIP inteiro e execute Instalar-PC-Windows.cmd na pasta extraida."
+        throw "Pacote incompleto. Baixe o TraceSetup.exe da release oficial da empresa e execute o assistente; não instale a máquina industrial diretamente de uma cópia parcial do código-fonte."
     }
     Initialize-DockerCli
     if (-not (Check-DockerReady)) {
@@ -475,6 +606,7 @@ try {
     if ($values.ContainsKey('COMPOSE_PROFILES') -and $values['COMPOSE_PROFILES'] -match '(^|,)industrial(,|$)') {
         Ensure-NodeRedAdminAuth $envPath $values
     }
+    Protect-TraceMachineConfiguration -InstallRoot $PackageRoot
     Invoke-TraceCompose -Arguments @("config", "--quiet")
     Assert-Success "Configuracao do Docker Compose" $LASTEXITCODE
     $mysqlVolume = Initialize-TraceMySqlVolumeForInstall -InstallRoot $PackageRoot -AllowFreshDatabaseCreation:$AllowFreshDatabaseCreation
