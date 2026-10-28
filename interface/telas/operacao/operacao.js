@@ -255,28 +255,18 @@ function workControls(store) {
     : bloqueio(commandLocks.stop);
   const loadingPicker = `<div class="work-header-actions"><button class="button secondary small work-back-button" data-action="goto-manifests" type="button">← Romaneios</button>${(store.state.activeLoadings || []).length > 1 ? `<button class="button secondary small work-back-button" data-action="change-loading" type="button">Trocar Dala</button>` : ""}</div>`;
   const pausePending = pendingCommand === "PAUSAR_CARREGAMENTO" && ["PENDENTE", "PROCESSANDO"].includes(pendingStatus);
-  const pendingReadings = store.state.pendingReadings || [];
-  const pendingReadingsTotal = Math.max(pendingReadings.length, Number(store.state.pendingReadingsTotal) || 0);
-  const pendingReadingsPage = Math.max(1, Number(store.state.pendingReadingsPage) || 1);
-  const pendingReadingsPages = Math.max(1, Number(store.state.pendingReadingsPages) || 1);
   const offlineOperations = Math.max(0, Number(store.state.offlineQueueSize) || 0);
-  const manualReadingBlocked = pendingReadingsTotal > 0 || pausePending || offlineOperations > 0;
   const manualReadingUnavailable = store.state.operationalState !== "CARREGANDO";
-  const manualReadingDisabled = manualReadingBlocked || manualReadingUnavailable;
-  const manualReadingPlaceholder = manualReadingBlocked
-    ? pendingReadingsTotal
-      ? "Corrija a leitura pendente abaixo"
-      : offlineOperations > 0
-        ? "Aguardando envio de operações locais…"
-        : "Aguardando confirmação da parada pelo gateway…"
-    : manualReadingUnavailable
+  const manualReadingDisabled = pausePending || offlineOperations > 0 || manualReadingUnavailable;
+  const manualReadingPlaceholder = offlineOperations > 0
+    ? "Aguardando envio de operações locais…"
+    : pausePending
+      ? "Aguardando confirmação da parada pelo gateway…"
+      : manualReadingUnavailable
       ? "Aguardando início da esteira…"
       : "Aguardando leitura…";
   const manualOperationReading = store.state.loadingId
     ? `<div class="work-manual-reading"><div class="work-manual-reading-heading"><span class="kicker">Leitura automática</span></div>${offlineOperations > 0 ? `<p class="form-feedback is-error" role="alert">${numero(offlineOperations)} operação${offlineOperations === 1 ? "" : "ões"} aguardando envio. Não faça novas leituras até confirmar a sincronização.</p>` : ""}<form class="manual-operation-reading-form"><label for="manual-operation-barcode">Código de barras<input id="manual-operation-barcode" name="barcode" type="text" required maxlength="128" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="none" placeholder="${manualReadingPlaceholder}"${manualReadingDisabled ? " disabled" : " autofocus"} /></label><p class="form-feedback" data-form-feedback role="status" aria-live="polite" hidden></p></form></div>`
-    : "";
-  const manualIdentification = pendingReadingsTotal
-    ? `<section class="work-scanner-corrections" aria-labelledby="work-scanner-corrections-title"><div class="work-scanner-corrections-heading"><div><span class="kicker">Conferência pendente</span><h3 id="work-scanner-corrections-title">Leituras sem código</h3><p>${pendingReadingsTotal} pendente${pendingReadingsTotal === 1 ? "" : "s"} · página ${pendingReadingsPage} de ${pendingReadingsPages}</p></div><p>Passe o leitor de código de barras ou digite o código conferido.</p></div><div class="work-scanner-corrections-list">${pendingReadings.map((reading, index) => `<form class="manual-reading-form" data-reading-id="${reading.id}"><label>Leitura #${reading.id}<input name="barcode" type="text" required maxlength="128" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="text" placeholder="Leia o código do produto" aria-label="Código de barras da leitura ${reading.id}"${index === 0 ? " autofocus" : ""} /></label>${button("Confirmar código", "identify-reading", "secondary")}<p class="form-feedback" data-form-feedback role="status" aria-live="polite" hidden></p></form>`).join("")}</div>${pendingReadingsPages > 1 ? `<div class="actions"><button class="button ghost small" type="button" data-action="pending-readings-page" data-page="${pendingReadingsPage - 1}"${pendingReadingsPage <= 1 ? " disabled" : ""}>Anterior</button><button class="button ghost small" type="button" data-action="pending-readings-page" data-page="${pendingReadingsPage + 1}"${pendingReadingsPage >= pendingReadingsPages ? " disabled" : ""}>Próxima</button></div>` : ""}</section>`
     : "";
   const controls = `<div class="work-controls"><div class="work-routine-controls">${button("Ligar esteira", "run", "primary", bloqueio(commandLocks.run))}${button("Desligar esteira", "stop", "ghost", atributosPararEsteira)}${button("Ligar reversão", "reverse-on", "secondary", atributosLigarReversao)}${button("Desligar reversão", "reverse-off", "secondary", atributosDesligarReversao)}</div><div class="work-emergency-zone">${button("EMERGÊNCIA", "emergency", "danger", bloqueioEmergencia)}</div></div>`;
   const summaryReady = ["FINALIZANDO", "FINALIZADO"].includes(
@@ -344,7 +334,7 @@ function workControls(store) {
       : `Falta${remainingTotal === 1 ? "" : "m"} ${numero(remainingTotal)} leitura${remainingTotal === 1 ? "" : "s"} válida${remainingTotal === 1 ? "" : "s"}`;
   const totalSummary = `<section class="work-live-summary" aria-label="Contagem e progresso do carregamento"><div class="work-live-summary-heading"><strong>Sacas detectadas</strong><span><b data-live="detected">${numero(detectedBags)}</b> detectadas · <b data-live="loaded">${numero(validReadings)}</b> válidas / <b data-live="planned">${numero(plannedTotal)}</b> previstas · <span data-live="progress-percent">${totalPercent}%</span></span></div><div class="progress work-live-progress" role="progressbar" aria-label="Progresso de leituras válidas" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${totalPercent}"><i data-live="progress-bar" style="width:${totalPercent}%"></i></div><div class="work-live-summary-foot"><span data-live="remaining-label">${remainingLabel}</span></div><p class="work-completion-notice ${endNoticeTone}" data-live="end-notice"${endNotice ? "" : " hidden"}>${endNotice}</p>${manualOperationReading}</section>`;
   const machinePanel = `<section class="panel work-machine-panel"><div class="panel-heading"><div><span class="kicker">Comandos da máquina</span><h3>Operar Dala</h3></div>${summaryAction ? `<div class="work-machine-heading-actions">${summaryAction}</div>` : ""}</div><div class="work-machine-controls">${stopConfirmation}${controls}</div></section>`;
-  const statusColumn = `<section class="work-status-column">${totalSummary}${manualIdentification}${itemProgress}</section>`;
+  const statusColumn = `<section class="work-status-column">${totalSummary}${itemProgress}</section>`;
   const workHeader = `<header class="work-screen-header">${loadingPicker}<div class="work-screen-heading"><h2>${esc(workTitle)}</h2><p>Dala ${esc(equipmentLabel(store))} · Caminhão ${esc(store.state.truck || "—")} <span class="work-header-state">${badge}</span></p></div></header>`;
   return `<div class="work-operation-screen">${workHeader}<div class="work-operation-layout">${statusColumn}${machinePanel}</div></div>`;
 }

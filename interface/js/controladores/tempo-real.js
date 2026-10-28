@@ -83,7 +83,6 @@ export function createOperationalRealtimeController({
         store.loadActiveLoading(store.state.selectedLoadingId),
         store.loadDeviceStatuses(),
       ];
-      if (page === "work") requests.push(store.loadPendingReadings());
       const results = await Promise.allSettled(requests);
       if (!isCurrent(token)) return false;
       const currentPage = getPage();
@@ -135,7 +134,6 @@ export function createOperationalRealtimeController({
     if (!isCurrent(token) || eventSource) return;
     const consume = async (payload) => {
       if (!isCurrent(token)) return;
-      const requestPage = getPage();
       reconnectFailures = 0;
       let requestError = null;
       const snapshotAt = Date.parse(payload?.sent_at || "");
@@ -180,7 +178,6 @@ export function createOperationalRealtimeController({
       const requests = [];
       if (store.state.loadingId) {
         requests.push(store.loadPlcCommandStatus(store.state.loadingId));
-        if (requestPage === "work") requests.push(store.loadPendingReadings());
       }
       const results = await Promise.allSettled(requests);
       requestError ||= results.find((result) => result.status === "rejected")?.reason || null;
