@@ -26,7 +26,7 @@ final class ProvisionadorDispositivosLocais
 
         $devices = [
             ["CLP", "PLC-{$equipmentCode}", trim((string) (getenv("TRACE_DEVICE_TOKEN") ?: ""))],
-            ["CAMERA", "CAM-{$equipmentCode}", trim((string) (getenv("CAMERA_DEVICE_TOKEN") ?: ""))],
+            ["SCANNER", "KEYENCE-SRX100W-{$equipmentCode}", trim((string) (getenv("KEYENCE_DEVICE_TOKEN") ?: ""))],
         ];
         $statement = $connection->prepare(
             "INSERT INTO dispositivos

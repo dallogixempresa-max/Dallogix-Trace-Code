@@ -56,7 +56,6 @@ function trace_prepare_image_storage_directory(string $storageDirectory, string 
     }
     return $resolved;
 }
-
 /** Resolve somente arquivos existentes dentro do armazenamento de evidências. */
 function trace_image_storage_path(string $storageDirectory, string $storedPath): ?string
 {
@@ -101,7 +100,6 @@ function trace_image_storage_path(string $storageDirectory, string $storedPath):
     }
     return $resolved;
 }
-
 /** Remove only an existing regular file resolved inside the evidence storage. */
 function trace_remove_image_storage_file(string $storageDirectory, string $storedPath): ?bool
 {
@@ -115,7 +113,7 @@ function trace_remove_image_storage_file(string $storageDirectory, string $store
 }
 
 /** Confirma que a evidência enviada pertence exatamente à solicitação reservada. */
-function trace_camera_evidence_path(
+function trace_evidence_image_path(
     string $storageDirectory,
     int $companyId,
     int $equipmentId,
@@ -127,7 +125,10 @@ function trace_camera_evidence_path(
         return null;
     }
     $basename = substr($storedPath, strlen($prefix));
-    if (preg_match('/\Acapture-' . $requestId . '-[a-f0-9]{64}\.(jpg|png)\z/', $basename) !== 1) {
+    $filenamePrefix = str_starts_with($basename, "keyence-{$requestId}-")
+        ? "keyence-{$requestId}-"
+        : "capture-{$requestId}-";
+    if (preg_match('/\A(?:keyence|capture)-' . $requestId . '-[a-f0-9]{64}\.(jpg|png)\z/', $basename) !== 1) {
         return null;
     }
     $resolved = trace_image_storage_path($storageDirectory, $storedPath);
@@ -135,7 +136,7 @@ function trace_camera_evidence_path(
         return null;
     }
     $size = filesize($resolved);
-    if ($size === false || $size < 1 || $size > 5 * 1024 * 1024) {
+    if ($size === false || $size < 1 || $size > 10 * 1024 * 1024) {
         return null;
     }
     $mime = (new finfo(FILEINFO_MIME_TYPE))->file($resolved);
@@ -143,7 +144,7 @@ function trace_camera_evidence_path(
     if ($mime !== $expectedMime) {
         return null;
     }
-    $expectedHash = substr($basename, strlen('capture-' . $requestId . '-'), 64);
+    $expectedHash = substr($basename, strlen($filenamePrefix), 64);
     if (hash_file('sha256', $resolved) !== $expectedHash) {
         return null;
     }
@@ -154,41 +155,6 @@ function trace_camera_evidence_path(
     }
     if ($dimensions === false || $dimensions[0] < 1 || $dimensions[1] < 1
         || $dimensions[0] > 10000 || $dimensions[1] > 10000) {
-        return null;
-    }
-    return $resolved;
-}
-
-/** Confirma que a evidência PDF pertence exatamente à captura reservada. */
-function trace_camera_evidence_pdf_path(
-    string $storageDirectory,
-    int $companyId,
-    int $equipmentId,
-    int $requestId,
-    string $storedPath,
-): ?string {
-    $prefix = "company_{$companyId}/equipment_{$equipmentId}/";
-    if (!str_starts_with($storedPath, $prefix)) {
-        return null;
-    }
-    $basename = substr($storedPath, strlen($prefix));
-    if (preg_match('/\Acapture-' . $requestId . '-([a-f0-9]{64})\.pdf\z/', $basename, $matches) !== 1) {
-        return null;
-    }
-    $resolved = trace_image_storage_path($storageDirectory, $storedPath);
-    if ($resolved === null) {
-        return null;
-    }
-    $size = filesize($resolved);
-    if ($size === false || $size < 1 || $size > 12 * 1024 * 1024) {
-        return null;
-    }
-    $header = file_get_contents($resolved, false, null, 0, 8);
-    if (!is_string($header) || !str_starts_with($header, "%PDF-")) {
-        return null;
-    }
-    $expectedHash = $matches[1];
-    if (hash_file('sha256', $resolved) !== $expectedHash) {
         return null;
     }
     return $resolved;

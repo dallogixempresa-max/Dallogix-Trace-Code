@@ -26,7 +26,7 @@ function remover_empresa_com_dados(PDO $pdo, int $companyId): void
     // Remova primeiro as tabelas que não possuem company_id próprio, mas
     // apontam para registros operacionais da empresa.
     $queriesDependentes = [
-        "DELETE FROM solicitacoes_captura_camera
+        "DELETE FROM solicitacoes_imagens_evidencia
          WHERE sensor_event_id IN (
              SELECT id FROM eventos_sensor
              WHERE carregamento_id IN (SELECT id FROM carregamentos WHERE company_id = {$companyIdSql})

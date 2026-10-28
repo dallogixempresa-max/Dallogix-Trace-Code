@@ -37,7 +37,7 @@ function Get-TraceNetworkRouteHint {
         $routes = @(Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction Stop |
             Where-Object { $_.NextHop -and $_.NextHop -ne '0.0.0.0' })
         if ($routes.Count -eq 0) {
-            return 'O Windows não possui uma rota padrão IPv4. Conecte uma interface de internet por Wi-Fi ou Ethernet com gateway e DNS. As interfaces do CLP e da câmera devem permanecer separadas e sem gateway.'
+            return 'O Windows não possui uma rota padrão IPv4. Conecte uma interface de internet por Wi-Fi ou Ethernet com gateway e DNS. As interfaces industriais do CLP e do leitor devem permanecer separadas e sem gateway.'
         }
         return 'Há uma rota padrão IPv4, mas o destino HTTPS não respondeu. Verifique DNS, proxy e firewall para a conta que executará o atualizador.'
     } catch {
@@ -236,6 +236,8 @@ $currentIndustrial = [ordered]@{
     modbus_map = $null
     scanner_usb_pattern = ""
     scanner_model = ""
+    keyence_pc_ip = ""
+    keyence_reader_ip = ""
     scanner_no_read_timeout_ms = 1500
     modbus_unit_id = 1
     modbus_heartbeat_function = 1
@@ -261,6 +263,8 @@ $machineConfig = [ordered]@{
     heartbeat_seconds = 30
     scanner_model = $industrialSettings.scanner_model
     scanner_usb_pattern = $industrialSettings.scanner_usb_pattern
+    keyence_pc_ip = $industrialSettings.keyence_pc_ip
+    keyence_reader_ip = $industrialSettings.keyence_reader_ip
     scanner_no_read_timeout_ms = $industrialSettings.scanner_no_read_timeout_ms
     operation_mode = if ($physicalConnection) { "PHYSICAL" } else { "SIMULATED" }
     physical_clp_enabled = $enablePhysicalCommands

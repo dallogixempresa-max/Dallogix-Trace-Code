@@ -13,7 +13,13 @@ use App\Aplicacao\SolicitacaoLeitura;
 use App\Aplicacao\ServicoLeituras;
 use App\Persistencia\RepositorioLeituras;
 
-$usuarioAtor = exigir_sessao_usuario();
+$dispositivoScanner = null;
+if ($_SERVER["REQUEST_METHOD"] === "POST" && trim((string) ($_SERVER["HTTP_X_DEVICE_TOKEN"] ?? "")) !== "") {
+    $dispositivoScanner = require_device_token(["SCANNER"]);
+    $usuarioAtor = ["id" => null, "company_id" => $dispositivoScanner["company_id"]];
+} else {
+    $usuarioAtor = exigir_sessao_usuario();
+}
 if ($usuarioAtor["company_id"] === null) {
     responder_json(["error" => "Usuário sem empresa vinculada."], 403);
 }
@@ -33,7 +39,9 @@ if ($_SERVER["REQUEST_METHOD"] === "GET") {
 if ($_SERVER["REQUEST_METHOD"] !== "POST") {
     responder_json(["error" => "Método não permitido."], 405);
 }
-exigir_csrf();
+if ($dispositivoScanner === null) {
+    exigir_csrf();
+}
 session_write_close();
 
 $payload = ler_json_da_requisicao();
@@ -74,6 +82,10 @@ if (!$loading) {
         ["error" => "Carregamento não encontrado para esta empresa."],
         404,
     );
+}
+if ($dispositivoScanner !== null && (int) $loading["equipment_id"] !== (int) $dispositivoScanner["equipment_id"]) {
+    $pdo->rollBack();
+    responder_json(["error" => "O scanner só pode registrar leituras na própria Dala."], 403);
 }
 $readingRepository = new RepositorioLeituras($pdo);
 if ($offlineEventId !== "") {
@@ -126,8 +138,8 @@ if ($loading["state"] !== "CARREGANDO") {
 }
 
 $loadingValidCount = (int) $loading["leituras_validas"];
-// Leitores em modo de teclado USB HID enviam o código como teclado. Associe a leitura ao evento
-// de passagem mais recente ainda dentro da janela, sem exigir outro pedido do navegador.
+// O Keyence envia o código por TCP. Se a API precisar associar o evento,
+// consome primeiro a passagem pendente mais antiga dentro da janela.
 if (!$sensorEventId && $barcode !== "") {
     $associationWindowMs = max(500, min(10000, (int) (getenv("TRACE_SCANNER_NO_READ_TIMEOUT_MS") ?: 1500)));
     $associationWindowMicroseconds = $associationWindowMs * 1000;
@@ -138,7 +150,7 @@ if (!$sensorEventId && $barcode !== "") {
            AND s.equipment_id = :equipment_id
            AND s.detected_at >= DATE_SUB(NOW(3), INTERVAL {$associationWindowMicroseconds} MICROSECOND)
            AND NOT EXISTS (SELECT 1 FROM leituras l WHERE l.sensor_event_id = s.id)
-         ORDER BY s.detected_at DESC, s.id DESC LIMIT 1 FOR UPDATE",
+         ORDER BY s.detected_at ASC, s.id ASC LIMIT 1 FOR UPDATE",
     );
     $pendingSensor->execute([
         "carregamento_id" => $loadingId,
@@ -164,6 +176,29 @@ if ($sensorEventId) {
             ["error" => "Evento de sensor não pertence ao carregamento."],
             422,
         );
+    }
+}
+if ($dispositivoScanner !== null) {
+    if (!$sensorEventId || $barcode === "") {
+        $pdo->rollBack();
+        responder_json(["error" => "A leitura Keyence precisa de um código e de um evento de passagem pendente."], 409);
+    }
+    $availableSensorEvent = $pdo->prepare(
+        "SELECT s.id FROM eventos_sensor s
+         WHERE s.id = :sensor_event_id AND s.carregamento_id = :carregamento_id
+           AND s.equipment_id = :equipment_id
+           AND s.detected_at >= DATE_SUB(NOW(3), INTERVAL 10 SECOND)
+           AND NOT EXISTS (SELECT 1 FROM leituras l WHERE l.sensor_event_id = s.id)
+         LIMIT 1 FOR UPDATE",
+    );
+    $availableSensorEvent->execute([
+        "sensor_event_id" => $sensorEventId,
+        "carregamento_id" => $loadingId,
+        "equipment_id" => $dispositivoScanner["equipment_id"],
+    ]);
+    if (!$availableSensorEvent->fetch()) {
+        $pdo->rollBack();
+        responder_json(["error" => "O evento de passagem já foi processado ou expirou."], 409);
     }
 }
 
@@ -314,7 +349,7 @@ record_operational_event(
     ],
 );
 $occurrenceId = null;
-$cameraStatus = "NAO_SOLICITADA";
+$evidenceStatus = "NAO_SOLICITADA";
 if ($result === "SEM_LEITURA") {
     $occurrence = $pdo->prepare(
         'INSERT INTO ocorrencias (company_id, carregamento_id, type, quantity, description, created_by) VALUES (:company_id, :carregamento_id, \'FALHA_SEM_LEITURA\', 1, :description, :created_by)',
@@ -335,7 +370,7 @@ if ($result === "SEM_LEITURA") {
         $occurrenceId,
         ["carregamento_id" => (int) $loadingId, "leitura_id" => $readingId],
     );
-    $cameraStatus = $sensorEventId ? "CAPTURA_PENDENTE_INCIDENTE" : "NAO_SOLICITADA";
+    $evidenceStatus = $sensorEventId ? "IMAGEM_PENDENTE_INCIDENTE" : "NAO_SOLICITADA";
 }
 if ($result === "PRODUTO_INCORRETO") {
     $occurrence = $pdo->prepare(
@@ -356,7 +391,7 @@ if ($result === "PRODUTO_INCORRETO") {
         $occurrenceId,
         ["carregamento_id" => (int) $loadingId, "leitura_id" => $readingId],
     );
-    $cameraStatus = "NAO_SOLICITADA";
+    $evidenceStatus = "NAO_SOLICITADA";
 }
 if ($result === "EXCESSO") {
     record_operational_event(
@@ -423,34 +458,34 @@ if (
     $result === "SEM_LEITURA" &&
     $sensorEventId
 ) {
-    $cameraRequest = $pdo->prepare(
-        'INSERT INTO solicitacoes_captura_camera (sensor_event_id, carregamento_id, equipment_id, reason, requested_at)
+    $evidenceRequest = $pdo->prepare(
+        'INSERT INTO solicitacoes_imagens_evidencia (sensor_event_id, carregamento_id, equipment_id, reason, requested_at)
          VALUES (:sensor_event_id, :carregamento_id, :equipment_id, :reason, NOW(3))
          ON DUPLICATE KEY UPDATE reason = VALUES(reason), status = IF(status = \'ERRO\', \'PENDENTE\', status), requested_at = VALUES(requested_at)',
     );
-    $cameraRequest->execute([
+    $evidenceRequest->execute([
         "sensor_event_id" => $sensorEventId,
         "carregamento_id" => $loadingId,
         "equipment_id" => $loading["equipment_id"],
         "reason" => $result,
     ]);
-    $cameraIdStatement = $pdo->prepare(
-        "SELECT id FROM solicitacoes_captura_camera WHERE sensor_event_id = :sensor_event_id LIMIT 1",
+    $evidenceIdStatement = $pdo->prepare(
+        "SELECT id FROM solicitacoes_imagens_evidencia WHERE sensor_event_id = :sensor_event_id LIMIT 1",
     );
-    $cameraIdStatement->execute(["sensor_event_id" => $sensorEventId]);
-    $cameraRequestId = (int) ($cameraIdStatement->fetchColumn() ?: 0);
-    if ($cameraRequestId < 1) {
-        throw new RuntimeException("Solicitação de captura da câmera não encontrada após gravação.");
+    $evidenceIdStatement->execute(["sensor_event_id" => $sensorEventId]);
+    $evidenceRequestId = (int) ($evidenceIdStatement->fetchColumn() ?: 0);
+    if ($evidenceRequestId < 1) {
+        throw new RuntimeException("Solicitação de imagem de evidência não encontrada após gravação.");
     }
     record_operational_event(
         $pdo,
         $usuarioAtor,
-        "CAMERA_CAPTURA_SOLICITADA",
-        "camera_request",
-        $cameraRequestId,
+        "IMAGEM_EVIDENCIA_SOLICITADA",
+        "evidence_request",
+        $evidenceRequestId,
         ["sensor_event_id" => $sensorEventId, "reason" => $result],
     );
-    $cameraStatus = "CAPTURA_PENDENTE_INCIDENTE";
+    $evidenceStatus = "IMAGEM_PENDENTE_INCIDENTE";
 }
 $loadStatus = "EM_ANDAMENTO";
 if (
@@ -528,7 +563,7 @@ responder_json(
             "retry" => false,
             "final" => true,
             "occurrence_id" => $occurrenceId,
-            "camera_status" => $cameraStatus,
+            "evidence_status" => $evidenceStatus,
             "load_status" => $loadStatus,
             "excesso" => $result === "EXCESSO",
             "stop_reason" => $result === "PRODUTO_INCORRETO" ? $result : null,

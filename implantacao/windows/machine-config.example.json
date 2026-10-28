@@ -9,6 +9,8 @@
   "heartbeat_seconds": 15,
   "scanner_model": "",
   "scanner_usb_pattern": "",
+  "keyence_pc_ip": "",
+  "keyence_reader_ip": "",
   "scanner_no_read_timeout_ms": 1500,
   "operation_mode": "SIMULATED",
   "plc_model": "",

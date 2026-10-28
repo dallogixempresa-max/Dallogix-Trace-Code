@@ -27,12 +27,11 @@ export function statuses(store = null) {
     (item) =>
       !selectedEquipmentId || Number(item.equipment_id) === selectedEquipmentId,
   );
-  const known = ["SENSOR", "SCANNER", "CLP", "CAMERA", "SERVER"];
+  const known = ["SENSOR", "SCANNER", "CLP", "SERVER"];
   const labels = {
     SENSOR: "Sensor",
     SCANNER: "Scanner",
     CLP: "CLP",
-    CAMERA: "Câmera",
     SERVER: "Servidor",
   };
   const status = (type) => type === "SERVER"

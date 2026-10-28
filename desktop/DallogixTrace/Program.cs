@@ -313,7 +313,7 @@ internal sealed class TraceForm : Form
             values[key] = value;
         }
 
-        var requiredKeys = new[] { "MYSQL_PASSWORD", "MYSQL_ROOT_PASSWORD", "TRACE_DEVICE_TOKEN", "CAMERA_DEVICE_TOKEN" };
+        var requiredKeys = new[] { "MYSQL_PASSWORD", "MYSQL_ROOT_PASSWORD", "TRACE_DEVICE_TOKEN" };
         var missing = new System.Collections.Generic.List<string>();
         foreach (var key in requiredKeys)
         {

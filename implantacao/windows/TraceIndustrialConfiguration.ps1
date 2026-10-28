@@ -57,14 +57,27 @@ function ConvertTo-TraceIndustrialSettings {
     }
 
     $scannerPattern = [string](Get-TraceConfigProperty $Configuration "scanner_usb_pattern" "")
+    $scannerModel = [string](Get-TraceConfigProperty $Configuration "scanner_model" "")
     if ($scannerPattern -and $scannerPattern -notmatch '\AUSB\\VID_[0-9A-F]{4}&PID_[0-9A-F]{4}(?:&MI_[0-9A-F]{2})?\z') {
         throw "scanner_usb_pattern não é um identificador USB HID válido."
     }
-    $scannerModel = if ($scannerPattern) {
-        [string](Get-TraceConfigProperty $Configuration "scanner_model" "USB HID")
-    } else { "" }
-    if ($scannerPattern -and $scannerModel -notin @("USB HID", "Elgin EL8600")) {
-        throw "Este instalador suporta leitores USB HID. Leitores de rede precisam de uma integração própria."
+    if ($scannerPattern -and -not $scannerModel) { $scannerModel = "USB HID" }
+    if ($scannerModel -notin @("", "USB HID", "Elgin EL8600", "KEYENCE SR-X100W")) {
+        throw "scanner_model deve ser USB HID, Elgin EL8600 ou KEYENCE SR-X100W."
+    }
+    if ($scannerModel -eq "KEYENCE SR-X100W" -and $scannerPattern) {
+        throw "O KEYENCE SR-X100W usa Ethernet/TCP e FTP; não pode ter um vínculo USB HID."
+    }
+    $keyencePcIp = [string](Get-TraceConfigProperty $Configuration "keyence_pc_ip" "")
+    $keyenceReaderIp = [string](Get-TraceConfigProperty $Configuration "keyence_reader_ip" "")
+    if ($scannerModel -eq "KEYENCE SR-X100W") {
+        foreach ($entry in @(@{ Name = "keyence_pc_ip"; Value = $keyencePcIp }, @{ Name = "keyence_reader_ip"; Value = $keyenceReaderIp })) {
+            $parsedIp = $null
+            if (-not [System.Net.IPAddress]::TryParse($entry.Value, [ref]$parsedIp) -or
+                $parsedIp.AddressFamily -ne [System.Net.Sockets.AddressFamily]::InterNetwork) {
+                throw "$($entry.Name) precisa ser um IPv4 fixo da interface isolada do leitor."
+            }
+        }
     }
 
     $equipmentIdValue = Get-TraceConfigProperty $Configuration "equipment_id" 0
@@ -105,6 +118,8 @@ function ConvertTo-TraceIndustrialSettings {
     return [ordered]@{
         scanner_model = $scannerModel
         scanner_usb_pattern = $scannerPattern
+        keyence_pc_ip = $keyencePcIp
+        keyence_reader_ip = $keyenceReaderIp
         scanner_no_read_timeout_ms = $numericValues.scanner_no_read_timeout_ms
         modbus_unit_id = $numericValues.modbus_unit_id
         modbus_heartbeat_function = $numericValues.modbus_heartbeat_function
@@ -146,6 +161,7 @@ function Get-TraceUsbHidCandidates {
                 [pscustomobject]@{
                     Display = "$($device.FriendlyName) — $($Matches[1])"
                     Pattern = $Matches[1]
+                    Model = "USB HID"
                 }
             }
         }
@@ -172,7 +188,7 @@ function Show-TraceIndustrialSettingsDialog {
     $form.FormBorderStyle = "FixedDialog"
     $form.MaximizeBox = $false
     $form.MinimizeBox = $false
-    $form.ClientSize = New-Object System.Drawing.Size(700, 690)
+    $form.ClientSize = New-Object System.Drawing.Size(700, 760)
     $form.Font = New-Object System.Drawing.Font("Segoe UI", 9)
 
     $panel = New-Object System.Windows.Forms.Panel
@@ -281,6 +297,12 @@ function Show-TraceIndustrialSettingsDialog {
     [void]$scannerCombo.Items.Add([pscustomobject]@{
         Display = "Não configurar agora"
         Pattern = ""
+        Model = ""
+    })
+    [void]$scannerCombo.Items.Add([pscustomobject]@{
+        Display = "KEYENCE SR-X100W — Ethernet/TCP + FTP"
+        Pattern = ""
+        Model = "KEYENCE SR-X100W"
     })
     foreach ($candidate in $scannerCandidates) { [void]$scannerCombo.Items.Add($candidate) }
     $currentPattern = [string](Get-TraceConfigProperty $CurrentConfig "scanner_usb_pattern" "")
@@ -288,13 +310,19 @@ function Show-TraceIndustrialSettingsDialog {
         [void]$scannerCombo.Items.Add([pscustomobject]@{
             Display = "Leitor salvo anteriormente — $currentPattern"
             Pattern = $currentPattern
+            Model = "USB HID"
         })
     }
     $scannerCombo.Location = New-Object System.Drawing.Point(22, 443)
     $scannerCombo.Size = New-Object System.Drawing.Size(630, 26)
     [void]$panel.Controls.Add($scannerCombo)
     $selectedScanner = 0
+    $currentScannerModel = [string](Get-TraceConfigProperty $CurrentConfig "scanner_model" "")
     for ($index = 0; $index -lt $scannerCombo.Items.Count; $index++) {
+        if ($currentScannerModel -eq "KEYENCE SR-X100W" -and $scannerCombo.Items[$index].Model -eq "KEYENCE SR-X100W") {
+            $selectedScanner = $index
+            break
+        }
         if ($scannerCombo.Items[$index].Pattern -eq $currentPattern -and $currentPattern) {
             $selectedScanner = $index
             break
@@ -304,8 +332,13 @@ function Show-TraceIndustrialSettingsDialog {
 
     $timeoutField = & $textbox "scanner_no_read_timeout_ms" ([string](Get-TraceConfigProperty $CurrentConfig "scanner_no_read_timeout_ms" 1500)) 22 505 120
     & $label "Prazo sem leitura antes de registrar SEM_LEITURA (500–10000 ms)" 22 482 640 20
-    & $label "Leitores USB HID funcionam como teclado. O KEYENCE SR-X100W via Ethernet/TCP não está integrado neste pacote; não selecione como USB se estiver configurado apenas pela rede." 22 538 645 48
-    & $label "Aplicar uma alteração reinicia a API e a integração por alguns instantes. Faça isso entre carregamentos." 22 590 645 36
+    & $label "No Keyence, configure o TCP para a porta 19000 e FTP passivo para a porta 2121. O FTP usa a senha KEYENCE_FTP_PASSWORD do .env." 22 538 645 42
+    $keyencePcIpField = & $textbox "keyence_pc_ip" ([string](Get-TraceConfigProperty $CurrentConfig "keyence_pc_ip" "")) 22 610 180
+    $keyenceReaderIpField = & $textbox "keyence_reader_ip" ([string](Get-TraceConfigProperty $CurrentConfig "keyence_reader_ip" "")) 250 610 180
+    & $label "IPv4 fixo do PC na rede isolada do leitor" 22 588 220 20
+    & $label "IPv4 fixo do KEYENCE SR-X100W" 250 588 220 20
+    & $label "A aplicação restringe TCP e FTP ao IP informado do leitor. Configure e teste o SR-X100W no software KEYENCE antes de ativar a leitura." 22 646 645 38
+    & $label "Aplicar uma alteração reinicia a API e a integração por alguns instantes. Faça isso entre carregamentos." 22 690 645 36
 
     $buttons = New-Object System.Windows.Forms.FlowLayoutPanel
     $buttons.FlowDirection = "RightToLeft"
@@ -361,8 +394,10 @@ function Show-TraceIndustrialSettingsDialog {
         modbus_sensor_register = $sensorField.Text
         sensor_active_level = $active
         sensor_signal_mode = $signalCombo.SelectedItem
-        scanner_model = if ($scannerItem.Pattern) { "USB HID" } else { "" }
+        scanner_model = [string]$scannerItem.Model
         scanner_usb_pattern = [string]$scannerItem.Pattern
+        keyence_pc_ip = $keyencePcIpField.Text.Trim()
+        keyence_reader_ip = $keyenceReaderIpField.Text.Trim()
         scanner_no_read_timeout_ms = $timeoutField.Text
     }
     try {
@@ -440,5 +475,10 @@ function ConvertTo-TraceIndustrialEnvValues {
         TRACE_SENSOR_ACTIVE_LEVEL = [string]$Settings.sensor_active_level
         TRACE_SENSOR_SIGNAL_MODE = [string]$Settings.sensor_signal_mode
         TRACE_SCANNER_NO_READ_TIMEOUT_MS = [string]$Settings.scanner_no_read_timeout_ms
+        KEYENCE_ENABLED = if ($Settings.scanner_model -eq "KEYENCE SR-X100W") { "1" } else { "0" }
+        KEYENCE_BIND_ADDRESS = [string]$Settings.keyence_pc_ip
+        KEYENCE_FTP_PASV_ADDRESS = [string]$Settings.keyence_pc_ip
+        KEYENCE_TCP_ALLOWED_ADDRESS = [string]$Settings.keyence_reader_ip
+        KEYENCE_FTP_ALLOWED_ADDRESS = [string]$Settings.keyence_reader_ip
     }
 }

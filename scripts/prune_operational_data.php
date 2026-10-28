@@ -68,7 +68,7 @@ if ($sensorDays > 0) {
             "SELECT e.id FROM eventos_sensor e
              WHERE e.detected_at < :cutoff
                AND NOT EXISTS (SELECT 1 FROM leituras l WHERE l.sensor_event_id = e.id)
-               AND NOT EXISTS (SELECT 1 FROM solicitacoes_captura_camera c WHERE c.sensor_event_id = e.id)
+               AND NOT EXISTS (SELECT 1 FROM solicitacoes_imagens_evidencia c WHERE c.sensor_event_id = e.id)
              ORDER BY e.id LIMIT {$batch}",
             ["cutoff" => $cutoff],
         );

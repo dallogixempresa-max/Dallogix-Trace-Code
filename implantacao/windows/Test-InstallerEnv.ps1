@@ -52,19 +52,20 @@ try {
         'MYSQL_PASSWORD=',
         'MYSQL_ROOT_PASSWORD=',
         'TRACE_DEVICE_TOKEN=',
-        'CAMERA_DEVICE_TOKEN='
+        'KEYENCE_DEVICE_TOKEN=',
+        'KEYENCE_FTP_PASSWORD='
     )
     [System.IO.File]::WriteAllLines($envPath, $blankEnv, (New-Object System.Text.UTF8Encoding($false)))
 
     $script:TestDatabaseVolumeExists = $false
     Ensure-RequiredEnvSecrets -EnvPath $envPath -InstallRoot $testRoot
     $generated = Read-EnvValues $envPath
-    foreach ($key in @('MYSQL_PASSWORD', 'MYSQL_ROOT_PASSWORD', 'TRACE_DEVICE_TOKEN', 'CAMERA_DEVICE_TOKEN')) {
+    foreach ($key in @('MYSQL_PASSWORD', 'MYSQL_ROOT_PASSWORD', 'TRACE_DEVICE_TOKEN', 'KEYENCE_DEVICE_TOKEN', 'KEYENCE_FTP_PASSWORD')) {
         if ($generated[$key] -notmatch '^[A-F0-9]{64}$') {
             throw "Fresh installation did not generate a valid value for $key."
         }
     }
-    if (@($generated.Values | Sort-Object -Unique).Count -ne 4) {
+    if (@($generated.Values | Sort-Object -Unique).Count -ne 5) {
         throw 'Fresh installation generated duplicate secret values.'
     }
 

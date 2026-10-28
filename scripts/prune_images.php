@@ -21,7 +21,7 @@ $cutoff = (new DateTimeImmutable("-{$days} days"))->format("Y-m-d H:i:s");
 $statement = $pdo->prepare(
     "SELECT path FROM imagens WHERE captured_at < :image_cutoff
      UNION
-     SELECT evidence_pdf_path AS path FROM solicitacoes_captura_camera
+     SELECT evidence_pdf_path AS path FROM solicitacoes_imagens_evidencia
      WHERE evidence_pdf_path IS NOT NULL AND COALESCE(captured_at, requested_at) < :request_cutoff",
 );
 $statement->execute(["image_cutoff" => $cutoff, "request_cutoff" => $cutoff]);
@@ -37,7 +37,7 @@ foreach ($statement->fetchAll(PDO::FETCH_ASSOC) as $image) {
     $pdo->beginTransaction();
     try {
         $clearCapturePath = $pdo->prepare(
-            "UPDATE solicitacoes_captura_camera SET evidence_pdf_path = NULL
+            "UPDATE solicitacoes_imagens_evidencia SET evidence_pdf_path = NULL
              WHERE evidence_pdf_path = :path AND COALESCE(captured_at, requested_at) < :request_cutoff",
         );
         $clearCapturePath->execute(["path" => $image["path"], "request_cutoff" => $cutoff]);
@@ -55,47 +55,7 @@ foreach ($statement->fetchAll(PDO::FETCH_ASSOC) as $image) {
     }
     $removed++;
 }
-$localCopiesRemoved = 0;
-$localEvidenceDirectory = $root . '/armazenamento/camera-pc';
-if (is_link($localEvidenceDirectory)) {
-    $failed++;
-    error_log('Camera evidence retention skipped a symbolic-link directory.');
-} elseif (is_dir($localEvidenceDirectory)) {
-    try {
-        $entries = new DirectoryIterator($localEvidenceDirectory);
-        foreach ($entries as $entry) {
-            if ($entry->isDot() || $entry->isLink() || !$entry->isFile()) {
-                continue;
-            }
-            $filename = $entry->getFilename();
-            $metadata = lstat($entry->getPathname());
-            if ($metadata === false || ($metadata['mode'] & 0170000) !== 0100000) {
-                continue;
-            }
-            $isExpiredPdf = preg_match('/\\Arequest-\\d+-\\d{14,20}\\.pdf\\z/', $filename) === 1
-                && $metadata['mtime'] < time() - $days * 86400;
-            $isExpiredTemporaryPdf = preg_match(
-                '/\\Arequest-\\d+-\\d{14,20}\\.pdf\\.tmp-[a-f0-9]{16}\\z/',
-                $filename,
-            ) === 1 && $metadata['mtime'] < time() - 86400;
-            if (!$isExpiredPdf && !$isExpiredTemporaryPdf) {
-                continue;
-            }
-            $relativePath = 'camera-pc/' . $filename;
-            if (trace_remove_image_storage_file($root . '/armazenamento', $relativePath) !== true) {
-                $failed++;
-                continue;
-            }
-            if ($isExpiredPdf) {
-                $localCopiesRemoved++;
-            }
-        }
-    } catch (UnexpectedValueException $exception) {
-        $failed++;
-        error_log('Camera evidence retention could not scan its local PDF directory: ' . $exception->getMessage());
-    }
-}
-echo "Removed {$removed} server evidence file(s) and {$localCopiesRemoved} local PC PDF copy/copies older than {$days} days; {$failed} file(s) retained after a deletion error.\n";
+echo "Removed {$removed} evidence file(s) older than {$days} days; {$failed} file(s) retained after a deletion error.\n";
 if ($failed > 0) {
     fwrite(STDERR, "Falha ao remover {$failed} arquivo(s) de evidência; retenção incompleta.\n");
     exit(1);

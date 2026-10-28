@@ -2,9 +2,8 @@ import { button, esc } from "../../js/funcoes/html.js";
 
 const DEVICE_TYPES = [
   ["SENSOR", "Sensor", "Sinal de passagem no CLP"],
-  ["SCANNER", "Scanner", "Leitor configurado · USB HID"],
+  ["SCANNER", "Leitor de código", "KEYENCE SR-X100W · TCP/FTP ou USB HID"],
   ["CLP", "CLP", "Controle da esteira"],
-  ["CAMERA", "Câmera", "Registro visual"],
   ["SERVER", "Servidor", "API desta instalação"],
 ];
 
@@ -45,7 +44,7 @@ export function apresentacaoStatusDispositivo(value, type = "") {
         online: true,
         tone: "online",
         label: "CONECTADO",
-        detail: "Leitor USB HID detectado no PC industrial.",
+        detail: "Serviço do leitor comunicando com o Trace.",
       };
     }
     if (normalized === "OFFLINE") {
@@ -54,7 +53,7 @@ export function apresentacaoStatusDispositivo(value, type = "") {
         online: false,
         tone: "offline",
         label: "DESCONECTADO",
-        detail: "Leitor USB HID não detectado no PC industrial.",
+        detail: "Serviço do leitor sem comunicação com o Trace.",
       };
     }
     if (normalized === "ERRO") {
@@ -63,7 +62,7 @@ export function apresentacaoStatusDispositivo(value, type = "") {
         online: false,
         tone: "error",
         label: "ERRO",
-        detail: "Falha na verificação USB do PC.",
+        detail: "Falha no serviço de comunicação do leitor.",
       };
     }
     return {
@@ -71,7 +70,7 @@ export function apresentacaoStatusDispositivo(value, type = "") {
       online: false,
       tone: "unknown",
       label: "NÃO VERIFICADO",
-      detail: "Detecção USB não configurada neste PC.",
+      detail: "O serviço do leitor ainda não enviou heartbeat nesta instalação.",
     };
   }
   const online = ["ONLINE", "LOCAL", "OK"].includes(normalized);
@@ -157,7 +156,7 @@ function deviceStatusPanel(store) {
     <div class="settings-device-status-heading"><div><span class="kicker">Status da máquina</span><h3>Dispositivos e serviços</h3><p>Atualização automática enquanto esta tela estiver aberta.</p></div></div>
     <div class="settings-device-status-summary"><div><strong data-device-summary="online-count">${onlineCount}</strong><span>online</span></div><div><strong data-device-summary="attention-count">${attentionCount}</strong><span data-device-summary="attention-label">sem sinal ou com falha</span></div><div><strong data-device-summary="unmonitored-count">${unmonitoredCount}</strong><span>não confirmado</span></div></div>
     <div class="settings-device-status-grid">${cards}</div>
-    <p class="settings-device-status-note">Sensor: o CLP responde pelo sinal M2052, mas isso não confirma a conexão física. Scanner: conectado/desconectado só é exibido quando a detecção USB está configurada neste PC.</p>
+    <p class="settings-device-status-note">Sensor: o CLP responde pelo sinal M2052, mas isso não confirma a conexão física. Leitor: o estado vem do heartbeat do serviço de integração no PC industrial.</p>
   </section><br>`;
 }
 

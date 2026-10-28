@@ -51,7 +51,7 @@ final class RepositorioEquipamentosRemotos
                     (SELECT COUNT(*) FROM carregamentos WHERE equipment_id = :equipment_id_a) +
                     (SELECT COUNT(*) FROM eventos_sensor WHERE equipment_id = :equipment_id_b) +
                     (SELECT COUNT(*) FROM imagens WHERE equipment_id = :equipment_id_c) +
-                    (SELECT COUNT(*) FROM solicitacoes_captura_camera WHERE equipment_id = :equipment_id_d) +
+                    (SELECT COUNT(*) FROM solicitacoes_imagens_evidencia WHERE equipment_id = :equipment_id_d) +
                     (SELECT COUNT(*) FROM solicitacoes_comandos_clp WHERE equipment_id = :equipment_id_e) +
                     (SELECT COUNT(*) FROM dispositivos WHERE equipment_id = :equipment_id_f) AS total",
             );

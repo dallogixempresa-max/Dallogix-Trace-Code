@@ -199,7 +199,7 @@ final class RepositorioDalasEventos
         )->execute(["company_id" => $companyId, "equipment_id" => $equipmentId]);
 
         $this->connection->prepare(
-            "UPDATE solicitacoes_captura_camera
+            "UPDATE solicitacoes_imagens_evidencia
              SET equipment_id = NULL,
                  status = CASE WHEN status IN ('PENDENTE', 'CAPTURANDO') THEN 'DESCARTADA' ELSE status END,
                  error_message = COALESCE(error_message, 'Dala excluída antes da captura.')

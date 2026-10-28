@@ -447,7 +447,7 @@ if ($_SERVER["REQUEST_METHOD"] === "DELETE") {
              WHERE company_id = :company_id AND equipment_id = :equipment_id",
         )->execute(["company_id" => $user["company_id"], "equipment_id" => $id]);
         $pdo->prepare(
-            "UPDATE solicitacoes_captura_camera
+            "UPDATE solicitacoes_imagens_evidencia
              SET equipment_id = NULL, status = CASE WHEN status IN ('PENDENTE', 'CAPTURANDO') THEN 'DESCARTADA' ELSE status END,
                  error_message = COALESCE(error_message, 'Dala excluída antes da captura.')
              WHERE equipment_id = :equipment_id",

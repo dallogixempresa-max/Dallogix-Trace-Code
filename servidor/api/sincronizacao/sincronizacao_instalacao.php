@@ -123,7 +123,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     foreach (($payload["heartbeats"] ?? []) as $heartbeat) {
         $deviceType = strtoupper(trim((string) ($heartbeat["device_type"] ?? "")));
         $status = strtoupper(trim((string) ($heartbeat["status"] ?? "")));
-        if (!in_array($deviceType, ["CLP", "SCANNER", "SENSOR", "CAMERA", "SERVER"], true)) {
+        if (!in_array($deviceType, ["CLP", "SCANNER", "SENSOR", "SERVER"], true)) {
             continue;
         }
         if (!in_array($status, ["ONLINE", "OFFLINE", "ERRO", "DESCONHECIDO"], true)) {

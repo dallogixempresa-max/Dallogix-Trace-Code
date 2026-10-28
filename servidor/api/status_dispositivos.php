@@ -17,6 +17,6 @@ session_write_close();
 $devices = (new ServicoMonitoramento(obter_conexao_banco()))->obterStatusDispositivos(
     (int) $usuario["company_id"],
     limite_sinal_clp_segundos(),
-    limite_sinal_camera_segundos(),
+    limite_sinal_scanner_segundos(),
 );
 responder_json(["data" => $devices]);

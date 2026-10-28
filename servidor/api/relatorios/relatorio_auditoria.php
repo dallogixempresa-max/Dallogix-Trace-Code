@@ -18,7 +18,7 @@ function trace_cleanup_report_evidence(PDO $pdo, array $loadIds, int $companyId,
         "SELECT i.path FROM imagens i JOIN carregamentos c ON c.id = i.carregamento_id
          WHERE c.company_id = ? AND i.carregamento_id IN ({$placeholders})
          UNION ALL
-         SELECT r.evidence_pdf_path FROM solicitacoes_captura_camera r
+         SELECT r.evidence_pdf_path FROM solicitacoes_imagens_evidencia r
          JOIN carregamentos c ON c.id = r.carregamento_id
          WHERE c.company_id = ? AND r.carregamento_id IN ({$placeholders}) AND r.evidence_pdf_path IS NOT NULL",
     );
@@ -36,7 +36,7 @@ function trace_cleanup_report_evidence(PDO $pdo, array $loadIds, int $companyId,
             continue;
         }
         if (preg_match(
-            '/\\Acompany_' . $companyId . '\/equipment_[0-9]+\/capture-[0-9]+-[a-f0-9]{64}\\.(jpg|png)\\z/',
+            '/\\Acompany_' . $companyId . '\/equipment_[0-9]+\/(?:capture|keyence)-[0-9]+-[a-f0-9]{64}\\.(jpg|png)\\z/',
             $relativePath,
         ) !== 1) {
             continue;
@@ -53,6 +53,11 @@ function trace_cleanup_report_evidence(PDO $pdo, array $loadIds, int $companyId,
                AND (LOWER(i.path) LIKE '%.jpg' OR LOWER(i.path) LIKE '%.png')",
         );
         $deleteImages->execute([$companyId, ...$loadIds]);
+        $clearCapturePaths = $pdo->prepare(
+            "UPDATE solicitacoes_imagens_evidencia SET evidence_pdf_path = NULL
+             WHERE carregamento_id IN ({$placeholders}) AND status = 'CAPTURADA' AND reason <> 'NORMAL'",
+        );
+        $clearCapturePaths->execute($loadIds);
         $pdo->commit();
     } catch (Throwable $exception) {
         if ($pdo->inTransaction()) {
@@ -122,14 +127,15 @@ $loads->execute(["id" => $romaneioId]);
 $loadRows = $loads->fetchAll();
 $loadIds = array_map(static fn(array $row): int => (int) $row["id"], $loadRows);
 if ($loadIds !== []) {
+    expirar_solicitacoes_imagem_keyence($pdo, null, $loadIds);
     $pendingCaptures = $pdo->prepare(
-        "SELECT COUNT(*) FROM solicitacoes_captura_camera
+        "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia
          WHERE carregamento_id IN (" . implode(",", array_fill(0, count($loadIds), "?")) . ")
            AND status IN ('PENDENTE', 'CAPTURANDO')",
     );
     $pendingCaptures->execute($loadIds);
     if ((int) $pendingCaptures->fetchColumn() > 0) {
-        $respondJson(["error" => "Aguarde a conclusão das capturas de câmera antes de gerar o PDF."], 409);
+        $respondJson(["error" => "Aguarde o envio das imagens de erro do Keyence antes de gerar o PDF."], 409);
     }
 }
 $storageRoot = realpath(__DIR__ . "/../../../armazenamento");

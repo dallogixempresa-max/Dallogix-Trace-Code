@@ -18,6 +18,8 @@ $valid = @{
     modbus_map = $null
     scanner_model = 'USB HID'
     scanner_usb_pattern = 'USB\VID_1234&PID_ABCD'
+    keyence_pc_ip = ''
+    keyence_reader_ip = ''
     scanner_no_read_timeout_ms = '2500'
     modbus_unit_id = '7'
     modbus_heartbeat_function = '3'
@@ -30,6 +32,21 @@ $parsed = ConvertTo-TraceIndustrialSettings $valid
 Assert-True ($parsed.modbus_unit_id -eq 7) 'Modbus unit conversion failed.'
 Assert-True ($parsed.scanner_no_read_timeout_ms -eq 2500) 'Scanner timeout conversion failed.'
 Assert-True (-not $parsed.physical_clp_enabled) 'Physical writes must remain disabled by default.'
+
+$keyence = $valid.Clone()
+$keyence.scanner_model = 'KEYENCE SR-X100W'
+$keyence.scanner_usb_pattern = ''
+$keyence.keyence_pc_ip = '192.168.10.10'
+$keyence.keyence_reader_ip = '192.168.10.20'
+$parsedKeyence = ConvertTo-TraceIndustrialSettings $keyence
+$keyenceEnv = ConvertTo-TraceIndustrialEnvValues $parsedKeyence
+Assert-True ($parsedKeyence.scanner_model -eq 'KEYENCE SR-X100W') 'Keyence scanner selection was rejected.'
+Assert-True ($keyenceEnv.KEYENCE_ENABLED -eq '1') 'Keyence selection did not enable the Keyence worker.'
+Assert-True ($keyenceEnv.KEYENCE_BIND_ADDRESS -eq '192.168.10.10') 'PC Keyence address was not applied.'
+Assert-True ($keyenceEnv.KEYENCE_TCP_ALLOWED_ADDRESS -eq '192.168.10.20') 'Reader allowlist address was not applied.'
+$invalidKeyenceIp = $keyence.Clone()
+$invalidKeyenceIp.keyence_reader_ip = 'not-an-ip'
+Assert-Throws { ConvertTo-TraceIndustrialSettings $invalidKeyenceIp } 'Invalid Keyence reader IPv4 address was accepted.'
 
 $invalidUnit = $valid.Clone()
 $invalidUnit.modbus_unit_id = '256'

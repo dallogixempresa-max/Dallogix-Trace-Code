@@ -16,13 +16,19 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Test Keyence TCP, FTP, and image association
+        run: node --test testes/keyence-worker.mjs
       - name: Validate industrial Docker Compose configuration
         shell: bash
         env:
           MYSQL_PASSWORD: trace-ci-password
           MYSQL_ROOT_PASSWORD: trace-ci-root-password
           TRACE_DEVICE_TOKEN: trace-ci-device-token
-          CAMERA_DEVICE_TOKEN: trace-ci-camera-token
+          KEYENCE_DEVICE_TOKEN: trace-ci-device-token
+          KEYENCE_FTP_PASSWORD: trace-ci-ftp-password
         run: |
           set -euo pipefail
           docker compose --env-file .env.example --profile industrial config --quiet

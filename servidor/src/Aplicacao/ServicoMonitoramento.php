@@ -15,7 +15,6 @@ final class ServicoMonitoramento
 {
     private const MAXIMO_PERIODO_DIAS = 3650;
     private const MAXIMO_SINAL_CLP_SEGUNDOS = 60;
-    private const MAXIMO_SINAL_CAMERA_SEGUNDOS = 300;
     private const MAXIMO_SINAL_SCANNER_SEGUNDOS = 300;
 
     private readonly RepositorioMonitoramento $repositorio;
@@ -29,11 +28,9 @@ final class ServicoMonitoramento
     public function obterStatusDispositivos(
         int $companyId,
         int $clpSignalLimit = 3,
-        int $cameraSignalLimit = 15,
-        int $scannerSignalLimit = 90,
+        int $scannerSignalLimit = 15,
     ): array {
         $clpSignalLimit = self::limitarValorPositivo($clpSignalLimit, self::MAXIMO_SINAL_CLP_SEGUNDOS);
-        $cameraSignalLimit = self::limitarValorPositivo($cameraSignalLimit, self::MAXIMO_SINAL_CAMERA_SEGUNDOS);
         $scannerSignalLimit = self::limitarValorPositivo($scannerSignalLimit, self::MAXIMO_SINAL_SCANNER_SEGUNDOS);
         $devices = $this->repositorio->listarStatusDispositivos($companyId);
         foreach ($devices as &$device) {
@@ -51,7 +48,6 @@ final class ServicoMonitoramento
             }
             unset($device["details"]);
             $limit = match ($deviceType) {
-                "CAMERA" => $cameraSignalLimit,
                 "SCANNER" => $scannerSignalLimit,
                 default => $clpSignalLimit,
             };
@@ -119,19 +115,19 @@ final class ServicoMonitoramento
         int $companyId,
         int $periodDays = 30,
         int $clpSignalLimit = 3,
-        int $cameraSignalLimit = 15,
+        int $scannerSignalLimit = 15,
     ): array
     {
         $periodDays = self::limitarValorPositivo($periodDays, self::MAXIMO_PERIODO_DIAS);
         $clpSignalLimit = self::limitarValorPositivo($clpSignalLimit, self::MAXIMO_SINAL_CLP_SEGUNDOS);
-        $cameraSignalLimit = self::limitarValorPositivo($cameraSignalLimit, self::MAXIMO_SINAL_CAMERA_SEGUNDOS);
+        $scannerSignalLimit = self::limitarValorPositivo($scannerSignalLimit, self::MAXIMO_SINAL_SCANNER_SEGUNDOS);
         $romaneios = $this->repositorio->contarRomaneios($companyId, $periodDays);
         $readings = $this->repositorio->contarLeituras($companyId, $periodDays);
         $lastReading = $this->repositorio->obterUltimaLeitura($companyId);
         $occurrences = $this->repositorio->listarOcorrenciasRecentes($companyId);
         $audit = $this->repositorio->listarAuditoriaRecente($companyId);
         $pendingSync = $this->repositorio->contarSincronizacoesPendentes($companyId);
-        $devices = $this->obterStatusDispositivos($companyId, $clpSignalLimit, $cameraSignalLimit);
+        $devices = $this->obterStatusDispositivos($companyId, $clpSignalLimit, $scannerSignalLimit);
         $maquinas = $this->obterMaquinas($companyId, $clpSignalLimit);
         $romaneioSummary = [];
         foreach ($romaneios as $row) {
@@ -148,7 +144,7 @@ final class ServicoMonitoramento
             "maquinas" => $maquinas,
             "periodo_dias" => $periodDays,
             "limite_sinal_clp_segundos" => $clpSignalLimit,
-            "limite_sinal_camera_segundos" => $cameraSignalLimit,
+            "limite_sinal_scanner_segundos" => $scannerSignalLimit,
         ];
     }
 
@@ -156,25 +152,25 @@ final class ServicoMonitoramento
      * Retorna apenas os dados usados em Alertas, evitando consultas históricas
      * que a tela não exibe a cada atualização automática.
      *
-     * @return array{leituras:array<string,int>,dispositivos:list<array<string,mixed>>,maquinas:list<array<string,mixed>>,periodo_dias:int,limite_sinal_clp_segundos:int,limite_sinal_camera_segundos:int}
+     * @return array{leituras:array<string,int>,dispositivos:list<array<string,mixed>>,maquinas:list<array<string,mixed>>,periodo_dias:int,limite_sinal_clp_segundos:int,limite_sinal_scanner_segundos:int}
      */
     public function obterResumoAlertas(
         int $companyId,
         int $periodDays = 30,
         int $clpSignalLimit = 3,
-        int $cameraSignalLimit = 15,
+        int $scannerSignalLimit = 15,
     ): array {
         $periodDays = self::limitarValorPositivo($periodDays, self::MAXIMO_PERIODO_DIAS);
         $clpSignalLimit = self::limitarValorPositivo($clpSignalLimit, self::MAXIMO_SINAL_CLP_SEGUNDOS);
-        $cameraSignalLimit = self::limitarValorPositivo($cameraSignalLimit, self::MAXIMO_SINAL_CAMERA_SEGUNDOS);
+        $scannerSignalLimit = self::limitarValorPositivo($scannerSignalLimit, self::MAXIMO_SINAL_SCANNER_SEGUNDOS);
 
         return [
             "leituras" => $this->resumirLeituras($this->repositorio->contarLeituras($companyId, $periodDays)),
-            "dispositivos" => $this->obterStatusDispositivos($companyId, $clpSignalLimit, $cameraSignalLimit),
+            "dispositivos" => $this->obterStatusDispositivos($companyId, $clpSignalLimit, $scannerSignalLimit),
             "maquinas" => $this->obterMaquinas($companyId, $clpSignalLimit),
             "periodo_dias" => $periodDays,
             "limite_sinal_clp_segundos" => $clpSignalLimit,
-            "limite_sinal_camera_segundos" => $cameraSignalLimit,
+            "limite_sinal_scanner_segundos" => $scannerSignalLimit,
         ];
     }
 

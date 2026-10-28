@@ -83,25 +83,52 @@ $nodeRedEnvValues = [ordered]@{
     TRACE_MODBUS_COIL_EMERGENCY_FEEDBACK = if ($physicalClpEnabled) { [string]$modbusAddresses.emergency_feedback_coil } else { "" }
 }
 $nodeRedEnvLines = @($nodeRedEnvValues.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" })
+$keyenceSecretValues = [ordered]@{}
+if ($industrialSettings.scanner_model -eq 'KEYENCE SR-X100W') {
+    $existingEnvValues = @{}
+    foreach ($line in [System.IO.File]::ReadAllLines($envFile)) {
+        if ($line -match '^([A-Za-z_][A-Za-z0-9_]*)=(.*)$') {
+            $key = $matches[1]
+            if ($existingEnvValues.ContainsKey($key)) { throw "O arquivo .env contem a variavel $key mais de uma vez. Corrija antes de continuar." }
+            $existingEnvValues[$key] = $matches[2].Trim().Trim('"').Trim("'")
+        }
+    }
+    $random = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    try {
+        foreach ($key in @('KEYENCE_DEVICE_TOKEN', 'KEYENCE_FTP_PASSWORD')) {
+            if (-not $existingEnvValues.ContainsKey($key) -or [string]::IsNullOrWhiteSpace([string]$existingEnvValues[$key])) {
+                $bytes = New-Object byte[] 32
+                $random.GetBytes($bytes)
+                $keyenceSecretValues[$key] = [System.BitConverter]::ToString($bytes).Replace('-', '')
+            }
+        }
+    } finally {
+        $random.Dispose()
+    }
+}
+$environmentValues = ConvertTo-TraceIndustrialEnvValues -Settings $industrialSettings
+foreach ($key in $keyenceSecretValues.Keys) { $environmentValues[$key] = $keyenceSecretValues[$key] }
+Set-TraceEnvValues -Path $envFile -Values $environmentValues
+Set-Location $PackageRoot
+
 [System.IO.File]::WriteAllText(
     $nodeRedEnvPath,
     (($nodeRedEnvLines -join [Environment]::NewLine) + [Environment]::NewLine),
     ([System.Text.UTF8Encoding]::new($false))
 )
-Set-TraceEnvValues -Path $envFile -Values (ConvertTo-TraceIndustrialEnvValues -Settings $industrialSettings)
 Set-Location $PackageRoot
 
 & docker.exe compose --profile industrial config --quiet
 if ($LASTEXITCODE -ne 0) { throw "A configuração validada do Docker Compose não passou. Nenhum container foi reiniciado." }
 
 if ($IndustrialOnly) {
-    & docker.exe compose --profile industrial up -d --no-deps --wait --wait-timeout 120 php node-red
-    if ($LASTEXITCODE -ne 0) { throw "A API e o Node-RED não ficaram saudáveis com a configuração industrial salva." }
+    & docker.exe compose --profile industrial up -d --no-deps --wait --wait-timeout 120 php node-red keyence-worker
+    if ($LASTEXITCODE -ne 0) { throw "A API, o Node-RED e o leitor não ficaram saudáveis com a configuração industrial salva." }
     if ($hasEquipment -and (Get-ScheduledTask -TaskName "Dallogix Trace Agent" -ErrorAction SilentlyContinue)) {
         Stop-ScheduledTask -TaskName "Dallogix Trace Agent" -ErrorAction SilentlyContinue
         Start-ScheduledTask -TaskName "Dallogix Trace Agent"
     }
-    Write-Output "Configuração industrial aplicada. API, Node-RED e agente atualizados; banco e volumes não foram alterados."
+    Write-Output "Configuração industrial aplicada. API, Node-RED, leitor e agente atualizados; banco e volumes não foram alterados."
     return
 }
 

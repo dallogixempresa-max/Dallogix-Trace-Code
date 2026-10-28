@@ -21,12 +21,12 @@ $limiteSemSinal = limite_sinal_clp_segundos();
 $service = new ServicoMonitoramento(obter_conexao_banco());
 $companyId = (int) $usuario["company_id"];
 $periodDays = (int) $periodDays;
-$cameraSignalLimit = limite_sinal_camera_segundos();
+$scannerSignalLimit = limite_sinal_scanner_segundos();
 
 $view = (string) ($_GET["view"] ?? "");
 $snapshot = match ($view) {
-    "alertas" => $service->obterResumoAlertas($companyId, $periodDays, $limiteSemSinal, $cameraSignalLimit),
+    "alertas" => $service->obterResumoAlertas($companyId, $periodDays, $limiteSemSinal, $scannerSignalLimit),
     "resumo" => $service->obterResumoFinal($companyId, $periodDays),
-    default => $service->obterInstantaneo($companyId, $periodDays, $limiteSemSinal, $cameraSignalLimit),
+    default => $service->obterInstantaneo($companyId, $periodDays, $limiteSemSinal, $scannerSignalLimit),
 };
 responder_json(["data" => $snapshot]);
