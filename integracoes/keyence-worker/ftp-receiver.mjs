@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { createServer } from "node:net";
 import { randomBytes } from "node:crypto";
-import { mkdir, rename, writeFile } from "node:fs/promises";
+import { mkdir, rename, unlink, writeFile } from "node:fs/promises";
 import { basename, posix } from "node:path";
 import { sha256 } from "./keyence-core.mjs";
 
@@ -165,11 +165,32 @@ class FtpSession {
     const temporary = `${target}.tmp-${randomBytes(6).toString("hex")}`;
     await writeFile(temporary, data, { flag: "wx", mode: 0o600 });
     await rename(temporary, target);
+    let archivedFilename = "";
+    if (this.options.archiveDirectory) {
+      const stamp = new Date().toISOString().replace(/[-:.]/g, "");
+      archivedFilename = `${stamp}--${randomBytes(4).toString("hex")}--${filename}`;
+      const archiveTarget = join(this.options.archiveDirectory, archivedFilename);
+      const archiveTemporary = `${archiveTarget}.tmp-${randomBytes(6).toString("hex")}`;
+      try {
+        await mkdir(this.options.archiveDirectory, { recursive: true, mode: 0o770 });
+        await writeFile(archiveTemporary, data, { flag: "wx", mode: 0o600 });
+        await rename(archiveTemporary, archiveTarget);
+      } catch (error) {
+        await unlink(target);
+        await unlink(archiveTemporary).catch((cleanupError) => {
+          this.options.log("warn", "Arquivo temporário de imagem Keyence não pôde ser removido.", {
+            reason: String(cleanupError).slice(0, 180),
+          });
+        });
+        throw error;
+      }
+    }
     this.reply("226 Image received.");
     this.options.log("info", "Imagem JPEG recebida do Keyence por FTP.", {
       source_filename: filename,
       bytes: data.length,
       sha256: hash,
+      ...(archivedFilename ? { archived_filename: archivedFilename } : {}),
     });
     this.options.onImage?.(target);
   }

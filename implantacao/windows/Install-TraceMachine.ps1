@@ -113,6 +113,9 @@ if ($industrialSettings.scanner_model -eq 'KEYENCE SR-X100W') {
 $environmentValues = ConvertTo-TraceIndustrialEnvValues -Settings $industrialSettings
 foreach ($key in $keyenceSecretValues.Keys) { $environmentValues[$key] = $keyenceSecretValues[$key] }
 Set-TraceEnvValues -Path $envFile -Values $environmentValues
+if ($industrialSettings.scanner_model -eq 'KEYENCE SR-X100W') {
+    New-Item -ItemType Directory -Path 'C:\keyence\falhas' -Force | Out-Null
+}
 Set-Location $PackageRoot
 
 [System.IO.File]::WriteAllText(

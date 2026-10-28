@@ -11,6 +11,7 @@ const boundedInteger = (rawValue, fallback, minimum, maximum) => {
   return Number.isInteger(value) && value >= minimum && value <= maximum ? value : fallback;
 };
 const ENABLED = process.env.KEYENCE_ENABLED === "1";
+const ARCHIVE_ONLY = process.env.KEYENCE_ARCHIVE_ONLY === "1";
 const API_BASE = (process.env.TRACE_API_URL || "http://nginx").replace(/\/+$/, "");
 const DEVICE_TOKEN = process.env.KEYENCE_DEVICE_TOKEN || "";
 const TCP_PORT = boundedInteger(process.env.KEYENCE_TCP_PORT, 19000, 1, 65535);
@@ -25,6 +26,7 @@ const FTP_PASV_ADDRESS = process.env.KEYENCE_FTP_PASV_ADDRESS || "";
 const FTP_ALLOWED_ADDRESS = process.env.KEYENCE_FTP_ALLOWED_ADDRESS || "";
 const TCP_ALLOWED_ADDRESS = process.env.KEYENCE_TCP_ALLOWED_ADDRESS || "";
 const INBOX_DIR = process.env.KEYENCE_INBOX_DIR || "/var/lib/trace/keyence-inbox";
+const ARCHIVE_DIR = process.env.KEYENCE_ARCHIVE_DIR || "/var/lib/trace/keyence-archive";
 const SCAN_QUEUE_DIR = join(INBOX_DIR, "scans");
 const FAILED_SCAN_DIR = join(INBOX_DIR, "failed-scans");
 const TCP_BIND_ADDRESS = process.env.KEYENCE_SERVICE_BIND || "0.0.0.0";
@@ -476,6 +478,7 @@ async function start() {
       service: SERVICE_NAME,
       running: true,
       enabled: ENABLED,
+      archive_only: ARCHIVE_ONLY,
       tcp_output_listening: tcpReachable,
       ftp_image_receiver_listening: ftpReachable,
       reader_network_status: readerNetworkStatus,
@@ -485,12 +488,43 @@ async function start() {
       reader_last_read_age_ms: readerLastReadAtMs === null ? null : Math.max(0, Date.now() - readerLastReadAtMs),
       unmatched_image_count: unmatchedImageCount,
       scan_queue_directory: SCAN_QUEUE_DIR,
+      archive_directory: ARCHIVE_DIR,
     }));
   });
   healthServer.listen(8091, "0.0.0.0");
 
   if (!ENABLED) {
     log("info", "Worker Keyence iniciado em modo inativo. Ative KEYENCE_ENABLED para abrir as portas do leitor.");
+    return;
+  }
+  if (ARCHIVE_ONLY) {
+    if (!FTP_PASSWORD || isIP(FTP_PASV_ADDRESS) !== 4 || isIP(FTP_ALLOWED_ADDRESS) !== 4) {
+      throw new Error("Configure a senha FTP, o IP passivo e o IP fixo do leitor para arquivar imagens Keyence.");
+    }
+    if (FTP_PASSIVE_START > FTP_PASSIVE_END) {
+      throw new Error("A faixa passiva FTP do Keyence está invertida.");
+    }
+    await mkdir(ARCHIVE_DIR, { recursive: true, mode: 0o770 });
+    ftpReceiver = createFtpReceiver({
+      bindAddress: TCP_BIND_ADDRESS,
+      port: FTP_CONTROL_PORT,
+      passiveStart: FTP_PASSIVE_START,
+      passiveEnd: FTP_PASSIVE_END,
+      advertisedAddress: FTP_PASV_ADDRESS,
+      username: FTP_USER,
+      password: FTP_PASSWORD,
+      allowedAddress: FTP_ALLOWED_ADDRESS,
+      inboxDirectory: ARCHIVE_DIR,
+      log,
+    });
+    await ftpReceiver.listen();
+    ftpReachable = true;
+    log("info", "Arquivamento FTP Keyence ativo sem associação ao Trace.", {
+      ftp_port: FTP_CONTROL_PORT,
+      passive_ports: [FTP_PASSIVE_START, FTP_PASSIVE_END],
+      ftp_source_allowlist: FTP_ALLOWED_ADDRESS,
+      archive_directory: ARCHIVE_DIR,
+    });
     return;
   }
   if (!DEVICE_TOKEN || !FTP_PASSWORD || isIP(FTP_PASV_ADDRESS) !== 4
@@ -501,6 +535,7 @@ async function start() {
     throw new Error("A faixa passiva FTP do Keyence está invertida.");
   }
   await mkdir(INBOX_DIR, { recursive: true, mode: 0o770 });
+  await mkdir(ARCHIVE_DIR, { recursive: true, mode: 0o770 });
   await mkdir(SCAN_QUEUE_DIR, { recursive: true, mode: 0o770 });
   await mkdir(FAILED_SCAN_DIR, { recursive: true, mode: 0o770 });
   await loadScanQueueReservations();
@@ -515,6 +550,7 @@ async function start() {
     password: FTP_PASSWORD,
     allowedAddress: FTP_ALLOWED_ADDRESS,
     inboxDirectory: INBOX_DIR,
+    archiveDirectory: ARCHIVE_DIR,
     onImage: () => void processImageQueue(),
     log,
   });

@@ -503,6 +503,8 @@ try {
                 TRACE_DEVICE_TOKEN = (New-HexSecret $generator)
                 KEYENCE_DEVICE_TOKEN = (New-HexSecret $generator)
                 KEYENCE_FTP_PASSWORD = (New-HexSecret $generator)
+                KEYENCE_ARCHIVE_ONLY = "0"
+                KEYENCE_ARCHIVE_HOST_DIR = "C:/keyence/falhas"
                 TRACE_CENTRAL_URL = $centralUrl
                 TRACE_INSTALLATION_MODE = "local"
                 WEB_BIND_ADDRESS = "127.0.0.1"

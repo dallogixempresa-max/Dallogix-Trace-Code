@@ -264,6 +264,7 @@ services:
     environment:
       TRACE_API_URL: http://nginx
       KEYENCE_ENABLED: ${KEYENCE_ENABLED:-0}
+      KEYENCE_ARCHIVE_ONLY: ${KEYENCE_ARCHIVE_ONLY:-0}
       KEYENCE_DEVICE_TOKEN: ${KEYENCE_DEVICE_TOKEN:-}
       KEYENCE_TCP_PORT: 19000
       KEYENCE_READER_PROBE_PORT: ${KEYENCE_READER_PROBE_PORT:-80}
@@ -280,9 +281,11 @@ services:
       KEYENCE_IMAGE_MAX_AGE_MS: ${KEYENCE_IMAGE_MAX_AGE_MS:-300000}
       KEYENCE_IMAGE_RECEIVE_TIMEOUT_MS: ${KEYENCE_IMAGE_RECEIVE_TIMEOUT_MS:-6000}
       KEYENCE_INBOX_DIR: /var/lib/trace/keyence-inbox
+      KEYENCE_ARCHIVE_DIR: /var/lib/trace/keyence-archive
       KEYENCE_SERVICE_BIND: 0.0.0.0
     volumes:
       - ./armazenamento/keyence-inbox:/var/lib/trace/keyence-inbox
+      - ${KEYENCE_ARCHIVE_HOST_DIR:-./armazenamento/keyence-archive}:/var/lib/trace/keyence-archive
     ports:
       - "${KEYENCE_BIND_ADDRESS:-127.0.0.1}:${KEYENCE_TCP_PORT:-19000}:19000"
       - "${KEYENCE_BIND_ADDRESS:-127.0.0.1}:${KEYENCE_FTP_PORT:-2121}:2121"
@@ -293,7 +296,7 @@ services:
           "CMD",
           "node",
           "-e",
-          "fetch('http://127.0.0.1:8091/health').then(async (response) => { const health = response.ok ? await response.json() : null; process.exit(health?.running === true && (health?.enabled === false || (health?.tcp_output_listening === true && health?.ftp_image_receiver_listening === true)) ? 0 : 1); }).catch(() => process.exit(1))",
+          "fetch('http://127.0.0.1:8091/health').then(async (response) => { const health = response.ok ? await response.json() : null; process.exit(health?.running === true && (health?.enabled === false || (health?.archive_only === true && health?.ftp_image_receiver_listening === true) || (health?.tcp_output_listening === true && health?.ftp_image_receiver_listening === true)) ? 0 : 1); }).catch(() => process.exit(1))",
         ]
       interval: 15s
       timeout: 3s
