@@ -2,22 +2,22 @@ import { button, esc } from "../../js/funcoes/html.js";
 
 const DEVICE_TYPES = [
   ["SENSOR", "Sensor", "Sinal de passagem no CLP"],
-  ["SCANNER", "Leitor de código", "KEYENCE SR-X100W · TCP/FTP ou USB HID"],
+  ["SCANNER", "Leitor KEYENCE", "SR-X100W · Ethernet/TCP"],
   ["CLP", "CLP", "Controle da esteira"],
   ["SERVER", "Servidor", "API desta instalação"],
 ];
 
-export function apresentacaoStatusDispositivo(value, type = "") {
+export function apresentacaoStatusDispositivo(value, type = "", device = {}) {
   const normalized = String(value || "NAO_REGISTRADO").trim().toUpperCase();
   const deviceType = String(type).toUpperCase();
   if (deviceType === "SENSOR") {
     if (normalized === "ONLINE") {
       return {
-        monitored: false,
-        online: false,
-        tone: "unknown",
-        label: "NÃO CONFIRMADO",
-        detail: "CLP comunicando; conexão física do sensor não confirmada.",
+        monitored: true,
+        online: true,
+        tone: "online",
+        label: "LEITURA OK",
+        detail: "O CLP respondeu à leitura Modbus de M2052; isso não significa que houve passagem.",
       };
     }
     if (["OFFLINE", "ERRO"].includes(normalized)) {
@@ -25,8 +25,8 @@ export function apresentacaoStatusDispositivo(value, type = "") {
         monitored: true,
         online: false,
         tone: "error",
-        label: "SEM SINAL",
-        detail: "CLP sem leitura de M2052; não confirma defeito no sensor.",
+        label: "SEM LEITURA",
+        detail: "O CLP não respondeu à leitura Modbus de M2052; isso não diagnostica o sensor físico.",
       };
     }
     return {
@@ -38,13 +38,26 @@ export function apresentacaoStatusDispositivo(value, type = "") {
     };
   }
   if (deviceType === "SCANNER") {
+    if (!device?.equipment_id && normalized === "NAO_REGISTRADO") {
+      return {
+        monitored: false,
+        online: false,
+        tone: "unknown",
+        label: "SEM VÍNCULO",
+        detail: "O leitor KEYENCE ainda não está vinculado a uma Dala.",
+      };
+    }
+    const probePort = Number(device?.reader_probe_port) || 80;
+    const onlineSource = String(device?.reader_online_source || "").toUpperCase();
     if (normalized === "ONLINE") {
       return {
         monitored: true,
         online: true,
         tone: "online",
-        label: "CONECTADO",
-        detail: "Serviço do leitor comunicando com o Trace.",
+        label: "ONLINE",
+        detail: onlineSource === "LEITURA"
+          ? "Código recebido recentemente do Keyence; comunicação real confirmada."
+          : `Keyence respondeu na porta ${probePort}; a leitura óptica é confirmada por um código recebido.`,
       };
     }
     if (normalized === "OFFLINE") {
@@ -52,8 +65,8 @@ export function apresentacaoStatusDispositivo(value, type = "") {
         monitored: true,
         online: false,
         tone: "offline",
-        label: "DESCONECTADO",
-        detail: "Serviço do leitor sem comunicação com o Trace.",
+        label: "SEM RESPOSTA",
+        detail: `O Keyence não respondeu na porta ${probePort}; confira endereço, porta e rede.`,
       };
     }
     if (normalized === "ERRO") {
@@ -61,16 +74,16 @@ export function apresentacaoStatusDispositivo(value, type = "") {
         monitored: true,
         online: false,
         tone: "error",
-        label: "ERRO",
-        detail: "Falha no serviço de comunicação do leitor.",
+        label: "FALHA NO PC",
+        detail: "A integração do leitor no PC informou uma falha.",
       };
     }
     return {
       monitored: false,
       online: false,
       tone: "unknown",
-      label: "NÃO VERIFICADO",
-      detail: "O serviço do leitor ainda não enviou heartbeat nesta instalação.",
+      label: "NÃO CONFIRMADO",
+      detail: "Aguardando uma checagem recente do endereço de rede do Keyence.",
     };
   }
   const online = ["ONLINE", "LOCAL", "OK"].includes(normalized);
@@ -137,10 +150,10 @@ function deviceStatusPanel(store) {
       ? matches.map((device) => ({ type, label, description, value: device.status, device }))
       : [{ type, label, description, value: "NAO_REGISTRADO", device: null }];
   });
-  const presentations = records.map((record) => apresentacaoStatusDispositivo(record.value, record.type));
+  const presentations = records.map((record) => apresentacaoStatusDispositivo(record.value, record.type, record.device));
   const { online: onlineCount, attention: attentionCount, unmonitored: unmonitoredCount } = resumoStatusDispositivos(presentations);
   const cards = records.map(({ type, label, description, value, device }) => {
-    const status = apresentacaoStatusDispositivo(value, type);
+    const status = apresentacaoStatusDispositivo(value, type, device);
     const equipmentLabel = device?.equipment_id
       ? equipments.get(Number(device.equipment_id)) || `Dala ${device.equipment_id}`
       : type === "SERVER" ? "Instalação atual" : "Vínculo ainda não registrado";
@@ -156,7 +169,7 @@ function deviceStatusPanel(store) {
     <div class="settings-device-status-heading"><div><span class="kicker">Status da máquina</span><h3>Dispositivos e serviços</h3><p>Atualização automática enquanto esta tela estiver aberta.</p></div></div>
     <div class="settings-device-status-summary"><div><strong data-device-summary="online-count">${onlineCount}</strong><span>online</span></div><div><strong data-device-summary="attention-count">${attentionCount}</strong><span data-device-summary="attention-label">sem sinal ou com falha</span></div><div><strong data-device-summary="unmonitored-count">${unmonitoredCount}</strong><span>não confirmado</span></div></div>
     <div class="settings-device-status-grid">${cards}</div>
-    <p class="settings-device-status-note">Sensor: o CLP responde pelo sinal M2052, mas isso não confirma a conexão física. Leitor: o estado vem do heartbeat do serviço de integração no PC industrial.</p>
+    <p class="settings-device-status-note">Sensor: leitura Modbus de M2052 e evento de passagem são estados distintos; M2052 em zero não indica defeito físico. Leitor: o Trace verifica a porta de rede do KEYENCE SR-X100W no PC industrial; receber um código confirma também o fluxo de leitura. O serviço do PC, sozinho, não marca o leitor como online.</p>
   </section><br>`;
 }
 

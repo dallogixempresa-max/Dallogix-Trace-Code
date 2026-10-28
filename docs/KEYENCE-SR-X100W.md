@@ -6,6 +6,8 @@
 
 O SR-X100W envia os códigos pela conexão TCP local ao `keyence-worker` do PC industrial. O worker usa credencial de dispositivo `SCANNER`, consulta a Dala ativa, envia o código para a API de leitura do Trace e grava uma fila local idempotente para tolerar indisponibilidade curta da API.
 
+O cartão do leitor só mostra **ONLINE** quando o worker, no PC industrial, abre uma conexão TCP de diagnóstico com o IP do SR-X100W na porta `KEYENCE_READER_PROBE_PORT` (padrão `80`), ou recebe um código decodificado nos últimos 15 segundos. Duas sondagens sem resposta marcam **SEM RESPOSTA**; a tela não confunde o heartbeat do worker com a presença do leitor. A sondagem confirma que a interface de rede do endereço configurado responde, não que o leitor está focado ou decodificando corretamente. Um código recebido confirma o fluxo de leitura. O SR-X suporta HTTP e HTTPS; se a porta da interface Web foi alterada, configure a porta correspondente no `.env` do PC.
+
 O CLP continua registrando a passagem da saca pelo M2052. Quando o Trace encerra o tempo de leitura sem receber código, cria `SEM_LEITURA` e uma solicitação de imagem. O SR-X100W envia a imagem JPEG de erro por FTP. O worker compara o horário de chegada com as solicitações pendentes e só envia a imagem quando encontra uma correspondência sem ambiguidade. A API valida a imagem, associa a solicitação ao evento da saca e grava o arquivo no armazenamento local do Trace.
 
 Se a imagem Keyence não chegar dentro do prazo ou a correspondência não for segura, a solicitação termina como `ERRO`; o relatório mantém a ocorrência `SEM_LEITURA` sem inventar uma associação de imagem. Imagens sem vínculo ficam na caixa local por até cinco minutos; depois são removidas e registradas no log. Códigos desconhecidos continuam sendo classificados pela regra atual do Trace.
@@ -56,6 +58,7 @@ Enquanto o Network Navigator estiver conectado ao SR-X, o leitor não pode usar 
 | `KEYENCE_DEVICE_TOKEN` | vazio | Token `SCANNER` provisionado para a Dala. |
 | `KEYENCE_BIND_ADDRESS` | `127.0.0.1` | IP da interface do PC onde as portas serão publicadas; trocar pelo IP industrial fixo. |
 | `KEYENCE_TCP_PORT` | `19000` | Porta publicada para saída TCP do leitor. |
+| `KEYENCE_READER_PROBE_PORT` | `80` | Porta TCP da interface Web do SR-X usada para confirmar presença na rede; use `443` se o leitor estiver configurado apenas com HTTPS. |
 | `KEYENCE_FTP_PORT` | `2121` | Porta FTP publicada para o leitor. |
 | `KEYENCE_FTP_PASSIVE_START` / `KEYENCE_FTP_PASSIVE_END` | `21100` / `21109` | Faixa passiva TCP do FTP. |
 | `KEYENCE_FTP_USER` / `KEYENCE_FTP_PASSWORD` | `trace-keyence` / vazio | Conta dedicada às imagens de erro. |
