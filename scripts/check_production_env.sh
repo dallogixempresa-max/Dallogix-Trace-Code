@@ -11,10 +11,10 @@ if [[ -f "$env_file" ]]; then
 fi
 
 failures=0
-required=(MYSQL_PASSWORD MYSQL_ROOT_PASSWORD TRACE_DEVICE_TOKEN CAMERA_DEVICE_TOKEN APP_URL)
+required=(MYSQL_PASSWORD MYSQL_ROOT_PASSWORD TRACE_DEVICE_TOKEN APP_URL)
 for key in "${required[@]}"; do
   value="${!key:-}"
-  if [[ -z "$value" || "$value" == change-me-* || "$value" == "password" || "$value" == "password1234" || "$value" == "trace-device-local-token-2026-v1" || "$value" == "trace-camera-local-token-2026-v1" ]]; then
+  if [[ -z "$value" || "$value" == change-me-* || "$value" == "password" || "$value" == "password1234" || "$value" == "trace-device-local-token-2026-v1" ]]; then
     echo "ERRO: $key precisa ser definido com valor próprio e não padrão." >&2
     failures=$((failures + 1))
   fi

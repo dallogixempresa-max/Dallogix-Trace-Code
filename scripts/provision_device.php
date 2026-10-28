@@ -6,7 +6,7 @@ $equipmentId = filter_var($options["equipment-id"] ?? null, FILTER_VALIDATE_INT)
 $deviceType = strtoupper(trim((string) ($options["device-type"] ?? "")));
 $deviceCode = trim((string) ($options["device-code"] ?? ""));
 $token = (string) ($options["token"] ?? "");
-$allowedTypes = ["CLP", "SCANNER", "SENSOR", "CAMERA", "SERVER"];
+$allowedTypes = ["CLP", "SCANNER", "SENSOR", "SERVER"];
 if (
     !$equipmentId ||
     !in_array($deviceType, $allowedTypes, true) ||

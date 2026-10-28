@@ -11,7 +11,7 @@
     "type": "comment",
     "z": "trace-clp-bridge",
     "name": "TRACE / Node-RED local",
-    "info": "Configure TRACE_API_URL, TRACE_DEVICE_TOKEN e TRACE_MODBUS_UNIT_ID no ambiente do Node-RED. O heartbeat M2052 publica ONLINE somente depois de uma resposta Modbus válida. O sensor M2052 é lido separadamente a cada 200 ms; a primeira amostra só estabelece a linha de base e a borda configurada registra uma passagem. O código USB do Elgin é associado à passagem pendente; após o prazo sem código, o servidor registra SEM_LEITURA e enfileira uma captura pontual da câmera. A escrita física continua condicionada à aprovação explícita do mapa.",
+    "info": "Configure TRACE_API_URL, TRACE_DEVICE_TOKEN e TRACE_MODBUS_UNIT_ID no ambiente do Node-RED. O heartbeat M2052 publica ONLINE somente depois de uma resposta Modbus válida. O sensor M2052 é lido separadamente a cada 200 ms; a primeira amostra só estabelece a linha de base e a borda configurada registra uma passagem. O código recebido por TCP do Keyence é associado à passagem pendente; após o prazo sem código, o servidor registra SEM_LEITURA e solicita uma imagem de erro ao leitor por FTP. A escrita física continua condicionada à aprovação explícita do mapa.",
     "x": 180,
     "y": 80,
     "wires": []

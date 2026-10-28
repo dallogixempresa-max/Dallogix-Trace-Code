@@ -2,7 +2,7 @@
 
 Revisão feita em 23/10/2026 sobre a falha do instalador `v1.0.175`, a release empresarial atual, a VM `trace-dallogix-prod` e o fluxo de instalação do PC industrial.
 
-> **Não reutilize o `TraceSetup.exe` v1.0.175 que falhou.** Essa versão iniciou o Docker Compose sem entregar o `.env`, por isso o PC exibiu `MYSQL_PASSWORD`, `MYSQL_ROOT_PASSWORD`, `TRACE_DEVICE_TOKEN` e `CAMERA_DEVICE_TOKEN` ausentes. A correção do instalador empresarial gera credenciais aleatórias em uma instalação realmente nova, preserva as senhas de um banco existente e passa explicitamente o diretório do projeto e o `.env` ao Compose. O fluxo protegido preserva `TRACE_COMMIT` e `TRACE_VERSION`, passa o `.env` ao Compose, reinicia o Nginx para atualizar o endereço interno do PHP e valida o commit exato no health check. O instalador empresarial é publicado sem assinatura Authenticode; confira o SHA-256 no asset da release oficial antes de executar. O hash confirma integridade, não a identidade do publicador.
+> **Não reutilize o `TraceSetup.exe` v1.0.175 que falhou.** Essa versão iniciou o Docker Compose sem entregar o `.env`. O instalador empresarial atual gera credenciais aleatórias em uma instalação realmente nova, preenche os segredos recém-adicionados do leitor sem trocar senhas de banco existente e passa explicitamente o diretório do projeto e o `.env` ao Compose. O fluxo protegido preserva `TRACE_COMMIT` e `TRACE_VERSION`, passa o `.env` ao Compose, reinicia o Nginx para atualizar o endereço interno do PHP e valida o commit exato no health check. O instalador empresarial é publicado sem assinatura Authenticode; confira o SHA-256 no asset da release oficial antes de executar. O hash confirma integridade, não a identidade do publicador.
 
 ## Resultado da revisão
 
@@ -211,7 +211,7 @@ Abra PowerShell como Administrador e cole:
 $installRoot = 'C:\DallogixTrace'
 $envFile = Join-Path $installRoot '.env'
 if (-not (Test-Path -LiteralPath $envFile -PathType Leaf)) { throw 'Arquivo .env ausente.' }
-$requiredKeys = @('MYSQL_PASSWORD','MYSQL_ROOT_PASSWORD','TRACE_DEVICE_TOKEN','CAMERA_DEVICE_TOKEN')
+$requiredKeys = @('MYSQL_PASSWORD','MYSQL_ROOT_PASSWORD','TRACE_DEVICE_TOKEN','KEYENCE_DEVICE_TOKEN','KEYENCE_FTP_PASSWORD')
 $envLines = Get-Content -LiteralPath $envFile
 foreach ($key in $requiredKeys) {
     $valueLine = $envLines | Where-Object { $_ -match "^\s*$([regex]::Escape($key))=(.*)$" } | Select-Object -Last 1
@@ -241,13 +241,13 @@ Confirme:
 
 ## G. Diagnóstico do erro de variáveis ausentes
 
-Se aparecer `MYSQL_PASSWORD`, `MYSQL_ROOT_PASSWORD`, `TRACE_DEVICE_TOKEN` ou `CAMERA_DEVICE_TOKEN` ausente, feche a interface e execute este diagnóstico. Ele mostra somente se cada chave existe, sem revelar os valores:
+Se aparecer uma das credenciais obrigatórias ausente, feche a interface e execute este diagnóstico. Ele mostra somente se cada chave existe, sem revelar os valores:
 
 ```powershell
 $installRoot = 'C:\DallogixTrace'
 $envFile = Join-Path $installRoot '.env'
 if (-not (Test-Path -LiteralPath $envFile -PathType Leaf)) { throw 'O .env não existe; a configuração do instalador não terminou.' }
-$requiredKeys = @('MYSQL_PASSWORD','MYSQL_ROOT_PASSWORD','TRACE_DEVICE_TOKEN','CAMERA_DEVICE_TOKEN')
+$requiredKeys = @('MYSQL_PASSWORD','MYSQL_ROOT_PASSWORD','TRACE_DEVICE_TOKEN','KEYENCE_DEVICE_TOKEN','KEYENCE_FTP_PASSWORD')
 $envLines = Get-Content -LiteralPath $envFile
 foreach ($key in $requiredKeys) {
     $matchesForKey = @($envLines | Where-Object { $_ -match "^\s*$([regex]::Escape($key))=(.*)$" })
@@ -266,7 +266,7 @@ Para ler logs localmente sem compartilhar dados sensíveis:
 
 ```powershell
 $installRoot = 'C:\DallogixTrace'
-docker compose --project-directory $installRoot --env-file "$installRoot\.env" --profile industrial logs --no-color --tail=100 php mysql node-red camera-worker
+docker compose --project-directory $installRoot --env-file "$installRoot\.env" --profile industrial logs --no-color --tail=100 php mysql node-red keyence-worker
 ```
 
 Remova tokens, endereços privados e informações de clientes antes de enviar qualquer trecho de log.

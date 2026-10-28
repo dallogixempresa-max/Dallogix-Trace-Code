@@ -47,8 +47,9 @@ if (!in_array($loading["state"], ["CARREGANDO", "FINALIZANDO"], true)) {
     );
 }
 
+expirar_solicitacoes_imagem_keyence($pdo, null, [(int) $loadingId]);
 $pending = $pdo->prepare(
-    "SELECT COUNT(*) FROM solicitacoes_captura_camera WHERE carregamento_id = :id AND status IN ('PENDENTE','CAPTURANDO')",
+    "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia WHERE carregamento_id = :id AND status IN ('PENDENTE','CAPTURANDO')",
 );
 $pending->execute(["id" => $loadingId]);
 if ((int) $pending->fetchColumn() > 0) {
@@ -56,7 +57,7 @@ if ((int) $pending->fetchColumn() > 0) {
     json_response(
         [
             "error" =>
-                "Existem capturas de incidentes pendentes antes do encerramento.",
+                "Existem imagens de falha do Keyence aguardando envio antes do encerramento.",
         ],
         409,
     );

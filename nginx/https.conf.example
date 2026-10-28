@@ -86,13 +86,13 @@ server {
         fastcgi_pass php:9000;
     }
 
-    location = /api/camera_upload.php {
+    location = /api/keyence_worker.php {
         limit_req zone=api_limit burst=5 nodelay;
         limit_req_status 429;
         limit_conn api_connections 10;
         client_max_body_size 12m;
         include fastcgi_params;
-        fastcgi_param SCRIPT_FILENAME /var/www/servidor/api/camera/camera_upload.php;
+        fastcgi_param SCRIPT_FILENAME /var/www/servidor/api/keyence_worker.php;
         fastcgi_pass php:9000;
     }
 

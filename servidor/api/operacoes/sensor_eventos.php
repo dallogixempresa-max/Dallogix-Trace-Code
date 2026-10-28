@@ -107,8 +107,8 @@ if ($action === "FINALIZE_EXPIRED") {
                 ],
             );
 
-            $camera = $pdo->prepare(
-                "INSERT INTO solicitacoes_captura_camera
+            $evidenceRequest = $pdo->prepare(
+                "INSERT INTO solicitacoes_imagens_evidencia
                  (sensor_event_id, carregamento_id, equipment_id, reason, requested_at)
                  VALUES (:sensor_event_id, :loading_id, :equipment_id, 'SEM_LEITURA', NOW(3))
                  ON DUPLICATE KEY UPDATE
@@ -116,31 +116,31 @@ if ($action === "FINALIZE_EXPIRED") {
                    status = IF(status = 'ERRO', 'PENDENTE', status),
                    requested_at = VALUES(requested_at)",
             );
-            $camera->execute([
+            $evidenceRequest->execute([
                 "sensor_event_id" => (int) $sensorEventId,
                 "loading_id" => (int) $loadingId,
                 "equipment_id" => $device["equipment_id"],
             ]);
-            $cameraId = $pdo->prepare(
-                "SELECT id FROM solicitacoes_captura_camera WHERE sensor_event_id = :sensor_event_id LIMIT 1",
+            $evidenceId = $pdo->prepare(
+                "SELECT id FROM solicitacoes_imagens_evidencia WHERE sensor_event_id = :sensor_event_id LIMIT 1",
             );
-            $cameraId->execute(["sensor_event_id" => (int) $sensorEventId]);
-            $cameraRequestId = (int) $cameraId->fetchColumn();
-            if ($cameraRequestId < 1) {
-                throw new RuntimeException("Solicitação de captura não foi criada para a passagem sem leitura.");
+            $evidenceId->execute(["sensor_event_id" => (int) $sensorEventId]);
+            $evidenceRequestId = (int) $evidenceId->fetchColumn();
+            if ($evidenceRequestId < 1) {
+                throw new RuntimeException("Solicitação de imagem não foi criada para a passagem sem leitura.");
             }
             record_operational_event(
                 $pdo,
                 $actor,
-                "CAMERA_CAPTURA_SOLICITADA",
-                "camera_request",
-                $cameraRequestId,
+                "EVIDENCIA_SEM_LEITURA_SOLICITADA",
+                "evidence_request",
+                $evidenceRequestId,
                 ["sensor_event_id" => (int) $sensorEventId, "reason" => "SEM_LEITURA"],
             );
             $finalized[] = [
                 "sensor_event_id" => (int) $sensorEventId,
                 "reading_id" => $readingId,
-                "camera_request_id" => $cameraRequestId,
+                "evidence_request_id" => $evidenceRequestId,
             ];
         }
         $pdo->commit();
@@ -324,14 +324,14 @@ try {
         ],
     );
     $pdo->commit();
-    // O sensor apenas correlaciona o saco à leitura. A câmera é acionada pelo
-    // resultado da leitura: não fotografamos cada saco que passa pela esteira.
+    // O sensor apenas correlaciona o saco à leitura. A imagem só é solicitada
+    // quando o Trace confirma uma falha de leitura.
     json_response(
         [
             "data" => [
                 "id" => $eventId,
                 "duplicate" => false,
-                "camera_trigger" => "AGUARDANDO_RESULTADO_LEITURA",
+                "image_action" => "AGUARDANDO_RESULTADO_LEITURA",
                 "scanner_correlated" => $earlyReadingId !== false,
             ],
         ],

@@ -160,13 +160,63 @@ function limite_sinal_clp_segundos(): int
     return max(1, min(60, $configurado === false ? 3 : (int) $configurado));
 }
 
-function limite_sinal_camera_segundos(): int
+function limite_sinal_scanner_segundos(): int
 {
     $configurado = filter_var(
-        getenv("CAMERA_SIGNAL_LIMIT_SECONDS") ?: 15,
+        getenv("SCANNER_SIGNAL_LIMIT_SECONDS") ?: 15,
         FILTER_VALIDATE_INT,
     );
     return max(1, min(300, $configurado === false ? 15 : (int) $configurado));
+}
+
+/** Finaliza solicitações sem foto depois da janela reservada ao leitor Keyence. */
+function expirar_solicitacoes_imagem_keyence(PDO $pdo, ?int $equipmentId = null, array $loadingIds = []): int
+{
+    $configured = filter_var(getenv("KEYENCE_IMAGE_RECEIVE_TIMEOUT_MS") ?: 6000, FILTER_VALIDATE_INT);
+    $timeoutMicroseconds = max(1000, min(120000, $configured === false ? 6000 : (int) $configured)) * 1000;
+    $conditions = [
+        "reason = 'SEM_LEITURA'",
+        "status IN ('PENDENTE', 'CAPTURANDO')",
+        "requested_at <= NOW(3) - INTERVAL {$timeoutMicroseconds} MICROSECOND",
+    ];
+    $parameters = [];
+
+    if ($equipmentId !== null) {
+        if ($equipmentId < 1) {
+            return 0;
+        }
+        $conditions[] = "equipment_id = :equipment_id";
+        $parameters["equipment_id"] = $equipmentId;
+    }
+
+    if ($loadingIds !== []) {
+        $ids = array_values(array_unique(array_filter(
+            array_map(static fn(mixed $id): int => (int) $id, $loadingIds),
+            static fn(int $id): bool => $id > 0,
+        )));
+        if ($ids === []) {
+            return 0;
+        }
+        $loadingPlaceholders = [];
+        foreach ($ids as $index => $id) {
+            $key = "loading_id_{$index}";
+            $loadingPlaceholders[] = ":{$key}";
+            $parameters[$key] = $id;
+        }
+        $conditions[] = "carregamento_id IN (" . implode(",", $loadingPlaceholders) . ")";
+    }
+
+    if ($equipmentId === null && $loadingIds === []) {
+        return 0;
+    }
+
+    $statement = $pdo->prepare(
+        "UPDATE solicitacoes_imagens_evidencia
+         SET status = 'ERRO', error_message = 'Imagem do Keyence não recebida no prazo configurado.', updated_at = NOW(3)
+         WHERE " . implode(" AND ", $conditions),
+    );
+    $statement->execute($parameters);
+    return $statement->rowCount();
 }
 
 /**

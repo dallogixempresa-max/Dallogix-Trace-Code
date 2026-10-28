@@ -62,14 +62,14 @@ $data["ocorrencias"] = $count(
     "SELECT COUNT(*) FROM ocorrencias WHERE carregamento_id = :id",
     ["id" => $loadingId],
 );
-$data["capturas_pendentes"] = $count(
+$data["imagens_pendentes"] = $count(
     $pdo,
-    "SELECT COUNT(*) FROM solicitacoes_captura_camera WHERE carregamento_id = :id AND status IN ('PENDENTE','CAPTURANDO')",
+    "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia WHERE carregamento_id = :id AND status IN ('PENDENTE','CAPTURANDO')",
     ["id" => $loadingId],
 );
 $data["imagens_incidentes"] = $count(
     $pdo,
-    "SELECT COUNT(*) FROM solicitacoes_captura_camera WHERE carregamento_id = :id AND status = 'CAPTURADA' AND reason <> 'NORMAL'",
+    "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia WHERE carregamento_id = :id AND status = 'CAPTURADA' AND reason <> 'NORMAL'",
     ["id" => $loadingId],
 );
 json_response(["data" => $data]);

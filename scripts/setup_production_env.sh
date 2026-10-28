@@ -14,7 +14,7 @@ if u.scheme != 'https' or not u.hostname or u.username or u.password or u.query 
 if dst.exists():
     raise SystemExit('ERRO: arquivo já existe; preservado. Use outro destino para uma instalação nova. Não troque senhas de um banco existente somente no arquivo.')
 values = dict(APP_ENV='production', TRACE_INSTALLATION_MODE='central', SESSION_SECURE='true', APP_URL=url.rstrip('/'), WEB_BIND_ADDRESS='127.0.0.1', BIND_ADDRESS='127.0.0.1')
-for key in ('MYSQL_PASSWORD', 'MYSQL_ROOT_PASSWORD', 'TRACE_DEVICE_TOKEN', 'CAMERA_DEVICE_TOKEN'):
+for key in ('MYSQL_PASSWORD', 'MYSQL_ROOT_PASSWORD', 'TRACE_DEVICE_TOKEN'):
     values[key] = secrets.token_hex(32)
 lines = []
 for line in src.read_text().splitlines():

@@ -197,7 +197,7 @@ function New-HexSecret([Security.Cryptography.RandomNumberGenerator]$Generator) 
 }
 
 function Ensure-RequiredEnvSecrets([string]$EnvPath, [string]$InstallRoot) {
-    $requiredKeys = @("MYSQL_PASSWORD", "MYSQL_ROOT_PASSWORD", "TRACE_DEVICE_TOKEN", "CAMERA_DEVICE_TOKEN")
+    $requiredKeys = @("MYSQL_PASSWORD", "MYSQL_ROOT_PASSWORD", "TRACE_DEVICE_TOKEN", "KEYENCE_DEVICE_TOKEN", "KEYENCE_FTP_PASSWORD")
     $values = Read-EnvValues $EnvPath
     $missingKeys = @($requiredKeys | Where-Object {
         -not $values.ContainsKey($_) -or [string]::IsNullOrWhiteSpace([string]$values[$_])
@@ -370,7 +370,8 @@ try {
                 MYSQL_PASSWORD = (New-HexSecret $generator)
                 MYSQL_ROOT_PASSWORD = (New-HexSecret $generator)
                 TRACE_DEVICE_TOKEN = (New-HexSecret $generator)
-                CAMERA_DEVICE_TOKEN = (New-HexSecret $generator)
+                KEYENCE_DEVICE_TOKEN = (New-HexSecret $generator)
+                KEYENCE_FTP_PASSWORD = (New-HexSecret $generator)
                 TRACE_CENTRAL_URL = $centralUrl
                 TRACE_INSTALLATION_MODE = "local"
                 WEB_BIND_ADDRESS = "127.0.0.1"
@@ -418,7 +419,7 @@ try {
         NODE_RED_ADMIN_PASSWORD_HASH = ''
     }
     $values = Read-EnvValues $envPath
-    foreach ($key in @("MYSQL_PASSWORD", "MYSQL_ROOT_PASSWORD", "TRACE_DEVICE_TOKEN", "CAMERA_DEVICE_TOKEN", "TRACE_CENTRAL_URL")) {
+    foreach ($key in @("MYSQL_PASSWORD", "MYSQL_ROOT_PASSWORD", "TRACE_DEVICE_TOKEN", "KEYENCE_DEVICE_TOKEN", "KEYENCE_FTP_PASSWORD", "TRACE_CENTRAL_URL")) {
         if (-not $values.ContainsKey($key) -or [string]::IsNullOrWhiteSpace($values[$key])) {
             throw "O campo $key esta vazio em .env. Preencha-o sem alterar os demais valores e execute o instalador novamente."
         }
