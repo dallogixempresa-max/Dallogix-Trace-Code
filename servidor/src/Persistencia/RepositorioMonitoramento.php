@@ -27,7 +27,7 @@ final class RepositorioMonitoramento
              FROM status_dispositivos d
              JOIN equipamentos e ON e.id = d.equipment_id
              WHERE e.company_id = :company_id
-               AND d.device_type <> 'CAMERA'
+               AND d.device_type IN ('CLP', 'SENSOR', 'SCANNER')
              ORDER BY e.equipment_code, d.device_type",
             ["company_id" => $companyId],
         );

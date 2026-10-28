@@ -23,7 +23,7 @@ import { criarTratadorAcoesInterface, instalarInteracoesGlobaisInterface } from 
 import { criarTratadorAcoesRelatorios } from "./controladores/acoes-relatorios.js?v=202610190043";
 import { criarDelegacaoAcoes, criarDespachanteAcoes } from "./controladores/despachante-acoes.js?v=202610190059";
 import { criarCarregadorPaginas } from "./controladores/carregador-paginas.js?v=202610190041";
-import { createLiveViewController } from "./controladores/estado-visualizacao.js?v=202610190063";
+import { createLiveViewController } from "./controladores/estado-visualizacao.js?v=202610280001";
 import { createLocalConnectivityController } from "./controladores/conectividade-local.js?v=202610190029";
 import { bindManifestCreationForm, bindManifestEditForm } from "./controladores/formulario-romaneio.js?v=202610190001";
 import { bindProductForm } from "./controladores/formulario-produto.js?v=202610190001";
@@ -90,7 +90,7 @@ const registroTelas = criarRegistroTelas({
   emergency: () =>
     import("../telas/emergencia/emergencia.js?v=202610190046").then(({ emergency }) => emergency),
   settings: () =>
-    import("../telas/configuracoes/configuracoes.js?v=202610190062").then(({ settings }) => settings),
+    import("../telas/configuracoes/configuracoes.js?v=202610280001").then(({ settings }) => settings),
   dalas: () =>
     import("../telas/dalas/dalas.js?v=202610190046").then(({ dalas }) => dalas),
   dala: () =>
@@ -415,7 +415,7 @@ function waitForDocumentStyles() {
 const SCREEN_STYLES = {
   work: "/telas/operacao/operacao.css?v=202610200002",
   import: "/telas/importar-romaneio/importar-romaneio.css?v=202610071845",
-  settings: "/telas/configuracoes/configuracoes.css?v=202610160001",
+  settings: "/telas/configuracoes/configuracoes.css?v=202610280001",
   dalas: "/telas/dalas/dalas.css?v=202610160005",
   dala: "/telas/dalas/dalas.css?v=202610160005",
   "dala-edit": "/telas/dalas/dalas.css?v=202610160005",

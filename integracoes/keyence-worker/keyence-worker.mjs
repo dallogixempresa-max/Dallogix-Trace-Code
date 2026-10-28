@@ -1,5 +1,5 @@
 import { createServer as createHttpServer } from "node:http";
-import { createServer as createTcpServer, isIP } from "node:net";
+import { createConnection as createTcpConnection, createServer as createTcpServer, isIP } from "node:net";
 import { mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createFtpReceiver } from "./ftp-receiver.mjs";
@@ -14,6 +14,8 @@ const ENABLED = process.env.KEYENCE_ENABLED === "1";
 const API_BASE = (process.env.TRACE_API_URL || "http://nginx").replace(/\/+$/, "");
 const DEVICE_TOKEN = process.env.KEYENCE_DEVICE_TOKEN || "";
 const TCP_PORT = boundedInteger(process.env.KEYENCE_TCP_PORT, 19000, 1, 65535);
+const READER_PROBE_PORT = boundedInteger(process.env.KEYENCE_READER_PROBE_PORT, 80, 1, 65535);
+const READER_PROBE_INTERVAL_MS = 10000;
 const FTP_CONTROL_PORT = boundedInteger(process.env.KEYENCE_FTP_PORT, 2121, 1, 65535);
 const FTP_PASSIVE_START = boundedInteger(process.env.KEYENCE_FTP_PASSIVE_START, 21100, 1024, 65535);
 const FTP_PASSIVE_END = boundedInteger(process.env.KEYENCE_FTP_PASSIVE_END, 21109, FTP_PASSIVE_START, 65535);
@@ -36,6 +38,12 @@ const MAX_SCAN_BYTES = 2048;
 let shuttingDown = false;
 let tcpReachable = false;
 let ftpReachable = false;
+let readerNetworkStatus = "DESCONHECIDO";
+let readerProbeCheckedAt = null;
+let readerProbeAttemptedAt = 0;
+let readerProbeFailures = 0;
+let readerLastReadAt = null;
+let readerLastReadAtMs = null;
 let activeLoading = null;
 let activeLoadingCheckedAt = 0;
 let lastError = "";
@@ -126,6 +134,8 @@ async function queueBarcode(rawFrame) {
     log("warn", "Quadro TCP ignorado: código vazio, longo ou com caracteres de controle.");
     return;
   }
+  readerLastReadAt = new Date().toISOString();
+  readerLastReadAtMs = Date.now();
   let loading = null;
   let sensorEventId = null;
   try {
@@ -361,12 +371,55 @@ async function publishHeartbeat() {
         model: "SR-X100W",
         tcp_output_listening: tcpReachable,
         ftp_image_receiver_listening: ftpReachable,
+        reader_network_status: readerNetworkStatus,
+        reader_probe_port: READER_PROBE_PORT,
+        reader_probe_checked_at: readerProbeCheckedAt,
+        reader_last_read_at: readerLastReadAt,
+        reader_last_read_age_ms: readerLastReadAtMs === null ? null : Math.max(0, Date.now() - readerLastReadAtMs),
         active_loading: Boolean(activeLoading),
         unmatched_image_count: unmatchedImageCount,
         ...(lastError ? { reason_code: "keyence_worker_error", error: lastError } : {}),
       },
     },
   });
+}
+
+function probeReaderNetwork() {
+  return new Promise((resolve) => {
+    let settled = false;
+    let socket = null;
+    const finish = (reachable) => {
+      if (settled) return;
+      settled = true;
+      readerProbeCheckedAt = new Date().toISOString();
+      if (reachable) {
+        readerNetworkStatus = "ONLINE";
+        readerProbeFailures = 0;
+      } else {
+        readerProbeFailures += 1;
+        if (readerProbeFailures >= 2) readerNetworkStatus = "OFFLINE";
+      }
+      socket?.destroy();
+      resolve(readerNetworkStatus);
+    };
+
+    try {
+      socket = createTcpConnection({ host: TCP_ALLOWED_ADDRESS, port: READER_PROBE_PORT });
+      socket.setTimeout(1500);
+      socket.once("connect", () => finish(true));
+      socket.once("timeout", () => finish(false));
+      socket.once("error", () => finish(false));
+      socket.once("close", () => { if (!settled) finish(false); });
+    } catch {
+      finish(false);
+    }
+  });
+}
+
+async function refreshReaderNetworkStatus() {
+  if (Date.now() - readerProbeAttemptedAt < READER_PROBE_INTERVAL_MS) return;
+  readerProbeAttemptedAt = Date.now();
+  await probeReaderNetwork();
 }
 
 function startTcpReceiver() {
@@ -425,6 +478,11 @@ async function start() {
       enabled: ENABLED,
       tcp_output_listening: tcpReachable,
       ftp_image_receiver_listening: ftpReachable,
+      reader_network_status: readerNetworkStatus,
+      reader_probe_port: READER_PROBE_PORT,
+      reader_probe_checked_at: readerProbeCheckedAt,
+      reader_last_read_at: readerLastReadAt,
+      reader_last_read_age_ms: readerLastReadAtMs === null ? null : Math.max(0, Date.now() - readerLastReadAtMs),
       unmatched_image_count: unmatchedImageCount,
       scan_queue_directory: SCAN_QUEUE_DIR,
     }));
@@ -464,6 +522,7 @@ async function start() {
   ftpReachable = true;
   log("info", "Entrada TCP e recepção FTP do Keyence ativas.", {
     tcp_port: TCP_PORT,
+    reader_probe_port: READER_PROBE_PORT,
     ftp_port: FTP_CONTROL_PORT,
     passive_ports: [FTP_PASSIVE_START, FTP_PASSIVE_END],
     ftp_source_allowlist: FTP_ALLOWED_ADDRESS || "não configurada",
@@ -471,9 +530,11 @@ async function start() {
   });
 
   let lastHeartbeatAt = 0;
+  await refreshReaderNetworkStatus();
   pollTimer = setInterval(async () => {
     if (shuttingDown) return;
     try {
+      await refreshReaderNetworkStatus();
       await refreshActiveLoading();
       await processScanQueue();
       await processImageQueue();

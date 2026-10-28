@@ -35,8 +35,9 @@ final class ServicoMonitoramento
         $devices = $this->repositorio->listarStatusDispositivos($companyId);
         foreach ($devices as &$device) {
             $deviceType = (string) $device["device_type"];
+            $details = json_decode((string) ($device["details"] ?? ""), true);
+            $details = is_array($details) ? $details : [];
             if ($deviceType === "CLP") {
-                $details = json_decode((string) ($device["details"] ?? ""), true);
                 $capability = is_array($details) && is_array($details["command_capability"] ?? null)
                     ? $details["command_capability"]
                     : [];
@@ -45,6 +46,26 @@ final class ServicoMonitoramento
                 $device["machine_command_mode"] = in_array($mode, ["FISICO", "SIMULADO", "BLOQUEADO"], true)
                     ? $mode
                     : "DESCONHECIDO";
+            }
+            if ($deviceType === "SCANNER") {
+                $readerStatus = strtoupper((string) ($details["reader_network_status"] ?? "DESCONHECIDO"));
+                $device["reader_network_status"] = in_array($readerStatus, ["ONLINE", "OFFLINE"], true)
+                    ? $readerStatus
+                    : "DESCONHECIDO";
+                $probePort = filter_var($details["reader_probe_port"] ?? null, FILTER_VALIDATE_INT);
+                $device["reader_probe_port"] = $probePort !== false && $probePort >= 1 && $probePort <= 65535
+                    ? $probePort
+                    : null;
+                $lastReadAt = $details["reader_last_read_at"] ?? null;
+                $lastReadTimestamp = is_string($lastReadAt) ? strtotime($lastReadAt) : false;
+                $lastReadAgeMs = filter_var($details["reader_last_read_age_ms"] ?? null, FILTER_VALIDATE_INT);
+                $recentRead = $lastReadAgeMs !== false && $lastReadAgeMs >= 0
+                    && $lastReadAgeMs <= $scannerSignalLimit * 1000;
+                $device["reader_online_source"] = $device["reader_network_status"] === "ONLINE"
+                    ? "REDE"
+                    : ($recentRead ? "LEITURA" : null);
+                $device["scanner_service_status"] = (string) $device["status"];
+                $device["reader_last_read_at"] = $lastReadTimestamp !== false ? $lastReadAt : null;
             }
             unset($device["details"]);
             $limit = match ($deviceType) {
@@ -60,6 +81,10 @@ final class ServicoMonitoramento
                 $device["status"] = "DESCONHECIDO";
             } elseif ($reportedStatus === "ERRO") {
                 $device["status"] = "ERRO";
+            } elseif ($deviceType === "SCANNER") {
+                $device["status"] = $device["reader_online_source"] !== null
+                    ? "ONLINE"
+                    : ($device["reader_network_status"] === "OFFLINE" ? "OFFLINE" : "DESCONHECIDO");
             } elseif ($reportedStatus === "DESCONHECIDO") {
                 $device["status"] = "DESCONHECIDO";
             } else {

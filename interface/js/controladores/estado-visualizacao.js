@@ -1,4 +1,4 @@
-import { apresentacaoConectividadePc, apresentacaoStatusDispositivo, renderStatusDalaBinario, resumoStatusDispositivos } from "../../telas/configuracoes/configuracoes.js?v=202610190062";
+import { apresentacaoConectividadePc, apresentacaoStatusDispositivo, renderStatusDalaBinario, resumoStatusDispositivos } from "../../telas/configuracoes/configuracoes.js?v=202610280001";
 import { focusOperationScanner, operationStructureSignature, renderDalaStatuses } from "./operacao.js?v=202610190063";
 import { numero, relativo, dataHora } from "../funcoes/formato.js?v=202609201000";
 import { el } from "../funcoes/html.js";
@@ -91,6 +91,10 @@ export function createLiveViewController({
     const presentations = [];
     document.querySelectorAll("[data-device-status-card]").forEach((card) => {
       const type = card.dataset.deviceStatusCard;
+      if (!["SENSOR", "SCANNER", "CLP", "SERVER"].includes(type)) {
+        card.remove();
+        return;
+      }
       const equipmentId = Number(card.dataset.liveStatusEquipment) || null;
       const device = type === "SERVER"
         ? null
