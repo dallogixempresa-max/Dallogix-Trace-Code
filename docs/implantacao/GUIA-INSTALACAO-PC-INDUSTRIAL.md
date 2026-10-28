@@ -1,6 +1,6 @@
 # Dallogix Trace — revisão e instalação no PC industrial
 
-Revisão feita em 23/10/2026 sobre a falha do instalador `v1.0.175`, a release empresarial atual, a VM `trace-dallogix-prod` e o fluxo de instalação do PC industrial.
+Revisão inicial feita em 23/10/2026 e atualizada em 28/10/2026 para a release empresarial `v1.0.184`, a VM `trace-dallogix-prod` e o fluxo de instalação do PC industrial.
 
 > **Não reutilize o `TraceSetup.exe` v1.0.175 que falhou.** Essa versão iniciou o Docker Compose sem entregar o `.env`. O instalador empresarial atual gera credenciais aleatórias em uma instalação realmente nova, preenche os segredos recém-adicionados do leitor sem trocar senhas de banco existente e passa explicitamente o diretório do projeto e o `.env` ao Compose. O fluxo protegido preserva `TRACE_COMMIT` e `TRACE_VERSION`, passa o `.env` ao Compose, reinicia o Nginx para atualizar o endereço interno do PHP e valida o commit exato no health check. O instalador empresarial é publicado sem assinatura Authenticode; confira o SHA-256 no asset da release oficial antes de executar. O hash confirma integridade, não a identidade do publicador.
 
@@ -15,8 +15,8 @@ Revisão feita em 23/10/2026 sobre a falha do instalador `v1.0.175`, a release e
 | Argumento de ambiente do deploy | O primeiro deploy da v1.0.177 fez backup do banco, mas parou antes do Compose porque `deploy_from_git.sh` omitiu o caminho do `.env` na chamada de `deploy_production.sh`. | A v1.0.178 passa o `.env` explicitamente e adiciona um teste funcional do fluxo protegido de deploy ao CI. A tentativa anterior não reiniciou os containers. |
 | Publicação GitHub → VM | Cada tag semântica de release no histórico da branch `production` executa validações, compila o instalador e envia o bundle exato para a VM por uma chave SSH limitada ao deploy. | A VM não precisa ler o repositório privado. O aplicador remoto rejeita tags fora da branch de produção, mudanças não fast-forward e pacotes que não correspondem ao commit da tag; o deploy protegido verifica carregamentos ativos, faz backup, executa migrations e exige health check do commit publicado. |
 | Endereço e versão Central | A instalação pública é a VM nova `trace-dallogix-prod`, IP `164.152.197.177`. | O teste de saúde de `https://trace.dallogix.com/api/health.php` deve mostrar `status=ok`, `php=true`, `mysql=true`, `installation_mode=central` e o commit da release aprovada. O domínio raiz `dallogix.com` não faz parte do deploy. |
-| Release empresarial | O código oficial fica em `dallogixempresa-max/Dallogix-Trace-Code`. | `Build-TraceSetup.ps1` exige uma tag semântica exata. Use o artefato `TraceSetup-v1.0.178` do workflow empresarial; não use artefatos do repositório pessoal. |
-| Atualização automática dos PCs | O instalador e as tarefas do atualizador ainda consultam o manifesto assinado em `VItoraaraujoo/Dallogix-Trace-System`; a release empresarial não publica esse manifesto nem o pacote assinado. | A atualização automática empresarial ainda não está migrada. Não troque a URL apenas para apontar ao repositório novo: é necessário migrar o fluxo de publicação e a chave privada correspondente à chave pública já instalada nos PCs, depois validar assinatura e download ponta a ponta. |
+| Release empresarial | O código oficial fica em `dallogixempresa-max/Dallogix-Trace-Code`. | `Build-TraceSetup.ps1` exige uma tag semântica exata. A release empresarial atual é `v1.0.184`; baixe `TraceSetup.exe` e `TraceSetup.sha256.txt` dos assets da GitHub Release. Artefatos de revisão de pull request não são instaladores de produção. |
+| Atualização automática dos PCs | A partir da v1.0.183, o instalador empresarial configura o manifesto e a chave pública do repositório da empresa. O registro do atualizador migra URL vazia ou a URL pessoal antiga para `dallogixempresa-max/Dallogix-Trace-Code`. A release v1.0.184 publica o manifesto assinado e o pacote; assinatura e SHA-256 foram verificados contra a chave pública empresarial. | O fluxo de publicação e integridade dos artefatos está validado. Ainda é necessário confirmar no PC industrial que a tarefa agendada está registrada e executando, que o `.env` aponta para a chave e o manifesto empresariais e que o preflight passa. Instalações com uma chave pública diferente precisam da migração aprovada antes de aceitar releases empresariais; a versão do Central não comprova, por si só, a atualização do PC. |
 | Segredos locais | `.env` e `config\machine.json` contêm senhas e tokens. | Não encontrei etapa que aplique ACL restritiva a esses arquivos. Limite a leitura à conta técnica, Administradores e SYSTEM; não envie esses arquivos em chamados ou mensagens. |
 | Atualização central | O instalador exige que `/api/health.php` responda com a versão e o commit exatos do pacote. | O servidor Central precisa estar publicado antes de instalar o PC. Uma versão diferente é recusada intencionalmente. |
 | CLP físico | O assistente só habilita escrita física para o mapa reconhecido do INVT TS621, após confirmar o mapa e vincular um equipamento. | Sem esses dados, o Trace instala em modo sem escrita física. Isso não impede a instalação da interface, banco e sincronização. |
@@ -33,7 +33,7 @@ Revisão feita em 23/10/2026 sobre a falha do instalador `v1.0.175`, a release e
 
 1. O instalador e `TraceSetup.sha256.txt` da release oficial empresarial, publicados somente após o health check exato do Central. O instalador não tem assinatura Authenticode.
 2. A VM nova publicada em `https://trace.dallogix.com`, com `version` e `commit` iguais aos da release do instalador. Não prossiga até a verificação de saúde pública mostrar o commit de produção esperado.
-3. Para ativar atualização automática em novos PCs, primeiro conclua a migração do manifesto e do pacote assinado para a publicação empresarial. Até essa migração, o atualizador continua dependente do repositório pessoal indicado no `.env`.
+3. O instalador empresarial configura o manifesto e a chave pública corporativos para novos PCs. Em uma máquina já instalada, confirme a versão, a chave e a tarefa agendada conforme a tabela acima antes de considerar a atualização automática ativa.
 4. Um PC x64 com Windows atualizado, virtualização habilitada no BIOS/UEFI, WSL 2 e Docker Desktop. O Docker Desktop exige pelo menos 8 GB de RAM segundo sua documentação atual; para uso comercial em organizações maiores, confirme a licença antes da instalação.
 5. Código de ativação e credenciais do administrador da empresa no Trace. Se o PC já tiver banco local, faça e valide um backup antes de atualizar ou reparar.
 
@@ -58,12 +58,12 @@ git fetch --all --tags
 git ls-remote --tags origin
 ```
 
-O último comando precisa listar uma tag de release aprovada. Uma tag semântica sobre um commit de `main` que descende de `production` aciona o workflow **Windows installer**: ele valida a chave do manifesto do atualizador, envia o bundle da tag à VM, confirma a versão e o commit no health check, avança `production` por fast-forward, compila `TraceSetup.exe` sem Authenticode, calcula o SHA-256 e publica a release empresarial. Não use uma tag do repositório pessoal para publicar código empresarial.
+O último comando lista as tags disponíveis. Uma tag semântica sobre um commit de `main` que descende de `production` aciona o workflow **Windows installer**: ele valida a chave do manifesto, envia o bundle da tag à VM, confirma versão e commit pelo health check, avança `production` por fast-forward, compila `TraceSetup.exe` sem Authenticode, calcula o SHA-256, assina o manifesto do atualizador e publica os quatro assets na GitHub Release empresarial. Para produção, baixe os assets da release aprovada; os artefatos de revisão de pull request são apenas para revisão. Não use uma tag do repositório pessoal para publicar código empresarial.
 
-Para compilar localmente quando a tag estiver disponível, cole o bloco abaixo e informe a tag aprovada quando solicitado. Na compilação automatizada, abra **Actions → Build Windows Installer** depois de publicar a tag e baixe `TraceSetup-<tag>` em **Artifacts** quando todos os jobs terminarem com sucesso. O job `Deploy tagged release to trace.dallogix.com` só termina depois de validar o commit exato no health check público.
+Para compilar localmente quando a tag estiver disponível, cole o bloco abaixo e informe a tag aprovada quando solicitado. Na compilação automatizada, acompanhe **Actions → Windows installer**. O instalador de produção, seu SHA-256, o pacote assinado do atualizador e o manifesto são publicados nos assets da GitHub Release somente depois de o deploy e o health check do Central confirmarem o commit exato.
 
 ```powershell
-$releaseTag = Read-Host 'Tag aprovada, por exemplo v1.0.181'
+$releaseTag = Read-Host 'Tag aprovada, por exemplo v1.0.184'
 if ($releaseTag -notmatch '^v\d+\.\d+\.\d+$') { throw 'Tag inválida.' }
 git fetch --tags origin
 git checkout --detach $releaseTag
@@ -92,15 +92,24 @@ $health | Select-Object status, installation_mode, version, commit | Format-List
 
 Confirme que `status` é `ok`, `installation_mode` é `central`, e `version` e `commit` correspondem à release do instalador. O próprio instalador bloqueia a configuração se houver divergência.
 
-Confira o manifesto atualmente configurado para o atualizador. Este endpoint ainda pertence ao repositório pessoal e não deve ser tratado como a distribuição oficial da empresa:
+Confira a configuração local do atualizador sem exibir tokens ou as demais credenciais do `.env`:
 
 ```powershell
-$manifestUrl = 'https://github.com/VItoraaraujoo/Dallogix-Trace-System/releases/latest/download/manifest.json'
+$installRoot = 'C:\DallogixTrace'
+Get-Content (Join-Path $installRoot '.env') |
+  Where-Object { $_ -match '^(UPDATE_MANIFEST_URL|UPDATE_PUBLIC_KEY_FILE|UPDATE_CHANNEL)=' }
+
+$taskName = 'Dallogix Trace Atualizacao Estavel'
+Get-ScheduledTask -TaskName $taskName | Select-Object TaskName, State
+Get-ScheduledTaskInfo -TaskName $taskName |
+  Select-Object LastRunTime, LastTaskResult, NextRunTime
+
+$manifestUrl = 'https://github.com/dallogixempresa-max/Dallogix-Trace-Code/releases/latest/download/manifest.json'
 $manifest = Invoke-RestMethod -Uri $manifestUrl -TimeoutSec 20
-$manifest | Select-Object channel, version, commit, artifact_url, sha256 | Format-List
+$manifest | Select-Object channel, version, artifact_url, sha256 | Format-List
 ```
 
-O código atual exige canal `stable`, versão semântica, SHA-256, assinatura e pacote no caminho de release aprovado. O endereço acima ainda aponta para o repositório pessoal listado na tabela de auditoria.
+O código exige canal `stable`, versão semântica, SHA-256 e assinatura válida da chave pública indicada em `UPDATE_PUBLIC_KEY_FILE`. A tarefa executa diariamente às 03:00 e tenta novamente após o logon; o pré-flight verifica Docker, chave pública, Git Bash e acesso à versão publicada. Leia o log local em `armazenamento\logs\update-stable-errors.log` se a tarefa falhar. Não considere a atualização automática de um PC comprovada sem verificar a tarefa e o preflight nessa máquina.
 
 ## C. Preparar um Windows limpo
 
@@ -162,9 +171,9 @@ if (-not $gitBash) { throw 'Git Bash não foi localizado. Reinstale Git for Wind
 
 ## D. Baixar e validar o instalador aprovado
 
-O repositório da empresa é privado. Em uma estação administrativa, entre no GitHub com uma conta autorizada, abra `dallogixempresa-max/Dallogix-Trace-Code` → **Actions** → **Build Windows Installer**, escolha a execução concluída para a tag aprovada e baixe o artefato `TraceSetup-<tag>`. Extraia `TraceSetup.exe` e `TraceSetup.sha256.txt` juntos para a pasta Downloads do PC industrial. O artefato expira após 30 dias; guarde a cópia aprovada no repositório interno de instaladores da empresa.
+Em uma estação administrativa, abra a [última GitHub Release de `dallogixempresa-max/Dallogix-Trace-Code`](https://github.com/dallogixempresa-max/Dallogix-Trace-Code/releases/latest) e confirme que a versão e o commit correspondem ao health check do Central. Baixe os assets `TraceSetup.exe` e `TraceSetup.sha256.txt` e extraia os dois juntos na pasta Downloads do PC industrial. Não use o artefato de revisão de uma pull request.
 
-No PowerShell, confira a integridade e a assinatura:
+No PowerShell, confira a integridade e a origem:
 
 ```powershell
 $installerPath = Join-Path $env:USERPROFILE 'Downloads\TraceSetup.exe'
