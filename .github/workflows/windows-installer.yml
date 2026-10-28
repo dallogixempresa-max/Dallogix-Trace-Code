@@ -12,7 +12,7 @@ permissions:
 jobs:
   compose-validation:
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
@@ -35,7 +35,7 @@ jobs:
 
   deploy-guard-tests:
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
@@ -100,7 +100,7 @@ jobs:
 
   validate-release-ref:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
@@ -136,7 +136,7 @@ jobs:
   deploy-production:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     needs: preflight-updater-signing
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     concurrency:
       group: trace-production-deploy
       cancel-in-progress: false
@@ -194,7 +194,7 @@ jobs:
   validate-release:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     needs: deploy-production
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: write
