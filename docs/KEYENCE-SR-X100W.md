@@ -27,7 +27,7 @@ Quando o último carregamento do romaneio é finalizado, a tela chama a geraçã
 3. No Windows, o instalador mantém ativo o perfil `industrial`; o serviço Keyence fica inativo até `KEYENCE_ENABLED=1` e os campos obrigatórios passarem pela validação. Em Linux, subir o perfil:
 
    ```sh
-   docker compose --profile industrial up -d --build
+   docker compose --profile industrial up -d --build --remove-orphans
    ```
 
 4. Liberar no firewall do PC somente a interface industrial e os IPs necessários: TCP 19000 para os códigos, TCP 2121 para FTP e TCP 21100–21109 para o modo passivo. Não publicar essas portas na rede corporativa ou na Internet. O FTP deste perfil não cifra o tráfego; mantenha o enlace isolado e limite a origem ao IP do leitor.

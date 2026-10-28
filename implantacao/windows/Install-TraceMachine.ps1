@@ -159,7 +159,7 @@ $dockerTaskSettings = New-ScheduledTaskSettingsSet -StartWhenAvailable -Multiple
 Register-ScheduledTask -TaskName "Trace-Docker-Start" -Action $dockerTaskAction -Trigger $dockerTaskTrigger -Principal $dockerTaskPrincipal -Settings $dockerTaskSettings -Description "Inicia o Docker Desktop do Trace após o login da conta técnica." -Force | Out-Null
 
 Assert-TraceMySqlVolumeExists -InstallRoot $PackageRoot -RequireMarker | Out-Null
-& docker.exe compose --project-directory $PackageRoot --env-file $envFile --profile industrial up -d
+& docker.exe compose --project-directory $PackageRoot --env-file $envFile --profile industrial up -d --remove-orphans
 if ($LASTEXITCODE -ne 0) { throw "Nao foi possivel iniciar os containers do Trace." }
 
 & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PackageRoot "implantacao\windows\Register-TraceUpdater.ps1") -PackageRoot $PackageRoot
