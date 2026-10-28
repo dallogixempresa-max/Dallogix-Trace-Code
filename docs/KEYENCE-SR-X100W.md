@@ -26,7 +26,7 @@ Quando o último carregamento do romaneio é finalizado, a tela chama a geraçã
 
    O configurador do PC industrial cria `C:\keyence\falhas` e define `KEYENCE_ARCHIVE_HOST_DIR=C:/keyence/falhas`. Em modo integrado, cada JPEG recebido é copiado para essa pasta antes da associação ao evento; a caixa temporária continua separada.
 
-   Para somente arquivar imagens sem associá-las à Dala ou gerar registros no Trace, usar `KEYENCE_ARCHIVE_ONLY=1`, `KEYENCE_ENABLED=1`, `KEYENCE_FTP_PASSWORD`, `KEYENCE_FTP_PASV_ADDRESS` e `KEYENCE_FTP_ALLOWED_ADDRESS`. Esse modo recebe apenas FTP; a conexão TCP de códigos e a API do Trace permanecem desligadas.
+   Para somente arquivar imagens sem associá-las à Dala ou gerar registros no Trace, usar `KEYENCE_ARCHIVE_ONLY=1`, `KEYENCE_ENABLED=1`, `KEYENCE_FTP_PASSWORD`, `KEYENCE_FTP_PASV_ADDRESS` e `KEYENCE_FTP_ALLOWED_ADDRESS`. Esse modo recebe apenas FTP; a conexão TCP de códigos e a API do Trace permanecem desligadas, então não exige nem provisiona uma credencial `SCANNER`. A sincronização da instalação e do CLP continua funcionando.
 
 3. No Windows, o instalador mantém ativo o perfil `industrial`; o serviço Keyence fica inativo até `KEYENCE_ENABLED=1` e os campos obrigatórios passarem pela validação. Em Linux, subir o perfil:
 
