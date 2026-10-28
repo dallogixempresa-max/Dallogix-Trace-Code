@@ -30,7 +30,7 @@ export function criarCarregadorPaginas({
       store.loadActiveLoading(),
     ],
     work: () => [
-      store.loadActiveLoading().then(() => store.loadPendingReadings()),
+      store.loadActiveLoading(),
       store.loadDeviceStatuses(),
       store.loadEquipments(),
     ],

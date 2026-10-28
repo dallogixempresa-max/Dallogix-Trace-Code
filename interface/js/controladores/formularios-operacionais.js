@@ -57,12 +57,29 @@ function registrarLeituraDaOperacao({
   schedule,
   readForm,
 }) {
+  const automaticSubmitDelayMs = 220;
   root.querySelectorAll(".manual-operation-reading-form").forEach((form) => {
     const barcodeInput = form.querySelector('[name="barcode"]');
+    let automaticSubmitTimer = null;
+    const submitScannedCode = () => {
+      if (automaticSubmitTimer !== null) {
+        globalThis.clearTimeout(automaticSubmitTimer);
+        automaticSubmitTimer = null;
+      }
+      if (barcodeInput?.disabled || !barcodeInput?.value.trim()) return;
+      if (typeof form.requestSubmit === "function") form.requestSubmit();
+    };
+    barcodeInput?.addEventListener("input", () => {
+      if (automaticSubmitTimer !== null) globalThis.clearTimeout(automaticSubmitTimer);
+      if (barcodeInput.disabled || !barcodeInput.value.trim()) return;
+      // O Keyboard Wedge pode estar configurado sem terminador. Uma pausa
+      // curta após o último caractere encerra a leitura como se fosse Enter.
+      automaticSubmitTimer = globalThis.setTimeout(submitScannedCode, automaticSubmitDelayMs);
+    });
     barcodeInput?.addEventListener("keydown", (event) => {
       if (event.key !== "Enter" || barcodeInput.disabled) return;
       event.preventDefault();
-      if (typeof form.requestSubmit === "function") form.requestSubmit();
+      submitScannedCode();
     });
     const refreshScannerFocus = () => updateScannerFocus(root.querySelector("#screen-root"));
     barcodeInput?.addEventListener("focus", refreshScannerFocus);
@@ -70,6 +87,10 @@ function registrarLeituraDaOperacao({
 
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
+      if (automaticSubmitTimer !== null) {
+        globalThis.clearTimeout(automaticSubmitTimer);
+        automaticSubmitTimer = null;
+      }
       if (form.dataset.submitting === "1") return;
       form.dataset.submitting = "1";
       const inputWasDisabled = barcodeInput?.disabled === true;
@@ -93,6 +114,10 @@ function registrarLeituraDaOperacao({
       } catch (error) {
         setFeedback(form, error.message || "Não foi possível registrar a leitura manual.", "error");
       } finally {
+        if (automaticSubmitTimer !== null) {
+          globalThis.clearTimeout(automaticSubmitTimer);
+          automaticSubmitTimer = null;
+        }
         if (form.isConnected) {
           form.dataset.submitting = "";
           if (barcodeInput) barcodeInput.disabled = inputWasDisabled;
@@ -114,30 +139,6 @@ function mensagemDaLeitura(result) {
     SEM_LEITURA: "Leitura registrada sem código.",
   };
   return messages[result.result] || "Leitura registrada.";
-}
-
-function confirmarLeiturasManuais({ root, store, render, setFeedback, readForm }) {
-  root.querySelectorAll(".manual-reading-form").forEach((form) => {
-    form.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      if (form.dataset.submitting === "1") return;
-      form.dataset.submitting = "1";
-      desabilitarBotaoEnviar(form, true);
-      setFeedback(form, "Confirmando código…");
-      try {
-        const raw = readForm(form);
-        await store.identifyReading(form.dataset.readingId, raw.barcode);
-        render();
-      } catch (error) {
-        setFeedback(form, error.message || "Não foi possível confirmar o código.", "error");
-      } finally {
-        if (form.isConnected) {
-          form.dataset.submitting = "";
-          desabilitarBotaoEnviar(form, false);
-        }
-      }
-    });
-  });
 }
 
 function confirmarRemocaoDeParada({ root, store, render, notify, setFeedback }) {
@@ -200,6 +201,5 @@ export function bindOperationalForms({
     schedule,
     readForm,
   });
-  confirmarLeiturasManuais({ root, store, render, setFeedback, readForm });
   confirmarRemocaoDeParada({ root, store, render, notify, setFeedback });
 }

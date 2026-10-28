@@ -3,7 +3,6 @@ import { produtosDisponiveisParaRomaneio } from "../funcoes/romaneio.js?v=202610
 import { renderStatusDala } from "../funcoes/status-dala.js?v=202610160004";
 
 export function operationStructureSignature(state, clpAvailable) {
-  const pending = (state.pendingReadings || []).map((reading) => reading.id).join(",");
   const unselectedLoadings = state.selectedLoadingId
     ? []
     : (state.activeLoadings || []).map((loading) => [
@@ -35,7 +34,6 @@ export function operationStructureSignature(state, clpAvailable) {
     state.truck,
     state.romaneio,
     state.userRole,
-    pending,
     command?.id || null,
     command?.command || null,
     command?.status || null,

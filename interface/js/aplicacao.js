@@ -8,8 +8,8 @@ import { ServicoEmergencia } from "./servicos/ServicoEmergencia.js?v=20261006000
 import { ServicoOperacao } from "./servicos/ServicoOperacao.js?v=202610060001";
 import { ArmazenamentoTrace } from "./classes/ArmazenamentoTrace.js?v=202610230001";
 import { FORM_ACTIONS } from "./constantes/acoes.js?v=202609140210";
-import { captureOperationScanner, restoreOperationScanner, focusOperationScanner, updateOperationScannerFocus, instalarRecuperacaoFocoLeitor, changeOperationLoading, linhaItemRomaneio } from "./controladores/operacao.js?v=202610190063";
-import { createOperationalRealtimeController } from "./controladores/tempo-real.js?v=202610190018";
+import { captureOperationScanner, restoreOperationScanner, focusOperationScanner, updateOperationScannerFocus, instalarRecuperacaoFocoLeitor, changeOperationLoading, linhaItemRomaneio } from "./controladores/operacao.js?v=202610280002";
+import { createOperationalRealtimeController } from "./controladores/tempo-real.js?v=202610280002";
 import { createPageRefreshController } from "./controladores/page-refresh.js?v=202610130001";
 import { createDalaStatusRealtimeController } from "./controladores/status-dalas-tempo-real.js?v=202610200003";
 import { createMachineCommandQueue } from "./controladores/comandos-maquina.js?v=202610070203";
@@ -22,15 +22,15 @@ import { criarTratadorAcoesCadastros } from "./controladores/acoes-cadastros.js?
 import { criarTratadorAcoesInterface, instalarInteracoesGlobaisInterface } from "./controladores/acoes-interface.js?v=202610190042";
 import { criarTratadorAcoesRelatorios } from "./controladores/acoes-relatorios.js?v=202610190043";
 import { criarDelegacaoAcoes, criarDespachanteAcoes } from "./controladores/despachante-acoes.js?v=202610190059";
-import { criarCarregadorPaginas } from "./controladores/carregador-paginas.js?v=202610190041";
-import { createLiveViewController } from "./controladores/estado-visualizacao.js?v=202610280001";
+import { criarCarregadorPaginas } from "./controladores/carregador-paginas.js?v=202610280002";
+import { createLiveViewController } from "./controladores/estado-visualizacao.js?v=202610280002";
 import { createLocalConnectivityController } from "./controladores/conectividade-local.js?v=202610190029";
 import { bindManifestCreationForm, bindManifestEditForm } from "./controladores/formulario-romaneio.js?v=202610190001";
 import { bindProductForm } from "./controladores/formulario-produto.js?v=202610190001";
 import { bindDalaCreationForm, bindDalaEditForm } from "./controladores/formulario-dala.js?v=202610190030";
 import { bindCsvManifestImportForm, bindPdfManifestImportForm } from "./controladores/formulario-importacao-romaneio.js?v=202610190001";
 import { bindAdministrativeForms } from "./controladores/formularios-administrativos.js?v=202610190001";
-import { bindOperationalForms } from "./controladores/formularios-operacionais.js?v=202610190001";
+import { bindOperationalForms } from "./controladores/formularios-operacionais.js?v=202610280002";
 import { bindPageForms } from "./controladores/formularios-telas.js?v=202610190001";
 import { el, esc } from "./funcoes/html.js";
 import { rotuloEstado } from "./funcoes/rotulos.js?v=202609240001";
@@ -78,7 +78,7 @@ const registroTelas = criarRegistroTelas({
   division: () =>
     import("../telas/divisao-carga/divisao-carga.js?v=202610190046").then(({ division }) => division),
   work: () =>
-    import("../telas/operacao/operacao.js?v=202610200002").then(({ work }) => work),
+    import("../telas/operacao/operacao.js?v=202610280002").then(({ work }) => work),
   occurrences: () =>
     import("../telas/ocorrencias/ocorrencias.js?v=202610190046").then(({ occurrences }) => occurrences),
   summary: () =>
