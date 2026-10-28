@@ -22,6 +22,8 @@ Não coloque a chave privada no repositório, em artefatos ou no chat. O ambient
 
 O workflow envia à VM o bundle exato da tag pela chave de deploy restrita. O aplicador remoto faz backup validado, adia o deploy enquanto houver carregamento ativo ou manutenção, aplica migrations e confirma a versão/commit pelo health check. O workflow confere `https://trace.dallogix.com/api/health.php`, avança `production` por fast-forward e só então compila o instalador, calcula o SHA-256, assina o manifesto do atualizador e publica a release. Se o deploy ou o health check falhar, nenhuma release é publicada.
 
+O pacote do atualizador inclui a saída completa do mesmo `dotnet publish` usada pelo instalador, além de `trace.ico`. O `TraceUpdater.ps1` substitui os arquivos da aplicação e recria os atalhos; por isso o workflow valida que o tar contém `DallogixTrace.exe`, `WebView2Loader.dll` e `trace.ico` antes de assinar e publicar o manifesto.
+
 Se a chave RSA do atualizador for rotacionada, atualize a chave pública versionada neste repositório. Instalações existentes que ainda confiam na chave antiga precisam receber manualmente ou com assistência um novo instalador antes de aceitar pacotes assinados pela chave nova.
 
 O configurador do PC cobre o mapa homologado do INVT TS621, parâmetros Modbus, sensor e leitores USB HID compatíveis ou KEYENCE SR-X100W por Ethernet/TCP. A integração Keyence recebe códigos por TCP e imagens de erro por FTP no perfil industrial. A configuração física e a homologação com o leitor real ainda precisam ser feitas; consulte [o guia do KEYENCE SR-X100W](KEYENCE-SR-X100W.md). O endereço IP e a porta Modbus continuam sendo os valores registrados para cada Dala no Central.

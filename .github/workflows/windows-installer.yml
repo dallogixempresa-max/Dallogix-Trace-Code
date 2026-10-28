@@ -87,6 +87,32 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'TraceSetup build failed.' }
           $setup = Get-Item ./implantacao/windows/Output/TraceSetup.exe
           if ($setup.Length -lt 10MB) { throw 'TraceSetup.exe is unexpectedly small.' }
+          $desktopPublish = Join-Path $env:GITHUB_WORKSPACE 'desktop\DallogixTrace\bin\Release\net8.0-windows\win-x64\publish'
+          foreach ($requiredFile in @('DallogixTrace.exe', 'WebView2Loader.dll')) {
+            if (-not (Test-Path -LiteralPath (Join-Path $desktopPublish $requiredFile) -PathType Leaf)) {
+              throw "Desktop updater payload is missing $requiredFile."
+            }
+          }
+          if (-not (Test-Path -LiteralPath './desktop/DallogixTrace/trace.ico' -PathType Leaf)) {
+            throw 'Desktop updater payload is missing trace.ico.'
+          }
+          $payloadStage = Join-Path $env:RUNNER_TEMP 'trace-updater-payload-review'
+          New-Item -ItemType Directory -Force -Path $payloadStage | Out-Null
+          foreach ($entry in @(Get-ChildItem -LiteralPath $desktopPublish -Force)) {
+            Copy-Item -LiteralPath $entry.FullName -Destination $payloadStage -Recurse -Force
+          }
+          Copy-Item -LiteralPath './desktop/DallogixTrace/trace.ico' -Destination (Join-Path $payloadStage 'trace.ico') -Force
+          $payloadArchive = Join-Path $env:RUNNER_TEMP 'trace-updater-payload-review.tar.gz'
+          & tar.exe -czf $payloadArchive -C $payloadStage .
+          if ($LASTEXITCODE -ne 0) { throw 'Could not create a review updater package.' }
+          $payloadEntries = @(& tar.exe -tzf $payloadArchive)
+          if ($LASTEXITCODE -ne 0) { throw 'Could not inspect the review updater package.' }
+          $normalizedPayloadEntries = @($payloadEntries | ForEach-Object { [string]$_ -replace '^[.][\/]', '' })
+          foreach ($requiredFile in @('DallogixTrace.exe', 'WebView2Loader.dll', 'trace.ico')) {
+            if ($normalizedPayloadEntries -notcontains $requiredFile) {
+              throw "Review updater package is missing $requiredFile."
+            }
+          }
           $hash = (Get-FileHash -LiteralPath $setup.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
           Set-Content -LiteralPath ./implantacao/windows/Output/TraceSetup.sha256.txt -Value "$hash  TraceSetup.exe" -Encoding ascii
       - uses: actions/upload-artifact@v7
@@ -300,8 +326,37 @@ jobs:
             Expand-Archive -LiteralPath $archiveZip -DestinationPath $stage
             [IO.File]::WriteAllText((Join-Path $stage 'trace-build-version.txt'), "$tag`n", (New-Object System.Text.UTF8Encoding($false)))
             [IO.File]::WriteAllText((Join-Path $stage 'trace-build-commit.txt'), "$commit`n", (New-Object System.Text.UTF8Encoding($false)))
+            $desktopPublish = Join-Path $env:GITHUB_WORKSPACE 'desktop\DallogixTrace\bin\Release\net8.0-windows\win-x64\publish'
+            $desktopIcon = Join-Path $env:GITHUB_WORKSPACE 'desktop\DallogixTrace\trace.ico'
+            foreach ($requiredFile in @('DallogixTrace.exe', 'WebView2Loader.dll')) {
+              if (-not (Test-Path -LiteralPath (Join-Path $desktopPublish $requiredFile) -PathType Leaf)) {
+                throw "Desktop updater payload is missing $requiredFile."
+              }
+            }
+            if (-not (Test-Path -LiteralPath $desktopIcon -PathType Leaf)) {
+              throw 'Desktop updater payload is missing trace.ico.'
+            }
+            $desktopPublishEntries = @(Get-ChildItem -LiteralPath $desktopPublish -Force)
+            if ($desktopPublishEntries.Count -eq 0) { throw 'Desktop publish directory is empty.' }
+            foreach ($entry in $desktopPublishEntries) {
+              Copy-Item -LiteralPath $entry.FullName -Destination $stage -Recurse -Force
+            }
+            Copy-Item -LiteralPath $desktopIcon -Destination (Join-Path $stage 'trace.ico') -Force
+            foreach ($requiredFile in @('DallogixTrace.exe', 'WebView2Loader.dll', 'trace.ico')) {
+              if (-not (Test-Path -LiteralPath (Join-Path $stage $requiredFile) -PathType Leaf)) {
+                throw "Staged updater package is missing $requiredFile."
+              }
+            }
             & tar.exe -czf $archivePath -C $stage .
             if ($LASTEXITCODE -ne 0) { throw 'Could not create updater package.' }
+            $packageEntries = @(& tar.exe -tzf $archivePath)
+            if ($LASTEXITCODE -ne 0) { throw 'Could not inspect the updater package.' }
+            $normalizedPackageEntries = @($packageEntries | ForEach-Object { [string]$_ -replace '^[.][\/]', '' })
+            foreach ($requiredFile in @('DallogixTrace.exe', 'WebView2Loader.dll', 'trace.ico')) {
+              if ($normalizedPackageEntries -notcontains $requiredFile) {
+                throw "Updater package archive is missing $requiredFile."
+              }
+            }
 
             [IO.File]::WriteAllText($privatePath, $env:UPDATE_PRIVATE_KEY, (New-Object System.Text.UTF8Encoding($false)))
             $openssl = Join-Path $env:ProgramFiles 'Git\usr\bin\openssl.exe'
