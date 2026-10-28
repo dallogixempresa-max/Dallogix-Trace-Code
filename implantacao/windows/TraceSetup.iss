@@ -6,14 +6,21 @@
 AppId={{8E47F2D6-7E85-4A2E-9A74-000000000001}}
 AppName=Dallogix Trace
 AppVersion={#TraceInstallVersion}
+AppPublisher=Dallogix
+AppPublisherURL=https://dallogix.com
+AppSupportURL=https://trace.dallogix.com
+AppUpdatesURL=https://github.com/dallogixempresa-max/Dallogix-Trace-Code/releases/latest
 DefaultDirName=C:\DallogixTrace
 UsePreviousAppDir=no
 DisableProgramGroupPage=yes
 PrivilegesRequired=admin
+ArchitecturesAllowed=x64
 ArchitecturesInstallIn64BitMode=x64
 OutputBaseFilename=TraceSetup
 Compression=lzma2
 SolidCompression=yes
+ShowLanguageDialog=no
+LanguageDetectionMethod=none
 
 [Files]
 Source: "..\..\docker-compose.yml"; DestDir: "{app}"; Flags: ignoreversion
@@ -34,6 +41,7 @@ Source: "TraceDatabaseBackup.ps1"; DestDir: "{app}\implantacao\windows"; Flags: 
 Source: "TraceUpdater.ps1"; DestDir: "{app}\implantacao\windows"; Flags: ignoreversion
 Source: "Register-TraceUpdater.ps1"; DestDir: "{app}\implantacao\windows"; Flags: ignoreversion
 Source: "Instalar-TraceLocal.ps1"; DestDir: "{app}\implantacao\windows"; Flags: ignoreversion
+Source: "TraceFileSecurity.ps1"; DestDir: "{app}\implantacao\windows"; Flags: ignoreversion
 Source: "TraceAgent.ps1"; DestDir: "{app}\implantacao\windows"; Flags: ignoreversion
 Source: "Build-TraceSetup.ps1"; DestDir: "{app}\implantacao\windows"; Flags: ignoreversion
 Source: "..\..\desktop\DallogixTrace\bin\Release\net8.0-windows\win-x64\publish\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
@@ -54,6 +62,12 @@ Name: "{app}\logs"
 Name: "{commondesktop}\Dallogix Trace"; Filename: "{app}\DallogixTrace.exe"; WorkingDir: "{app}"; IconFilename: "{app}\trace.ico"
 Name: "{autoprograms}\Dallogix Trace"; Filename: "{app}\DallogixTrace.exe"; WorkingDir: "{app}"; IconFilename: "{app}\trace.ico"
 Name: "{autoprograms}\Configurar CLP e leitor do Dallogix Trace"; Filename: "powershell.exe"; Parameters: "-NoLogo -NoProfile -ExecutionPolicy Bypass -STA -File ""{app}\implantacao\windows\Configure-TraceIndustrial.ps1"" -PackageRoot ""{app}"""; WorkingDir: "{app}"; IconFilename: "{app}\trace.ico"; Comment: "Configura o CLP e o leitor USB HID ou KEYENCE SR-X100W por Ethernet/TCP"
+
+[Run]
+Filename: "{app}\DallogixTrace.exe"; Description: "Abrir o Dallogix Trace agora"; WorkingDir: "{app}"; Flags: postinstall nowait skipifsilent runasoriginaluser
+
+[Languages]
+Name: "brazilianportuguese"; MessagesFile: "compiler:Languages\BrazilianPortuguese.isl"
 
 [Code]
 function ParseTraceVersion(Value: String; var Packed: Int64): Boolean;
@@ -137,7 +151,7 @@ begin
     SW_SHOWNORMAL, ewWaitUntilTerminated, ResultCode) then
     RaiseException('Não foi possível iniciar a configuração do Trace: ' + SysErrorMessage(ResultCode));
   if ResultCode <> 0 then
-    RaiseException('A configuração do Trace falhou. Código: ' + IntToStr(ResultCode) + '. Veja o erro exibido na janela de configuração.');
+    RaiseException('A instalação do Trace não foi concluída. Consulte a mensagem de erro e o arquivo armazenamento\logs\installation-setup.log antes de tentar novamente.');
   if not RegWriteStringValue(HKLM, 'Software\Microsoft\Windows\CurrentVersion\Run',
     'Dallogix Trace', '"' + ExpandConstant('{app}\DallogixTrace.exe') + '"') then
     RaiseException('A configuração foi concluída, mas não foi possível registrar o início automático do Trace.');
