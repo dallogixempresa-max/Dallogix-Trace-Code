@@ -6,7 +6,7 @@ import { confirmarAcao, limparNotificacao, notificar, solicitarTexto } from "./c
 import { setFormFeedback } from "./componentes/form-feedback.js?v=202610190001";
 import { ServicoEmergencia } from "./servicos/ServicoEmergencia.js?v=202610060001";
 import { ServicoOperacao } from "./servicos/ServicoOperacao.js?v=202610060001";
-import { ArmazenamentoTrace } from "./classes/ArmazenamentoTrace.js?v=202610290001";
+import { ArmazenamentoTrace } from "./classes/ArmazenamentoTrace.js?v=202610290002";
 import { FORM_ACTIONS } from "./constantes/acoes.js?v=202609140210";
 import { changeOperationLoading, linhaItemRomaneio } from "./controladores/operacao.js?v=202610290001";
 import { createOperationalRealtimeController } from "./controladores/tempo-real.js?v=202610280002";
@@ -516,6 +516,45 @@ function stopWorkPolling() {
 function startWorkPolling() {
   workRealtime.start();
 }
+function installScannerClipboardReceiver() {
+  const webview = window.chrome?.webview;
+  if (!webview?.addEventListener) return;
+
+  let queue = Promise.resolve();
+  webview.addEventListener("message", (event) => {
+    const message = event.data;
+    if (message?.type !== "trace-scanner-clipboard") return;
+
+    const barcode = String(message.value || "").trim();
+    if (!barcode || barcode.length > 128 || /[\x00-\x1F\x7F]/.test(barcode)) return;
+
+    queue = queue.then(async () => {
+      if (!store.state.loadingId || !["CARREGANDO", "FINALIZANDO"].includes(store.state.operationalState)) return;
+
+      store.state.latestScannerReading = {
+        barcode,
+        result: "RECEBIDO",
+        readAt: new Date(Number(message.capturedAtEpochMs) || Date.now()).toISOString(),
+        value: barcode,
+      };
+      const display = document.querySelector('[data-live="scanner-value"]');
+      if (display) {
+        display.textContent = barcode;
+        display.classList.remove("is-error");
+      }
+
+      try {
+        await store.registerScannerReading(barcode);
+        if (currentPage === "work") renderScreen();
+      } catch (error) {
+        logFrontend.aviso("leitor.clipboard.registro", error);
+        notificar(error.message || "Não foi possível associar a leitura ao saco detectado.", "erro");
+      }
+    }).catch((error) => {
+      logFrontend.erro("leitor.clipboard.processamento", error);
+    });
+  });
+}
 function installInteractionGuards() {
   document.addEventListener("dragstart", (event) => {
     if (event.target.closest("a, button, img, svg, [data-action]"))
@@ -815,6 +854,7 @@ async function bootstrap() {
   store.setUser(authenticatedUser);
   store.setCsrfToken(result.csrf_token);
   configurarTransporteLogs((registro) => store.persistFrontendLog(registro));
+  installScannerClipboardReceiver();
   const requestedPage = resolveAuthorizedPage(currentPage, defaultPage());
   if (requestedPage !== currentPage) {
     currentPage = requestedPage;

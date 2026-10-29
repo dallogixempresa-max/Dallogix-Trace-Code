@@ -5,7 +5,7 @@ import { ServicoDalas } from "../servicos/ServicoDalas.js?v=202610190001";
 import { ServicoObservabilidade } from "../servicos/ServicoObservabilidade.js?v=202610190003";
 import { ServicoCarregamentoAtivo } from "../servicos/ServicoCarregamentoAtivo.js?v=202610290001";
 import { ServicoComandosMaquina } from "../servicos/ServicoComandosMaquina.js?v=202610190029";
-import { ServicoLeiturasOperacionais } from "../servicos/ServicoLeiturasOperacionais.js?v=202610290001";
+import { ServicoLeiturasOperacionais } from "../servicos/ServicoLeiturasOperacionais.js?v=202610290002";
 import { resolverComandoAtual } from "../funcoes/estado-comando.js?v=202610130003";
 import {
   buscarTodasPaginas,
@@ -171,6 +171,7 @@ export class ArmazenamentoTrace {
       getPendingReadingsRequestId: () => this.pendingReadingsRequestId,
       loadActiveLoading: (...args) => this.loadActiveLoading(...args),
       loadPendingReadings: (...args) => this.loadPendingReadings(...args),
+      createEventId: secureRandomId,
     });
   }
   navigate(page) {
@@ -616,6 +617,9 @@ export class ArmazenamentoTrace {
   }
   async registerReturn(readingId, reason) {
     return this.servicoLeiturasOperacionais.registerReturn(readingId, reason);
+  }
+  async registerScannerReading(barcode) {
+    return this.servicoLeiturasOperacionais.registerScannerReading(barcode);
   }
   async loadMonitoring() {
     const result = await this.sincronizacao.monitoramento();
