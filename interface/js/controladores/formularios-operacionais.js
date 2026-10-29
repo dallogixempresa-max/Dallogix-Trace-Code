@@ -93,11 +93,13 @@ function registrarLeituraDaOperacao({
       }
       if (form.dataset.submitting === "1") return;
       form.dataset.submitting = "1";
+      // FormData ignora campos desabilitados; capture a leitura antes de
+      // desabilitar o input enquanto a API registra a passagem.
+      const raw = readForm(form);
       const inputWasDisabled = barcodeInput?.disabled === true;
       if (barcodeInput) barcodeInput.disabled = true;
       setFeedback(form, "Registrando leitura…");
       try {
-        const raw = readForm(form);
         const result = await store.registerManualReading(raw.barcode);
         const message = mensagemDaLeitura(result);
         if (result.refreshWarning) {
@@ -136,7 +138,7 @@ function mensagemDaLeitura(result) {
       : "Código registrado e produto validado.",
     PRODUTO_INCORRETO: result.operator_alert || "Código não previsto para o carregamento; a operação foi pausada.",
     EXCESSO: result.operator_alert || "Quantidade prevista para este produto atingida. Confira a leitura excedente.",
-    SEM_LEITURA: "Leitura registrada sem código.",
+    SEM_LEITURA: "Saco contado como sem leitura. A esteira continua; confira a imagem de evidência.",
   };
   return messages[result.result] || "Leitura registrada.";
 }

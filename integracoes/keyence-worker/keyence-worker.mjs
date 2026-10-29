@@ -3,7 +3,7 @@ import { createConnection as createTcpConnection, createServer as createTcpServe
 import { mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createFtpReceiver } from "./ftp-receiver.mjs";
-import { matchPendingImage, nextUnreservedSensorEventId, parseBarcodeFrame, scanEventId, sha256 } from "./keyence-core.mjs";
+import { isKeyenceNoReadFrame, matchPendingImage, nextUnreservedSensorEventId, parseBarcodeFrame, scanEventId, sha256 } from "./keyence-core.mjs";
 
 const SERVICE_NAME = "keyence-worker";
 const boundedInteger = (rawValue, fallback, minimum, maximum) => {
@@ -129,11 +129,13 @@ async function refreshActiveLoading() {
 }
 
 async function queueBarcode(rawFrame) {
-  const barcode = parseBarcodeFrame(rawFrame);
-  if (!barcode) {
+  const decodedValue = parseBarcodeFrame(rawFrame);
+  if (!decodedValue) {
     log("warn", "Quadro TCP ignorado: código vazio, longo ou com caracteres de controle.");
     return;
   }
+  const noRead = isKeyenceNoReadFrame(decodedValue);
+  const barcode = noRead ? "" : decodedValue;
   readerLastReadAt = new Date().toISOString();
   readerLastReadAtMs = Date.now();
   let loading = null;
@@ -166,6 +168,7 @@ async function queueBarcode(rawFrame) {
   const event = {
     offline_id: scanEventId(),
     barcode,
+    no_read: noRead,
     loading_id: loading.id,
     sensor_event_id: sensorEventId,
     received_at: new Date().toISOString(),
@@ -179,6 +182,7 @@ async function queueBarcode(rawFrame) {
   log("info", "Código recebido do Keyence e enfileirado para o Trace.", {
     loading_id: event.loading_id,
     sensor_event_id: event.sensor_event_id,
+    no_read: noRead,
     barcode_length: Buffer.byteLength(barcode, "utf8"),
   });
   void processScanQueue().catch((error) => {
@@ -223,6 +227,7 @@ function processScanQueue() {
               carregamento_id: Number(event.loading_id),
               sensor_event_id: Number(event.sensor_event_id) || null,
               barcode: String(event.barcode),
+              no_read: event.no_read === true,
             },
             timeoutMs: 10000,
             idempotencyKey: String(event.offline_id),

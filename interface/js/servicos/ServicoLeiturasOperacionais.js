@@ -51,12 +51,18 @@ export class ServicoLeiturasOperacionais {
   async registerManualReading(barcode) {
     const loadingId = Number(this.state.loadingId) || 0;
     const code = String(barcode || "").trim();
+    const noRead = /^ERROR(?:[0-9]{8,14})?$/i.test(code);
     if (!loadingId) throw new Error("Nenhum carregamento selecionado.");
-    if (!code) throw new Error("Informe o código de barras.");
+    if (!code && !noRead) throw new Error("Informe o código de barras.");
     const response = await this.requestWithOfflineQueue("/api/leituras.php", {
       method: "POST",
       headers: this.jsonHeaders(),
-      body: JSON.stringify({ carregamento_id: loadingId, barcode: code, attempt_number: 1 }),
+      body: JSON.stringify({
+        carregamento_id: loadingId,
+        barcode: noRead ? "" : code,
+        no_read: noRead,
+        attempt_number: 1,
+      }),
     });
     const result = await this.jsonResponse(response, "Não foi possível registrar a leitura manual.");
     if (result.data?.queued) return result.data;

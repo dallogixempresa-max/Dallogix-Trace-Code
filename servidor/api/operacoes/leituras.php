@@ -56,6 +56,7 @@ try {
 $loadingId = $solicitacao->loadingId;
 $sensorEventId = $solicitacao->sensorEventId;
 $barcode = $solicitacao->barcode;
+$noRead = $solicitacao->noRead;
 $offlineEventId = $solicitacao->offlineEventId;
 $attemptNumber = $solicitacao->attemptNumber;
 
@@ -99,7 +100,8 @@ if ($offlineEventId !== "") {
         if (
             !is_array($original) ||
             (int) ($original["carregamento_id"] ?? 0) !== (int) $loadingId ||
-            (string) ($original["barcode"] ?? "") !== $barcode
+            (string) ($original["barcode"] ?? "") !== $barcode ||
+            (bool) ($original["no_read"] ?? false) !== $noRead
         ) {
             $pdo->rollBack();
             responder_json(["error" => "Identificador já usado em outra leitura."], 409);
@@ -140,7 +142,7 @@ if ($loading["state"] !== "CARREGANDO") {
 $loadingValidCount = (int) $loading["leituras_validas"];
 // O Keyence envia o código por TCP. Se a API precisar associar o evento,
 // consome primeiro a passagem pendente mais antiga dentro da janela.
-if (!$sensorEventId && $barcode !== "") {
+if (!$sensorEventId && ($barcode !== "" || $noRead)) {
     $associationWindowMs = max(500, min(10000, (int) (getenv("TRACE_SCANNER_NO_READ_TIMEOUT_MS") ?: 1500)));
     $associationWindowMicroseconds = $associationWindowMs * 1000;
     $pendingSensor = $pdo->prepare(
@@ -179,7 +181,7 @@ if ($sensorEventId) {
     }
 }
 if ($dispositivoScanner !== null) {
-    if (!$sensorEventId || $barcode === "") {
+    if (!$sensorEventId || ($barcode === "" && !$noRead)) {
         $pdo->rollBack();
         responder_json(["error" => "A leitura Keyence precisa de um código e de um evento de passagem pendente."], 409);
     }
@@ -344,6 +346,7 @@ record_operational_event(
         "carregamento_id" => (int) $loadingId,
         "result" => $result,
         "barcode" => $barcode,
+        "no_read" => $noRead,
         "attempt_number" => $attemptNumber,
         ...($offlineEventId !== "" ? ["event_uuid" => $offlineEventId] : []),
     ],

@@ -12,6 +12,7 @@ final readonly class SolicitacaoLeitura
         public int $loadingId,
         public ?int $sensorEventId,
         public string $barcode,
+        public bool $noRead,
         public string $offlineEventId,
         public int $attemptNumber,
     ) {
@@ -27,6 +28,18 @@ final readonly class SolicitacaoLeitura
         $sensorEventInput = $payload["sensor_event_id"] ?? null;
         $sensorEventId = filter_var($sensorEventInput, FILTER_VALIDATE_INT);
         $barcode = trim((string) ($payload["barcode"] ?? ""));
+        $noReadInput = $payload["no_read"] ?? false;
+        if (!is_bool($noReadInput)) {
+            throw new InvalidArgumentException("Indicador de falha de leitura inválido.");
+        }
+        $errorMarker = preg_match('/^ERROR(?:[0-9]{8,14})?$/i', $barcode) === 1;
+        if ($noReadInput && $barcode !== "" && !$errorMarker) {
+            throw new InvalidArgumentException("Uma falha de leitura não pode conter um código de produto.");
+        }
+        $noRead = $noReadInput || $errorMarker;
+        if ($noRead) {
+            $barcode = "";
+        }
         $offlineEventId = trim($offlineEventId);
         $attemptNumber = filter_var($payload["attempt_number"] ?? 1, FILTER_VALIDATE_INT);
 
@@ -50,6 +63,7 @@ final readonly class SolicitacaoLeitura
             (int) $loadingId,
             $sensorEventId === false ? null : $sensorEventId,
             $barcode,
+            $noRead,
             $offlineEventId,
             (int) $attemptNumber,
         );
