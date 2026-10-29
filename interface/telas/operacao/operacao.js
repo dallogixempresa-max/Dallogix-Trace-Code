@@ -231,21 +231,12 @@ function workControls(store) {
     "aria-disabled": "true",
     title: reason || "A esteira precisa estar parada para alterar a reversão.",
   });
-  const reversaoLigadaConfirmada = store.state.reversalCommand === "REVERSAO_ATIVAR" && !(
-    currentCommandPending && pendingCommand === "REVERSAO_ATIVAR"
-  );
   const atributosLigarReversao = esteiraEmMovimentoOuIniciando
     ? atributosReversaoDuranteMovimento(commandLocks["reverse-on"])
     : bloqueio(commandLocks["reverse-on"]);
   const atributosDesligarReversao = esteiraEmMovimentoOuIniciando
     ? atributosReversaoDuranteMovimento(commandLocks["reverse-off"])
-    : reversaoLigadaConfirmada
-      ? bloqueio(commandLocks["reverse-off"])
-      : {
-        disabled: true,
-        "aria-disabled": "true",
-        title: commandLocks["reverse-off"] || "A reversão precisa estar confirmada como ligada.",
-      };
+    : bloqueio(commandLocks["reverse-off"]);
   const atributosPararEsteira = commandLocks.stop === "A esteira já está parada."
     ? {
         disabled: true,
