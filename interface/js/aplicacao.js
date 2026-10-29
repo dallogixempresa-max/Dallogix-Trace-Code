@@ -6,9 +6,9 @@ import { confirmarAcao, limparNotificacao, notificar, solicitarTexto } from "./c
 import { setFormFeedback } from "./componentes/form-feedback.js?v=202610190001";
 import { ServicoEmergencia } from "./servicos/ServicoEmergencia.js?v=202610060001";
 import { ServicoOperacao } from "./servicos/ServicoOperacao.js?v=202610060001";
-import { ArmazenamentoTrace } from "./classes/ArmazenamentoTrace.js?v=202610280005";
+import { ArmazenamentoTrace } from "./classes/ArmazenamentoTrace.js?v=202610290001";
 import { FORM_ACTIONS } from "./constantes/acoes.js?v=202609140210";
-import { captureOperationScanner, restoreOperationScanner, focusOperationScanner, updateOperationScannerFocus, instalarRecuperacaoFocoLeitor, changeOperationLoading, linhaItemRomaneio } from "./controladores/operacao.js?v=202610280005";
+import { changeOperationLoading, linhaItemRomaneio } from "./controladores/operacao.js?v=202610290001";
 import { createOperationalRealtimeController } from "./controladores/tempo-real.js?v=202610280002";
 import { createPageRefreshController } from "./controladores/page-refresh.js?v=202610130001";
 import { createDalaStatusRealtimeController } from "./controladores/status-dalas-tempo-real.js?v=202610200003";
@@ -16,21 +16,21 @@ import { createMachineCommandQueue } from "./controladores/comandos-maquina.js?v
 import { criarRegistroTelas } from "./controladores/registro-telas.js?v=202610190046";
 import { criarTratadorAcoesNavegacao } from "./controladores/acoes-navegacao.js?v=202610190001";
 import { criarTratadorAcoesAdministracao } from "./controladores/acoes-administracao.js?v=202610190001";
-import { criarTratadorAcoesOperacionais } from "./controladores/acoes-operacionais.js?v=202610280005";
+import { criarTratadorAcoesOperacionais } from "./controladores/acoes-operacionais.js?v=202610290001";
 import { criarTratadorAcoesDiagnostico } from "./controladores/acoes-diagnostico.js?v=202610190001";
 import { criarTratadorAcoesCadastros } from "./controladores/acoes-cadastros.js?v=202610190042";
 import { criarTratadorAcoesInterface, instalarInteracoesGlobaisInterface } from "./controladores/acoes-interface.js?v=202610190042";
 import { criarTratadorAcoesRelatorios } from "./controladores/acoes-relatorios.js?v=202610190043";
 import { criarDelegacaoAcoes, criarDespachanteAcoes } from "./controladores/despachante-acoes.js?v=202610190059";
 import { criarCarregadorPaginas } from "./controladores/carregador-paginas.js?v=202610280002";
-import { createLiveViewController } from "./controladores/estado-visualizacao.js?v=202610280005";
+import { createLiveViewController } from "./controladores/estado-visualizacao.js?v=202610290001";
 import { createLocalConnectivityController } from "./controladores/conectividade-local.js?v=202610190029";
 import { bindManifestCreationForm, bindManifestEditForm } from "./controladores/formulario-romaneio.js?v=202610190001";
 import { bindProductForm } from "./controladores/formulario-produto.js?v=202610190001";
 import { bindDalaCreationForm, bindDalaEditForm } from "./controladores/formulario-dala.js?v=202610190030";
 import { bindCsvManifestImportForm, bindPdfManifestImportForm } from "./controladores/formulario-importacao-romaneio.js?v=202610190001";
 import { bindAdministrativeForms } from "./controladores/formularios-administrativos.js?v=202610190001";
-import { bindOperationalForms } from "./controladores/formularios-operacionais.js?v=202610280005";
+import { bindOperationalForms } from "./controladores/formularios-operacionais.js?v=202610290001";
 import { bindPageForms } from "./controladores/formularios-telas.js?v=202610190001";
 import { el, esc } from "./funcoes/html.js";
 import { rotuloEstado } from "./funcoes/rotulos.js?v=202609240001";
@@ -78,7 +78,7 @@ const registroTelas = criarRegistroTelas({
   division: () =>
     import("../telas/divisao-carga/divisao-carga.js?v=202610190046").then(({ division }) => division),
   work: () =>
-    import("../telas/operacao/operacao.js?v=202610280005").then(({ work }) => work),
+    import("../telas/operacao/operacao.js?v=202610290001").then(({ work }) => work),
   occurrences: () =>
     import("../telas/ocorrencias/ocorrencias.js?v=202610190046").then(({ occurrences }) => occurrences),
   summary: () =>
@@ -98,7 +98,7 @@ const registroTelas = criarRegistroTelas({
   "dala-edit": () =>
     import("../telas/editar-dala/editar-dala.js?v=202610190046").then(({ dalaEdit }) => dalaEdit),
   manifest: () =>
-    import("../telas/romaneio/romaneio.js?v=202610280005").then(({ manifestView }) => manifestView),
+    import("../telas/romaneio/romaneio.js?v=202610290001").then(({ manifestView }) => manifestView),
   "manifest-edit": () =>
     import("../telas/editar-romaneio/editar-romaneio.js?v=202610190046").then(({ manifestEdit }) => manifestEdit),
   companies: () =>
@@ -106,7 +106,7 @@ const registroTelas = criarRegistroTelas({
   "master-home": () =>
     import("../telas/painel-dallogix/painel-dallogix.js?v=202610190046").then(({ masterHome }) => masterHome),
   company: () =>
-    import("../telas/empresa/empresa.js?v=202610230001").then(({ company }) => company),
+    import("../telas/empresa/empresa.js?v=202610290001").then(({ company }) => company),
   users: () =>
     import("../telas/usuarios/usuarios.js?v=202610190046").then(({ users }) => users),
   "error-logs": () =>
@@ -389,10 +389,8 @@ const conectividadeLocal = createLocalConnectivityController({
   refreshWorkView: () => refreshWorkLiveView(),
   refreshSettingsView: () => refreshSettingsStatusView(),
   render: () => render(),
-  focusScanner: (root) => focusOperationScanner(root),
-  getScreenRoot: () => el("#screen-root"),
   logWarning: (...args) => logFrontend.aviso(...args),
-  serviceWorkerUrl: "/service-worker.js?v=202610230001",
+  serviceWorkerUrl: "/service-worker.js?v=202610290001",
 });
 
 function waitForDocumentStyles() {
@@ -413,7 +411,7 @@ function waitForDocumentStyles() {
 // tela que tem CSS próprio precisa garantir seu arquivo e sua versão antes do
 // primeiro render, inclusive quando a rota inicial veio de outra página.
 const SCREEN_STYLES = {
-  work: "/telas/operacao/operacao.css?v=202610200002",
+  work: "/telas/operacao/operacao.css?v=202610290001",
   import: "/telas/importar-romaneio/importar-romaneio.css?v=202610071845",
   settings: "/telas/configuracoes/configuracoes.css?v=202610280001",
   dalas: "/telas/dalas/dalas.css?v=202610160005",
@@ -496,17 +494,8 @@ function hydrateChrome() {
 }
 function renderScreen() {
   const screenRoot = el("#screen-root");
-  const scannerSnapshot = currentPage === "work"
-    ? captureOperationScanner(screenRoot)
-    : null;
   hydrateChrome();
   screenRoot.innerHTML = screens[currentPage](store);
-  if (scannerSnapshot) restoreOperationScanner(screenRoot, scannerSnapshot);
-  else if (currentPage === "work") focusOperationScanner(screenRoot);
-  if (currentPage === "work") {
-    instalarRecuperacaoFocoLeitor(screenRoot);
-    updateOperationScannerFocus(screenRoot);
-  }
   bindActions();
   bindForms();
   installRelativeTimeRefresh();
@@ -739,8 +728,6 @@ function bindForms() {
     dashboardQuery: dashboardReturnQuery,
     render,
     notify: notificar,
-    updateScannerFocus: updateOperationScannerFocus,
-    logWarning: (...args) => logFrontend.aviso(...args),
   });
 }
 async function renderPage() {

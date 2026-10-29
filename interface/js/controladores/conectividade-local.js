@@ -9,8 +9,6 @@ export function createLocalConnectivityController({
   refreshWorkView,
   refreshSettingsView,
   render,
-  focusScanner,
-  getScreenRoot,
   logWarning,
   serviceWorkerUrl,
 }) {
@@ -88,13 +86,6 @@ export function createLocalConnectivityController({
 
   function installIndicator() {
     if (healthTimer) return;
-    const restoreScannerFocus = () => {
-      if (getCurrentPage() === "work" && document.visibilityState === "visible") {
-        focusScanner(getScreenRoot());
-      }
-    };
-    window.addEventListener("focus", restoreScannerFocus);
-    document.addEventListener("visibilitychange", restoreScannerFocus);
     window.addEventListener("online", () => {
       refresh();
       store.flushOfflineOperations().then(() => {

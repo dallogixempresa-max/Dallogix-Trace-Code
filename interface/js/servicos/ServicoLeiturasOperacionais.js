@@ -48,42 +48,6 @@ export class ServicoLeiturasOperacionais {
     return this.state.pendingReadings;
   }
 
-  async registerScannerReading(barcode) {
-    const loadingId = Number(this.state.loadingId) || 0;
-    const code = String(barcode || "").trim();
-    const noRead = /^ERROR(?:[0-9]{8,14})?$/i.test(code);
-    if (!loadingId) throw new Error("Nenhum carregamento selecionado.");
-    if (!code && !noRead) throw new Error("Informe o código de barras.");
-    const options = {
-      method: "POST",
-      headers: this.jsonHeaders(),
-      body: JSON.stringify({
-        carregamento_id: loadingId,
-        barcode: noRead ? "" : code,
-        no_read: noRead,
-        attempt_number: 1,
-      }),
-    };
-    let response;
-    for (let attempt = 0; attempt < 9; attempt += 1) {
-      response = await this.requestWithOfflineQueue("/api/leituras.php", options);
-      if (response.status !== 409) break;
-      const details = await response.clone().json().catch(() => ({}));
-      if (!String(details.error || "").includes("sensor M2052")) break;
-      if (attempt < 8) await new Promise((resolve) => globalThis.setTimeout(resolve, 100));
-    }
-    const result = await this.jsonResponse(response, "Não foi possível registrar a leitura recebida do Keyence.");
-    if (result.data?.queued) return result.data;
-    let refreshWarning = "";
-    try {
-      await this.loadActiveLoading(loadingId);
-    } catch (error) {
-      // Evita repetir uma leitura já confirmada quando falha apenas a atualização da tela.
-      refreshWarning = error?.message || "Falha ao atualizar os dados da operação.";
-    }
-    return refreshWarning ? { ...result.data, refreshWarning } : result.data;
-  }
-
   async confirmStopRemoval(loadingId = this.state.loadingId) {
     const id = Number(loadingId) || 0;
     if (!id) throw new Error("Nenhum carregamento selecionado.");

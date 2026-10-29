@@ -1,11 +1,11 @@
 import { OfflineOperationBuffer, secureRandomId } from "./OfflineOperationBuffer.js?v=202610190032";
 import { ClienteApi, erroRespostaHttp } from "../api/ClienteApi.js?v=202610140003";
-import { ServicoSincronizacao } from "../servicos/ServicoSincronizacao.js?v=202610280005";
+import { ServicoSincronizacao } from "../servicos/ServicoSincronizacao.js?v=202610290001";
 import { ServicoDalas } from "../servicos/ServicoDalas.js?v=202610190001";
 import { ServicoObservabilidade } from "../servicos/ServicoObservabilidade.js?v=202610190003";
-import { ServicoCarregamentoAtivo } from "../servicos/ServicoCarregamentoAtivo.js?v=202610280005";
+import { ServicoCarregamentoAtivo } from "../servicos/ServicoCarregamentoAtivo.js?v=202610290001";
 import { ServicoComandosMaquina } from "../servicos/ServicoComandosMaquina.js?v=202610190029";
-import { ServicoLeiturasOperacionais } from "../servicos/ServicoLeiturasOperacionais.js?v=202610280005";
+import { ServicoLeiturasOperacionais } from "../servicos/ServicoLeiturasOperacionais.js?v=202610290001";
 import { resolverComandoAtual } from "../funcoes/estado-comando.js?v=202610130003";
 import {
   buscarTodasPaginas,
@@ -20,6 +20,7 @@ export class ArmazenamentoTrace {
       page: "manifests",
       loaded: 0,
       detectedBags: 0,
+      latestScannerReading: null,
       planned: 0,
       running: false,
       emergency: false,
@@ -202,7 +203,7 @@ export class ArmazenamentoTrace {
   obterServicoRomaneios() {
     return this.obterServicoSobDemanda(
       "servicoRomaneios",
-      () => import("../servicos/ServicoRomaneios.js?v=202610280005"),
+      () => import("../servicos/ServicoRomaneios.js?v=202610290001"),
       ({ ServicoRomaneios }) => new ServicoRomaneios({
         api: this.api,
         state: this.state,
@@ -243,7 +244,7 @@ export class ArmazenamentoTrace {
   obterServicoInstalacoesIndustriais() {
     return this.obterServicoSobDemanda(
       "servicoInstalacoesIndustriais",
-      () => import("../servicos/ServicoInstalacoesIndustriais.js?v=202610230001"),
+      () => import("../servicos/ServicoInstalacoesIndustriais.js?v=202610290001"),
       ({ ServicoInstalacoesIndustriais }) => new ServicoInstalacoesIndustriais({
         api: this.api,
         state: this.state,
@@ -595,9 +596,6 @@ export class ArmazenamentoTrace {
   }
   async loadPendingReadings(page = this.state.pendingReadingsPage) {
     return this.servicoLeiturasOperacionais.loadPendingReadings(page);
-  }
-  async registerScannerReading(barcode) {
-    return this.servicoLeiturasOperacionais.registerScannerReading(barcode);
   }
   async confirmStopRemoval(loadingId = this.state.loadingId) {
     return this.servicoLeiturasOperacionais.confirmStopRemoval(loadingId);

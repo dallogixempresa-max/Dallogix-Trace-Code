@@ -1,8 +1,8 @@
 import { apresentacaoConectividadePc, apresentacaoStatusDispositivo, renderStatusDalaBinario, resumoStatusDispositivos } from "../../telas/configuracoes/configuracoes.js?v=202610280001";
-import { focusOperationScanner, operationStructureSignature, renderDalaStatuses } from "./operacao.js?v=202610280005";
+import { operationStructureSignature, renderDalaStatuses } from "./operacao.js?v=202610290001";
 import { numero, relativo, dataHora } from "../funcoes/formato.js?v=202609201000";
 import { el } from "../funcoes/html.js";
-import { refreshCompanyStatusCards } from "../funcoes/view.js?v=202610280005";
+import { refreshCompanyStatusCards } from "../funcoes/view.js?v=202610290001";
 
 /** Mantém as regiões de estado sincronizadas sem recriar formulários ou a tela toda. */
 export function createLiveViewController({
@@ -54,12 +54,18 @@ export function createLiveViewController({
           ? `Quantidade física atingida · ${numero(validReadings)} códigos válidos`
           : `Falta${remaining === 1 ? "" : "m"} ${numero(remaining)} saca${remaining === 1 ? "" : "s"} para a quantidade prevista`,
       "progress-percent": `${percent}%`,
+      "scanner-value": store.state.latestScannerReading?.value || "Aguardando leitura do Keyence…",
     };
     Object.entries(values).forEach(([key, value]) => {
       document.querySelectorAll(`[data-live="${key}"]`).forEach((node) => {
         node.textContent = String(value);
       });
     });
+    const scannerValue = document.querySelector('[data-live="scanner-value"]');
+    scannerValue?.classList.toggle(
+      "is-error",
+      store.state.latestScannerReading?.result === "SEM_LEITURA",
+    );
     const progressBar = document.querySelector('[data-live="progress-bar"]');
     if (progressBar) {
       progressBar.style.width = `${percent}%`;
@@ -83,7 +89,6 @@ export function createLiveViewController({
       endNotice.classList.toggle("near-end", nearEnd && !complete);
       endNotice.classList.toggle("excess", excess);
     }
-    focusOperationScanner(getScreenRoot());
   }
 
   function refreshSettingsStatusView() {

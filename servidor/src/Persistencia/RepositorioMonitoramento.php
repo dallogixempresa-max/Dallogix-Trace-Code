@@ -201,6 +201,15 @@ final class RepositorioMonitoramento
                 JOIN carregamentos_ativos ca
                   ON ca.id = se.carregamento_id AND ca.equipment_id = se.equipment_id
                 GROUP BY se.carregamento_id, se.equipment_id
+            ), leituras_recentes AS (
+                SELECT l.carregamento_id, l.barcode, l.result, l.read_at,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY l.carregamento_id
+                           ORDER BY l.read_at DESC, l.id DESC
+                       ) AS rn
+                FROM leituras l
+                JOIN carregamentos_ativos ca
+                  ON ca.id = l.carregamento_id AND ca.company_id = l.company_id
             ), alertas_fim_produto AS (
                 SELECT la.entity_id AS carregamento_id,
                        JSON_UNQUOTE(JSON_EXTRACT(la.metadata, '$.message')) AS end_product_alert,
@@ -216,6 +225,9 @@ final class RepositorioMonitoramento
                    COALESCE(qr.planned_quantity, 0) AS planned_quantity,
                    COALESCE(ca.leituras_validas, 0) AS valid_readings,
                    COALESCE(ed.detected_bags, 0) AS detected_bags,
+                   lr.barcode AS last_scanner_barcode,
+                   lr.result AS last_scanner_result,
+                   lr.read_at AS last_scanner_read_at,
                    ca.stop_reason, ca.operator_alert,
                    afp.end_product_alert
             FROM carregamentos_ativos ca
@@ -225,6 +237,8 @@ final class RepositorioMonitoramento
             LEFT JOIN quantidades_romaneio qr ON qr.carregamento_id = ca.id
             LEFT JOIN eventos_detectados ed
               ON ed.carregamento_id = ca.id AND ed.equipment_id = ca.equipment_id
+            LEFT JOIN leituras_recentes lr
+              ON lr.carregamento_id = ca.id AND lr.rn = 1
             LEFT JOIN alertas_fim_produto afp
               ON afp.carregamento_id = ca.id AND afp.rn = 1
             ORDER BY ca.id DESC",
