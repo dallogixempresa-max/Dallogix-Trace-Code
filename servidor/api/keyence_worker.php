@@ -16,7 +16,8 @@ $pdo = db();
 if ($action === "STATUS") {
     $active = $pdo->prepare(
         "SELECT id FROM carregamentos
-         WHERE equipment_id = :equipment_id AND company_id = :company_id AND state = 'CARREGANDO'
+         WHERE equipment_id = :equipment_id AND company_id = :company_id
+           AND state IN ('CARREGANDO', 'FINALIZANDO')
          ORDER BY id DESC LIMIT 1",
     );
     $active->execute([
