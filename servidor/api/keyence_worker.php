@@ -131,6 +131,22 @@ try {
         $pdo->rollBack();
         json_response(["error" => "A solicitação não está mais disponível para a imagem Keyence."], 409);
     }
+    $readingStatement = $pdo->prepare(
+        "SELECT id FROM leituras
+         WHERE sensor_event_id = :sensor_event_id AND carregamento_id = :loading_id
+           AND company_id = :company_id AND result = 'SEM_LEITURA'
+         LIMIT 1",
+    );
+    $readingStatement->execute([
+        "sensor_event_id" => (int) $capture["sensor_event_id"],
+        "loading_id" => (int) $capture["carregamento_id"],
+        "company_id" => (int) $capture["company_id"],
+    ]);
+    $readingId = (int) ($readingStatement->fetchColumn() ?: 0);
+    if ($readingId < 1) {
+        $pdo->rollBack();
+        json_response(["error" => "A passagem sem leitura ainda não está registrada no Trace."], 409);
+    }
     if ($storageRoot === false) {
         $pdo->rollBack();
         json_response(["error" => "Armazenamento de evidências indisponível."], 503);
@@ -176,13 +192,14 @@ try {
     }
 
     $image = $pdo->prepare(
-        "INSERT INTO imagens (company_id, carregamento_id, equipment_id, path, reason, captured_at)
-         VALUES (:company_id, :carregamento_id, :equipment_id, :path, 'SEM_LEITURA', NOW(3))",
+        "INSERT INTO imagens (company_id, carregamento_id, equipment_id, reading_id, path, reason, captured_at)
+         VALUES (:company_id, :carregamento_id, :equipment_id, :reading_id, :path, 'SEM_LEITURA', NOW(3))",
     );
     $image->execute([
         "company_id" => $device["company_id"],
         "carregamento_id" => $capture["carregamento_id"],
         "equipment_id" => $device["equipment_id"],
+        "reading_id" => $readingId,
         "path" => $storedPath,
     ]);
     $imageId = (int) $pdo->lastInsertId();

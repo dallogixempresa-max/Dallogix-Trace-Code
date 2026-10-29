@@ -32,7 +32,7 @@ final readonly class SolicitacaoLeitura
         if (!is_bool($noReadInput)) {
             throw new InvalidArgumentException("Indicador de falha de leitura inválido.");
         }
-        $errorMarker = preg_match('/^ERROR$/i', $barcode) === 1;
+        $errorMarker = preg_match('/^ERROR(?:[0-9]{8,14})?$/i', $barcode) === 1;
         if ($noReadInput && $barcode !== "" && !$errorMarker) {
             throw new InvalidArgumentException("Uma falha de leitura não pode conter um código de produto.");
         }

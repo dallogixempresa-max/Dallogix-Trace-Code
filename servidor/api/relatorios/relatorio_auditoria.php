@@ -217,13 +217,100 @@ $itemRows = $items->fetchAll();
 
 $occurrences = [];
 $incidentImages = [];
+$noReadRows = [];
+$sackReferencesByEvent = [];
+$loadOrderById = [];
+$operationSummary = [
+    "passages" => 0,
+    "valid_readings" => 0,
+    "no_reads" => 0,
+    "no_read_images" => 0,
+];
+foreach ($loadIds as $index => $loadingId) {
+    $loadOrderById[$loadingId] = $index + 1;
+}
 if ($loadIds !== []) {
+    $passageQuery = $pdo->prepare(
+        "SELECT id, carregamento_id FROM eventos_sensor
+         WHERE carregamento_id IN ({$placeholders}) ORDER BY carregamento_id, detected_at, id",
+    );
+    $passageQuery->execute($loadIds);
+    $passageNumbers = [];
+    foreach ($passageQuery->fetchAll(PDO::FETCH_ASSOC) as $passage) {
+        $loadingId = (int) $passage["carregamento_id"];
+        $passageNumbers[$loadingId] = ($passageNumbers[$loadingId] ?? 0) + 1;
+        $operationSummary["passages"]++;
+        $sackReferencesByEvent[(int) $passage["id"]] =
+            "Carga " . ($loadOrderById[$loadingId] ?? "—") . " · saco " . $passageNumbers[$loadingId];
+    }
+
+    $readingCounts = $pdo->prepare(
+        "SELECT result, COUNT(*) AS quantity FROM leituras
+         WHERE carregamento_id IN ({$placeholders}) GROUP BY result",
+    );
+    $readingCounts->execute($loadIds);
+    foreach ($readingCounts->fetchAll(PDO::FETCH_ASSOC) as $readingCount) {
+        if ($readingCount["result"] === "VALIDO") {
+            $operationSummary["valid_readings"] = (int) $readingCount["quantity"];
+        }
+    }
+
+    $noReadQuery = $pdo->prepare(
+        "SELECT l.id, l.sensor_event_id, l.carregamento_id, l.read_at,
+                r.status AS evidence_status,
+                EXISTS (
+                    SELECT 1 FROM imagens i
+                    WHERE i.carregamento_id = l.carregamento_id
+                      AND i.reason = 'SEM_LEITURA'
+                      AND (i.reading_id = l.id OR (
+                          i.reading_id IS NULL AND r.id IS NOT NULL
+                          AND i.path LIKE CONCAT('%keyence-', r.id, '-%')
+                      ))
+                ) AS has_image
+         FROM leituras l
+         LEFT JOIN solicitacoes_imagens_evidencia r
+           ON r.sensor_event_id = l.sensor_event_id
+          AND r.carregamento_id = l.carregamento_id AND r.reason = 'SEM_LEITURA'
+         WHERE l.carregamento_id IN ({$placeholders}) AND l.result = 'SEM_LEITURA'
+         ORDER BY l.read_at, l.id",
+    );
+    $noReadQuery->execute($loadIds);
+    $noReadRows = $noReadQuery->fetchAll(PDO::FETCH_ASSOC);
+    $operationSummary["no_reads"] = count($noReadRows);
+    foreach ($noReadRows as &$noRead) {
+        $sensorEventId = (int) ($noRead["sensor_event_id"] ?? 0);
+        $noRead["sack_reference"] = $sackReferencesByEvent[$sensorEventId] ?? "Passagem não vinculada";
+        $noRead["has_image"] = (bool) $noRead["has_image"];
+        if ($noRead["has_image"]) {
+            $noRead["evidence_label"] = "Foto anexada";
+            $operationSummary["no_read_images"]++;
+        } elseif ($noRead["evidence_status"] === "CAPTURADA") {
+            $noRead["evidence_label"] = "Foto recebida anteriormente";
+        } elseif (in_array($noRead["evidence_status"], ["PENDENTE", "CAPTURANDO"], true)) {
+            $noRead["evidence_label"] = "Foto pendente";
+        } elseif ($noRead["evidence_status"] === "ERRO") {
+            $noRead["evidence_label"] = "Foto não recebida";
+        } else {
+            $noRead["evidence_label"] = "Foto não solicitada";
+        }
+    }
+    unset($noRead);
+
     $occurrenceQuery = $pdo->prepare("SELECT o.type, o.quantity, o.description, o.created_at, p.name AS product_name
         FROM ocorrencias o LEFT JOIN produtos p ON p.id = o.product_id WHERE o.carregamento_id IN ({$placeholders}) ORDER BY o.created_at");
     $occurrenceQuery->execute($loadIds);
     $occurrences = $occurrenceQuery->fetchAll();
 
-    $imageQuery = $pdo->prepare("SELECT path, reason, captured_at FROM imagens WHERE carregamento_id IN ({$placeholders}) AND reason <> 'NORMAL' ORDER BY captured_at");
+    $imageQuery = $pdo->prepare(
+        "SELECT i.path, i.reason, i.captured_at, COALESCE(l.sensor_event_id, r.sensor_event_id) AS sensor_event_id
+         FROM imagens i LEFT JOIN leituras l
+           ON l.id = i.reading_id AND l.carregamento_id = i.carregamento_id
+         LEFT JOIN solicitacoes_imagens_evidencia r
+           ON i.reading_id IS NULL AND r.carregamento_id = i.carregamento_id
+          AND i.path LIKE CONCAT('%keyence-', r.id, '-%')
+         WHERE i.carregamento_id IN ({$placeholders}) AND i.reason <> 'NORMAL'
+         ORDER BY i.captured_at",
+    );
     $imageQuery->execute($loadIds);
     $incidentImages = $imageQuery->fetchAll();
 }
@@ -239,7 +326,13 @@ if ($incidentImages !== []) {
         if ($absolutePath === null) {
             $reportFailure(new RuntimeException("Uma evidência do romaneio não foi encontrada."));
         }
-        $caption = (string) $image["reason"] . " · " . (string) $image["captured_at"];
+        $capturedAt = $formatDateTime((string) $image["captured_at"]);
+        $sensorEventId = (int) ($image["sensor_event_id"] ?? 0);
+        $caption = (string) $image["reason"] . " · " . $capturedAt;
+        if ($image["reason"] === "SEM_LEITURA" && $sensorEventId > 0) {
+            $sackReference = $sackReferencesByEvent[$sensorEventId] ?? "passagem sem número";
+            $caption = "Falha de leitura · {$sackReference} · {$capturedAt}";
+        }
         $mime = (new finfo(FILEINFO_MIME_TYPE))->file($absolutePath);
         if ($mime === "application/pdf") {
             $evidencePdf = file_get_contents($absolutePath);
@@ -281,6 +374,31 @@ $report->escreverCartoesResumo([
     "Início" => $formatDateTime($firstLoad["started_at"] ?? null),
     "Fim" => $formatDateTime($lastLoad["finished_at"] ?? null),
 ]);
+$report->escreverTitulo("Resumo da operação");
+$report->escreverCartoesResumo([
+    "Passagens de sacos" => $operationSummary["passages"],
+    "Leituras válidas" => $operationSummary["valid_readings"],
+    "Falhas sem leitura" => $operationSummary["no_reads"],
+    "Fotos de falha anexadas" => $operationSummary["no_read_images"],
+]);
+$report->escreverTitulo("Falhas de leitura do código de barras");
+if ($noReadRows === []) {
+    $report->escreverParagrafo("Nenhuma falha sem leitura foi registrada nesta operação.");
+} else {
+    $report->escreverParagrafo("Cada falha corresponde a uma passagem de saco registrada pelo sensor. A esteira continua operando; a foto é anexada quando recebida do Keyence.");
+    $report->escreverTabela(
+        ["Data/hora", "Passagem", "Evidência da imagem"],
+        array_map(
+            static fn(array $row): array => [
+                $formatDateTime($row["read_at"]),
+                $row["sack_reference"],
+                $row["evidence_label"],
+            ],
+            $noReadRows,
+        ),
+        [145, 175, 195],
+    );
+}
 if ($romaneio["status"] === "CANCELADO") {
     $report->escreverParagrafo("Valores registrados até o cancelamento.");
 }
@@ -333,6 +451,7 @@ if ($divergences === []) {
 }
 if ($occurrences !== []) {
     $occurrenceLabels = [
+        "FALHA_SEM_LEITURA" => "Falha na leitura do código de barras",
         "SACA_RASGADA" => "Saca rasgada",
         "SACA_AVARIADA" => "Saca avariada",
         "PARADA_MAQUINA" => "Parada de máquina",

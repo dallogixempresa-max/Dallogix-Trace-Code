@@ -51,7 +51,7 @@ export class ServicoLeiturasOperacionais {
   async registerManualReading(barcode) {
     const loadingId = Number(this.state.loadingId) || 0;
     const code = String(barcode || "").trim();
-    const noRead = /^ERROR$/i.test(code);
+    const noRead = /^ERROR(?:[0-9]{8,14})?$/i.test(code);
     if (!loadingId) throw new Error("Nenhum carregamento selecionado.");
     if (!code && !noRead) throw new Error("Informe o código de barras.");
     const response = await this.requestWithOfflineQueue("/api/leituras.php", {

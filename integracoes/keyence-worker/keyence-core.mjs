@@ -9,6 +9,12 @@ export function parseBarcodeFrame(value, maxLength = 128) {
   return barcode;
 }
 
+export function isKeyenceNoReadFrame(value) {
+  const frame = String(value ?? "").trim();
+  // Alguns perfis do leitor deixam o marcador ERROR colado ao conteúdo numérico.
+  return /^ERROR(?:[0-9]{8,14})?$/i.test(frame);
+}
+
 export function nextUnreservedSensorEventId(pendingEventIds, reservedEventIds = new Set()) {
   for (const candidate of Array.isArray(pendingEventIds) ? pendingEventIds : []) {
     const eventId = Number(candidate);

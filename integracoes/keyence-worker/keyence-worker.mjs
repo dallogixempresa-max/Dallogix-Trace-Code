@@ -3,7 +3,7 @@ import { createConnection as createTcpConnection, createServer as createTcpServe
 import { mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createFtpReceiver } from "./ftp-receiver.mjs";
-import { matchPendingImage, nextUnreservedSensorEventId, parseBarcodeFrame, scanEventId, sha256 } from "./keyence-core.mjs";
+import { isKeyenceNoReadFrame, matchPendingImage, nextUnreservedSensorEventId, parseBarcodeFrame, scanEventId, sha256 } from "./keyence-core.mjs";
 
 const SERVICE_NAME = "keyence-worker";
 const boundedInteger = (rawValue, fallback, minimum, maximum) => {
@@ -134,7 +134,7 @@ async function queueBarcode(rawFrame) {
     log("warn", "Quadro TCP ignorado: código vazio, longo ou com caracteres de controle.");
     return;
   }
-  const noRead = /^ERROR$/i.test(decodedValue);
+  const noRead = isKeyenceNoReadFrame(decodedValue);
   const barcode = noRead ? "" : decodedValue;
   readerLastReadAt = new Date().toISOString();
   readerLastReadAtMs = Date.now();
