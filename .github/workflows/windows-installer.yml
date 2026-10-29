@@ -21,6 +21,8 @@ jobs:
           node-version: 22
       - name: Test Keyence TCP, FTP, and image association
         run: node --test testes/keyence-worker.mjs
+      - name: Build Keyence worker image
+        run: docker build --file integracoes/keyence-worker/Dockerfile --tag trace-keyence-worker:ci integracoes/keyence-worker
       - name: Validate industrial Docker Compose configuration
         shell: bash
         env:
