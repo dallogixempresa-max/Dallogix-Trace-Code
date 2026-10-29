@@ -111,9 +111,9 @@ final class ServicoComandoClp
                     (int) $loading["equipment_id"],
                     (int) $user["company_id"],
                 );
-                if ($reversalCommand !== "REVERSAO_DESATIVAR") {
+                if ($reversalCommand === "REVERSAO_ATIVAR") {
                     throw new ExcecaoComandoClp(
-                        "Para ligar a esteira para frente, confirme primeiro que a reversão está desligada.",
+                        "Para ligar a esteira para frente, desligue primeiro a reversão.",
                         409,
                     );
                 }

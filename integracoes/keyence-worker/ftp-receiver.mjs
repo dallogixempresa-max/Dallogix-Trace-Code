@@ -3,7 +3,7 @@ import { createServer } from "node:net";
 import { randomBytes } from "node:crypto";
 import { mkdir, rename, writeFile } from "node:fs/promises";
 import { basename, posix } from "node:path";
-import { sha256 } from "./keyence-core.mjs";
+import { isAllowedSourceAddress, sha256 } from "./keyence-core.mjs";
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_SESSIONS = 16;
@@ -12,10 +12,6 @@ function safeEqual(left, right) {
   const a = Buffer.from(String(left));
   const b = Buffer.from(String(right));
   return a.length === b.length && a.length > 0 && timingSafeEqual(a, b);
-}
-
-function normalizedAddress(address = "") {
-  return address.startsWith("::ffff:") ? address.slice(7) : address;
 }
 
 class FtpSession {
@@ -214,8 +210,9 @@ export function createFtpReceiver(options) {
   });
 
   server.on("connection", (socket) => {
-    const remote = normalizedAddress(socket.remoteAddress || "");
-    if (options.allowedAddress && remote !== normalizedAddress(options.allowedAddress)) {
+    const remote = String(socket.remoteAddress || "").replace(/^::ffff:/, "");
+    const allowedAddresses = options.allowedAddresses ?? (options.allowedAddress ? [options.allowedAddress] : []);
+    if (allowedAddresses.length > 0 && !isAllowedSourceAddress(remote, allowedAddresses)) {
       options.log("warn", "Conexão FTP Keyence rejeitada por endereço de origem.", { remote_address: remote });
       socket.destroy();
     }

@@ -25,6 +25,27 @@ export function nextUnreservedSensorEventId(pendingEventIds, reservedEventIds = 
   return null;
 }
 
+export function isAllowedSourceAddress(remoteAddress, allowedAddresses) {
+  const normalize = (address) => String(address ?? "").replace(/^::ffff:/, "");
+  const remote = normalize(remoteAddress);
+  if (!remote) return false;
+  const allowed = Array.isArray(allowedAddresses) ? allowedAddresses : [allowedAddresses];
+  return allowed.some((address) => normalize(address) === remote);
+}
+
+export function parseLinuxDefaultGateway(routeTable) {
+  for (const line of String(routeTable ?? "").split(/\r?\n/).slice(1)) {
+    const [interfaceName, destination, gateway, flags] = line.trim().split(/\s+/);
+    if (!interfaceName || destination !== "00000000" || !/^[a-f0-9]{8}$/i.test(gateway || "")) continue;
+    const parsedFlags = Number.parseInt(flags || "0", 16);
+    if (!Number.isInteger(parsedFlags) || (parsedFlags & 1) === 0 || gateway === "00000000") continue;
+    const octets = gateway.match(/../g).reverse().map((octet) => Number.parseInt(octet, 16));
+    if (octets.length === 4 && octets.every((octet) => octet >= 0 && octet <= 255)
+      && octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) return octets.join(".");
+  }
+  return null;
+}
+
 export function matchPendingImage(receivedAt, requests, windowMs, timestampField = "requested_at_epoch_ms", ambiguityMarginMs = 250) {
   const candidates = (Array.isArray(requests) ? requests : [])
     .map((request) => ({

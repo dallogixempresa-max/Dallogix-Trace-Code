@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { createConnection, createServer } from "node:net";
 import test from "node:test";
 import { createFtpReceiver } from "../integracoes/keyence-worker/ftp-receiver.mjs";
-import { groupImageFrames, matchPendingImage, nextUnreservedSensorEventId, parseBarcodeFrame } from "../integracoes/keyence-worker/keyence-core.mjs";
+import { groupImageFrames, isAllowedSourceAddress, matchPendingImage, nextUnreservedSensorEventId, parseBarcodeFrame, parseLinuxDefaultGateway } from "../integracoes/keyence-worker/keyence-core.mjs";
 import { importArchivedImages } from "../integracoes/keyence-worker/image-archive.mjs";
 
 const worker = await readFile(new URL("../integracoes/keyence-worker/keyence-worker.mjs", import.meta.url), "utf8");
@@ -140,6 +140,20 @@ test("associa códigos às passagens em ordem e reserva um evento por quadro", (
   assert.match(readingsEndpoint, /ORDER BY s\.detected_at ASC, s\.id ASC LIMIT 1 FOR UPDATE/);
   assert.match(worker, /reservedSensorEventIds\.add\(sensorEventId\)/);
   assert.match(worker, /enqueueBarcodeFrame\(frame\)/);
+});
+
+test("reconhece apenas o leitor direto e o gateway de publicação do Docker", () => {
+  const routes = "Iface Destination Gateway Flags RefCnt Use Metric Mask\net0 00000000 010012AC 0003 0 0 0 00000000\net0 000012AC 00000000 0001 0 0 0 0000FFFF";
+  assert.equal(parseLinuxDefaultGateway(routes), "172.18.0.1");
+  assert.equal(parseLinuxDefaultGateway("Iface Destination Gateway Flags\net0 00000000 00000000 0001"), null);
+  assert.equal(parseLinuxDefaultGateway("Iface Destination Gateway Flags\net0 00000000 0101A8C0 0003"), null);
+  assert.equal(isAllowedSourceAddress("::ffff:172.18.0.1", ["192.168.1.30", "172.18.0.1"]), true);
+  assert.equal(isAllowedSourceAddress("192.168.1.30", ["192.168.1.30", "172.18.0.1"]), true);
+  assert.equal(isAllowedSourceAddress("192.168.1.31", ["192.168.1.30", "172.18.0.1"]), false);
+  assert.match(worker, /parseLinuxDefaultGateway\(await readFile\("\/proc\/net\/route", "utf8"\)\)/);
+  assert.match(worker, /tcpAllowedAddresses = \[\.\.\.new Set\(\[TCP_ALLOWED_ADDRESS, dockerGateway\]/);
+  assert.match(compose, /TRACE_SCANNER_NO_READ_TIMEOUT_MS: \$\{TRACE_SCANNER_NO_READ_TIMEOUT_MS:-1500\}/);
+  assert.match(worker, /SCAN_ASSOCIATION_WAIT_MS = Math\.max\(100, SCANNER_NO_READ_TIMEOUT_MS - 250\)/);
 });
 
 test("servidor FTP aceita JPEG somente após autenticação e grava em inbox local", async (context) => {

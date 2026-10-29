@@ -113,6 +113,43 @@ if ($industrialSettings.scanner_model -eq 'KEYENCE SR-X100W') {
 $environmentValues = ConvertTo-TraceIndustrialEnvValues -Settings $industrialSettings
 foreach ($key in $keyenceSecretValues.Keys) { $environmentValues[$key] = $keyenceSecretValues[$key] }
 Set-TraceEnvValues -Path $envFile -Values $environmentValues
+if ($industrialSettings.scanner_model -eq 'KEYENCE SR-X100W') {
+    $firewallRuleName = 'DallogixTraceKeyenceScanner'
+    $readerPorts = @('19000', '2121', '21100-21109')
+    $firewallRule = Get-NetFirewallRule -Name $firewallRuleName -ErrorAction SilentlyContinue
+    if ($firewallRule) {
+        $firewallRule | Set-NetFirewallRule -Enabled True -Direction Inbound -Action Allow -Profile Any
+        $firewallRule | Get-NetFirewallAddressFilter | Set-NetFirewallAddressFilter `
+            -LocalAddress $industrialSettings.keyence_pc_ip `
+            -RemoteAddress $industrialSettings.keyence_reader_ip
+        $firewallRule | Get-NetFirewallPortFilter | Set-NetFirewallPortFilter `
+            -Protocol TCP -LocalPort $readerPorts
+    } else {
+        New-NetFirewallRule `
+            -Name $firewallRuleName `
+            -DisplayName 'Dallogix Trace — leitor industrial' `
+            -Description 'Permite somente o leitor configurado ao receptor local do Trace.' `
+            -Direction Inbound -Action Allow -Enabled True -Profile Any `
+            -LocalAddress $industrialSettings.keyence_pc_ip `
+            -RemoteAddress $industrialSettings.keyence_reader_ip `
+            -Protocol TCP -LocalPort $readerPorts | Out-Null
+    }
+    $firewallRule = Get-NetFirewallRule -Name $firewallRuleName -ErrorAction Stop
+    $firewallAddress = $firewallRule | Get-NetFirewallAddressFilter
+    $firewallPorts = $firewallRule | Get-NetFirewallPortFilter
+    $localAddressValues = @($firewallAddress.LocalAddress | ForEach-Object { [string]$_ })
+    $remoteAddressValues = @($firewallAddress.RemoteAddress | ForEach-Object { [string]$_ })
+    $localAddressAllowed = $localAddressValues -contains $industrialSettings.keyence_pc_ip -or
+        $localAddressValues -contains "$($industrialSettings.keyence_pc_ip)/32"
+    $remoteAddressAllowed = $remoteAddressValues -contains $industrialSettings.keyence_reader_ip -or
+        $remoteAddressValues -contains "$($industrialSettings.keyence_reader_ip)/32"
+    if (-not $firewallRule.Enabled -or $firewallRule.Action -ne 'Allow' -or
+        -not $localAddressAllowed -or -not $remoteAddressAllowed -or
+        $firewallPorts.Protocol -ne 'TCP' -or
+        $readerPorts.Where({ $firewallPorts.LocalPort -notcontains $_ }).Count -gt 0) {
+        throw 'O Firewall do Windows não confirmou o acesso restrito do leitor Keyence.'
+    }
+}
 Set-Location $PackageRoot
 
 [System.IO.File]::WriteAllText(

@@ -9,6 +9,8 @@ const activeLoading = await readFile(new URL("../interface/js/servicos/ServicoCa
 const monitoringRepository = await readFile(new URL("../servidor/src/Persistencia/RepositorioMonitoramento.php", import.meta.url), "utf8");
 const application = await readFile(new URL("../interface/js/aplicacao.js", import.meta.url), "utf8");
 const keyenceWorkerApi = await readFile(new URL("../servidor/api/keyence_worker.php", import.meta.url), "utf8");
+const machineCommandService = await readFile(new URL("../servidor/src/Aplicacao/ServicoComandoClp.php", import.meta.url), "utf8");
+const clpFlow = JSON.parse(await readFile(new URL("../integracoes/node-red/trace-clp-bridge.flow.json", import.meta.url), "utf8"));
 
 test("visor do leitor não cria campo editável nem caminho de envio manual", () => {
   assert.match(operation, /<output id="automatic-scanner-barcode"[^>]*data-live="scanner-value"/);
@@ -25,6 +27,18 @@ test("última leitura do serviço Keyence alimenta o visor em atualizações ao 
   assert.match(activeLoading, /latestScannerReading = loading\.last_scanner_read_at/);
   assert.match(activeLoading, /Falha na leitura \(sem código\)/);
   assert.match(liveView, /"scanner-value": store\.state\.latestScannerReading\?\.value/);
+});
+
+test("visor chama o dispositivo de leitor e início não exige comando de desligamento inexistente", () => {
+  assert.match(operation, /Aguardando leitura…/);
+  assert.match(operation, /recebido automaticamente do leitor/);
+  assert.doesNotMatch(operation, /Keyence/i);
+  assert.match(operation, /state\.reversalCommand === "REVERSAO_ATIVAR"/);
+  assert.match(machineCommandService, /if \(\$reversalCommand === "REVERSAO_ATIVAR"\)/);
+  assert.doesNotMatch(machineCommandService, /\$reversalCommand !== "REVERSAO_DESATIVAR"/);
+  const commandGate = clpFlow.find((node) => node.id === "command-safe-gate")?.func || "";
+  assert.match(commandGate, /response\.reversal_command === 'REVERSAO_ATIVAR'/);
+  assert.match(commandGate, /simulated\.reversal_active === true/);
 });
 
 test("leitor continua recebendo evento pendente durante finalização do carregamento", () => {
