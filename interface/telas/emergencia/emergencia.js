@@ -1,6 +1,6 @@
 import { button, esc } from "../../js/funcoes/html.js";
 import { dataHora, numero, relativo } from "../../js/funcoes/formato.js?v=202609201000";
-import { deviceBadge, emergencyPanel, pageHeader, physicalStateBadge, progress } from "../../js/funcoes/view.js?v=202610061745";
+import { deviceBadge, emergencyPanel, pageHeader, physicalStateBadge, progress } from "../../js/funcoes/view.js?v=202610280005";
 import { rotuloEstado, rotuloOcorrencia, rotuloStatusSincronizacao } from "../../js/funcoes/rotulos.js";
 export function emergency(store) {
   const canUnlock = Boolean(store.state.loadingId);

@@ -2109,6 +2109,30 @@ table {
   font-size: 13px;
 }
 
+.manifest-finish-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin: 0;
+  padding: 18px 20px;
+  border-color: #a9dce8;
+  border-left: 5px solid var(--cyan, #18a6c4);
+  background: #f2fbfd;
+}
+
+.manifest-finish-panel h3 {
+  margin: 3px 0 4px;
+  color: var(--navy, #17384a);
+  font-size: 18px;
+}
+
+.manifest-finish-panel p {
+  margin: 0;
+  color: var(--muted, #6b7785);
+  font-size: 14px;
+}
+
 @media (max-width: 760px) {
   .manifest-detail-header {
     align-items: flex-start;
@@ -2134,7 +2158,8 @@ table {
     flex: 1 1 auto;
   }
 
-  .manifest-cancel-panel {
+  .manifest-cancel-panel,
+  .manifest-finish-panel {
     align-items: stretch;
     flex-direction: column;
   }

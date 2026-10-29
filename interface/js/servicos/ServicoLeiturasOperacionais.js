@@ -48,13 +48,13 @@ export class ServicoLeiturasOperacionais {
     return this.state.pendingReadings;
   }
 
-  async registerManualReading(barcode) {
+  async registerScannerReading(barcode) {
     const loadingId = Number(this.state.loadingId) || 0;
     const code = String(barcode || "").trim();
     const noRead = /^ERROR(?:[0-9]{8,14})?$/i.test(code);
     if (!loadingId) throw new Error("Nenhum carregamento selecionado.");
     if (!code && !noRead) throw new Error("Informe o código de barras.");
-    const response = await this.requestWithOfflineQueue("/api/leituras.php", {
+    const options = {
       method: "POST",
       headers: this.jsonHeaders(),
       body: JSON.stringify({
@@ -63,13 +63,20 @@ export class ServicoLeiturasOperacionais {
         no_read: noRead,
         attempt_number: 1,
       }),
-    });
-    const result = await this.jsonResponse(response, "Não foi possível registrar a leitura manual.");
+    };
+    let response;
+    for (let attempt = 0; attempt < 9; attempt += 1) {
+      response = await this.requestWithOfflineQueue("/api/leituras.php", options);
+      if (response.status !== 409) break;
+      const details = await response.clone().json().catch(() => ({}));
+      if (!String(details.error || "").includes("sensor M2052")) break;
+      if (attempt < 8) await new Promise((resolve) => globalThis.setTimeout(resolve, 100));
+    }
+    const result = await this.jsonResponse(response, "Não foi possível registrar a leitura recebida do Keyence.");
     if (result.data?.queued) return result.data;
     let refreshWarning = "";
     try {
       await this.loadActiveLoading(loadingId);
-      await this.reloadPendingReadings();
     } catch (error) {
       // Evita repetir uma leitura já confirmada quando falha apenas a atualização da tela.
       refreshWarning = error?.message || "Falha ao atualizar os dados da operação.";
@@ -87,18 +94,6 @@ export class ServicoLeiturasOperacionais {
     });
     const result = await this.jsonResponse(response, "Não foi possível registrar a confirmação de segurança.");
     await this.loadActiveLoading(id);
-    return result.data;
-  }
-
-  async identifyReading(readingId, barcode) {
-    const response = await this.requestWithOfflineQueue("/api/identificar_leitura.php", {
-      method: "POST",
-      headers: this.jsonHeaders(),
-      body: JSON.stringify({ leitura_id: readingId, barcode }),
-    });
-    const result = await this.jsonResponse(response, "Não foi possível identificar a leitura.");
-    if (result.data?.queued) return result.data;
-    await this.reloadPendingReadings();
     return result.data;
   }
 

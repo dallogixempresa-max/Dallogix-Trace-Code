@@ -7,7 +7,7 @@ import {
   manifestsTable,
   emergencyPanel,
   statuses,
-} from "../../js/funcoes/view.js?v=202610061745";
+} from "../../js/funcoes/view.js?v=202610280005";
 
 const STATUS_OPTIONS = [
   ["", "Todos os status"],

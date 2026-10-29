@@ -4,7 +4,6 @@ import { logFrontend } from "../utilitarios/LogFrontend.js?v=202610060007";
 const LIMITE_QUADRO_EVENTO = 256 * 1024;
 const LIMITE_DADOS_EVENTO = 128 * 1024;
 const ENDPOINTS_COM_FILA_OFFLINE = [
-  "/api/identificar_leitura.php",
   "/api/retornos.php",
   "/api/leituras.php",
 ];

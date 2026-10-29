@@ -10,6 +10,8 @@ import { matchPendingImage, nextUnreservedSensorEventId, parseBarcodeFrame } fro
 const worker = await readFile(new URL("../integracoes/keyence-worker/keyence-worker.mjs", import.meta.url), "utf8");
 const imageEndpoint = await readFile(new URL("../servidor/api/keyence_worker.php", import.meta.url), "utf8");
 const readingsEndpoint = await readFile(new URL("../servidor/api/operacoes/leituras.php", import.meta.url), "utf8");
+const sensorEventsEndpoint = await readFile(new URL("../servidor/api/operacoes/sensor_eventos.php", import.meta.url), "utf8");
+const manifestEndpoint = await readFile(new URL("../servidor/api/romaneios/romaneios.php", import.meta.url), "utf8");
 const reportEndpoint = await readFile(new URL("../servidor/api/relatorios/relatorio_auditoria.php", import.meta.url), "utf8");
 const compose = await readFile(new URL("../docker-compose.yml", import.meta.url), "utf8");
 
@@ -136,11 +138,21 @@ test("integra SCANNER, fila SEM_LEITURA, imagem do Keyence e limpeza depois do P
   assert.match(readingsEndpoint, /require_device_token\(\["SCANNER"\]\)/);
   assert.match(readingsEndpoint, /evento de passagem/);
   assert.match(readingsEndpoint, /"evidence_status" => \$evidenceStatus/);
+  assert.match(sensorEventsEndpoint, /COUNT\(\*\) FROM eventos_sensor/);
+  assert.match(sensorEventsEndpoint, /detectedBags >= \$plannedQuantity/);
+  assert.match(sensorEventsEndpoint, /SET state = 'FINALIZANDO'/);
+  assert.match(readingsEndpoint, /!in_array\(\$loading\["state"\], \["CARREGANDO", "FINALIZANDO"\], true\)/);
+  assert.match(readingsEndpoint, /"Leitura aguardando o evento de passagem do sensor M2052\."/);
+  assert.match(readingsEndpoint, /if \(\$result === "PRODUTO_INCORRETO"\)[\s\S]*?PAUSAR_CARREGAMENTO/);
+  assert.match(manifestEndpoint, /\$action === "finish"/);
+  assert.match(manifestEndpoint, /UPDATE romaneios SET status = 'FINALIZADO'/);
+  assert.match(manifestEndpoint, /status IN \('PENDENTE', 'CAPTURANDO'\)/);
   assert.doesNotMatch(readingsEndpoint, /CAMERA_CAPTURA|camera_status/);
   assert.match(worker, /KEYENCE_TCP_ALLOWED_ADDRESS/);
   assert.match(imageEndpoint, /r\.reason = 'SEM_LEITURA'/);
   assert.match(imageEndpoint, /KEYENCE_IMAGEM_EVIDENCIA_RECEBIDA/);
-  assert.match(reportEndpoint, /FROM imagens WHERE carregamento_id IN \(\{\$placeholders\}\) AND reason <> 'NORMAL'/);
+  assert.match(reportEndpoint, /FROM imagens i[\s\S]*?WHERE i\.carregamento_id IN \(\{\$placeholders\}\) AND i\.reason <> 'NORMAL'/);
+  assert.match(reportEndpoint, /Sacas detectadas pelo sensor M2052/);
   assert.match(reportEndpoint, /RelatorioAuditoriaPdf/);
   assert.match(reportEndpoint, /inserirDadosDaImagemDaOcorrencia/);
   assert.match(reportEndpoint, /trace_cleanup_report_evidence/);

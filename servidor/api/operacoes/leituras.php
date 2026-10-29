@@ -131,7 +131,7 @@ if ($loading["state"] === "EMERGENCIA") {
         423,
     );
 }
-if ($loading["state"] !== "CARREGANDO") {
+if (!in_array($loading["state"], ["CARREGANDO", "FINALIZANDO"], true)) {
     $pdo->rollBack();
     responder_json(
         ["error" => "Leitura ignorada: a esteira está em {$loading["state"]}."],
@@ -162,6 +162,13 @@ if (!$sensorEventId && ($barcode !== "" || $noRead)) {
     if ($matchedSensorEventId !== false) {
         $sensorEventId = (int) $matchedSensorEventId;
     }
+}
+if (($barcode !== "" || $noRead) && !$sensorEventId) {
+    $pdo->rollBack();
+    responder_json(
+        ["error" => "Leitura aguardando o evento de passagem do sensor M2052."],
+        409,
+    );
 }
 if ($sensorEventId) {
     $sensorStatement = $pdo->prepare(
@@ -490,71 +497,7 @@ if (
     );
     $evidenceStatus = "IMAGEM_PENDENTE_INCIDENTE";
 }
-$loadStatus = "EM_ANDAMENTO";
-if (
-    $result === "VALIDO" &&
-    $loadingPlannedQuantity > 0 &&
-    $loadingValidCount + 1 >= $loadingPlannedQuantity
-) {
-    $trigger = $pdo->prepare(
-        "SELECT a.id, a.comando, a.rotulo
-         FROM gatilhos_dala g
-         JOIN acoes_dala a ON a.id = g.acao_id AND a.visivel = 1
-           AND a.company_id = g.company_id AND a.equipment_id = g.equipment_id
-         WHERE g.company_id = :company_id AND g.equipment_id = :equipment_id
-           AND g.evento = 'QUANTIDADE_PLANEJADA_ATINGIDA' AND g.ativo = 1
-         LIMIT 1",
-    );
-    $trigger->execute([
-        "company_id" => $usuarioAtor["company_id"],
-        "equipment_id" => $loading["equipment_id"],
-    ]);
-    $configuredAction = $trigger->fetch();
-    $stateUpdate = $pdo->prepare(
-        "UPDATE carregamentos SET state = 'FINALIZANDO' WHERE id = :id AND company_id = :company_id AND state IN ('PREPARANDO', 'CARREGANDO', 'PAUSADO')",
-    );
-    $stateUpdate->execute(["id" => $loadingId, "company_id" => $usuarioAtor["company_id"]]);
-    if ($configuredAction) {
-        $queue = $pdo->prepare(
-            "INSERT INTO solicitacoes_comandos_clp (company_id, equipment_id, carregamento_id, command, requested_by)
-             VALUES (:company_id, :equipment_id, :carregamento_id, :command, :requested_by)",
-        );
-        $queue->execute([
-            "company_id" => $usuarioAtor["company_id"],
-            "equipment_id" => $loading["equipment_id"],
-            "carregamento_id" => $loadingId,
-            "command" => $configuredAction["comando"],
-            "requested_by" => $usuarioAtor["id"],
-        ]);
-        record_operational_event(
-            $pdo,
-            $usuarioAtor,
-            "GATILHO_DALA_DISPARADO",
-            "solicitacao_comando_clp",
-            (int) $pdo->lastInsertId(),
-            [
-                "carregamento_id" => (int) $loadingId,
-                "evento" => "QUANTIDADE_PLANEJADA_ATINGIDA",
-                "acao" => $configuredAction["comando"],
-                "rotulo" => $configuredAction["rotulo"],
-                "gateway_clp_required" => true,
-            ],
-        );
-    }
-    record_operational_event(
-        $pdo,
-        $usuarioAtor,
-        "QUANTIDADE_PLANEJADA_ATINGIDA",
-        "carregamento",
-        (int) $loadingId,
-        [
-            "planned_quantity" => $loadingPlannedQuantity,
-            "valid_readings" => $loadingValidCount + 1,
-            "gatilho_configurado" => $configuredAction["comando"] ?? null,
-        ],
-    );
-    $loadStatus = "COMPLETO";
-}
+$loadStatus = $loading["state"] === "FINALIZANDO" ? "COMPLETO" : "EM_ANDAMENTO";
 $pdo->commit();
 responder_json(
     [

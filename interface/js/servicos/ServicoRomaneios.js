@@ -94,6 +94,18 @@ export class ServicoRomaneios {
     return respostaAtualizacao.data;
   }
 
+  async finishManifest(id) {
+    const response = await this.api.fetch("/api/romaneios.php", {
+      method: "PATCH",
+      headers: this.jsonHeaders(),
+      body: JSON.stringify({ action: "finish", romaneio_id: Number(id) }),
+    });
+    const result = await this.jsonResponse(response, "Não foi possível encerrar o romaneio.");
+    await this.loadManifest(Number(id));
+    await this.loadManifests();
+    return result.data;
+  }
+
   async importPdf(formData) {
     const csrfToken = this.getCsrfToken();
     const response = await this.api.fetch("/api/importar_pdf.php", {

@@ -178,6 +178,7 @@ if ($savedReport !== null) {
             '-auditoria.pdf"',
     );
     header("Cache-Control: no-store");
+    // nosemgrep: php.lang.security.injection.echoed-request.echoed-request -- Resposta binária application/pdf validada pelo prefixo %PDF-; escapar corromperia o arquivo.
     echo $savedPdf;
     exit();
 }
@@ -376,7 +377,7 @@ $report->escreverCartoesResumo([
 ]);
 $report->escreverTitulo("Resumo da operação");
 $report->escreverCartoesResumo([
-    "Passagens de sacos" => $operationSummary["passages"],
+    "Sacas detectadas pelo sensor M2052" => $operationSummary["passages"],
     "Leituras válidas" => $operationSummary["valid_readings"],
     "Falhas sem leitura" => $operationSummary["no_reads"],
     "Fotos de falha anexadas" => $operationSummary["no_read_images"],

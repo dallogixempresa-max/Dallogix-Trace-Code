@@ -1,6 +1,6 @@
 import { button, esc } from "../../js/funcoes/html.js";
 import { dataHora } from "../../js/funcoes/formato.js?v=202609170930";
-import { pageHeader } from "../../js/funcoes/view.js?v=202610061745";
+import { pageHeader } from "../../js/funcoes/view.js?v=202610280005";
 
 const roleLabel = {
   ADMIN_EMPRESA: "Administrador",
