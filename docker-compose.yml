@@ -11,6 +11,7 @@ services:
     restart: "no"
     user: "0:0"
     network_mode: "none"
+    # Recursive ownership is required because PHP may create nested inbox directories.
     command:
       - sh
       - -c
@@ -19,7 +20,8 @@ services:
         mkdir -p /var/www/armazenamento/backups /var/www/armazenamento/logs /var/www/armazenamento/keyence-inbox;
         chown -R 82:82 /var/www/armazenamento;
         chmod -R u+rwX /var/www/armazenamento;
-        chown 1000:82 /var/www/armazenamento/keyence-inbox;
+        chown -R 1000:82 /var/www/armazenamento/keyence-inbox;
+        chmod -R u+rwX /var/www/armazenamento/keyence-inbox;
         chmod 2770 /var/www/armazenamento/keyence-inbox;
         probe=/var/www/armazenamento/.trace-write-probe;
         : > "$$probe";
