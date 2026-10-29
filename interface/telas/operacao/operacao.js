@@ -211,8 +211,8 @@ function workControls(store) {
     machineCommandsUnavailableMessage,
   });
   const currentCommand = resolverComandoAtual(store.state.plcCommand, store.state.commandIntent);
-  const pendingStatus = String(currentCommand?.status || "").toUpperCase();
   const pendingCommand = String(currentCommand?.command || "").toUpperCase();
+  const pendingStatus = String(currentCommand?.status || "").toUpperCase();
   const currentCommandPending = ["PENDENTE", "PROCESSANDO"].includes(pendingStatus);
   const bloqueio = (reason) => reason
     ? { disabled: true, "aria-disabled": "true", title: reason }
@@ -254,19 +254,11 @@ function workControls(store) {
       }
     : bloqueio(commandLocks.stop);
   const loadingPicker = `<div class="work-header-actions"><button class="button secondary small work-back-button" data-action="goto-manifests" type="button">← Romaneios</button>${(store.state.activeLoadings || []).length > 1 ? `<button class="button secondary small work-back-button" data-action="change-loading" type="button">Trocar Dala</button>` : ""}</div>`;
-  const pausePending = pendingCommand === "PAUSAR_CARREGAMENTO" && ["PENDENTE", "PROCESSANDO"].includes(pendingStatus);
-  const offlineOperations = Math.max(0, Number(store.state.offlineQueueSize) || 0);
-  const scannerUnavailable = !["CARREGANDO", "FINALIZANDO"].includes(store.state.operationalState);
-  const scannerInputDisabled = pausePending || offlineOperations > 0 || scannerUnavailable;
-  const scannerInputPlaceholder = offlineOperations > 0
-    ? "Aguardando envio de operações locais…"
-    : pausePending
-      ? "Aguardando confirmação da parada pelo gateway…"
-      : scannerUnavailable
-      ? "Aguardando início da esteira…"
-      : "Aguardando leitura…";
-  const manualOperationReading = store.state.loadingId
-    ? `<div class="work-manual-reading"><div class="work-manual-reading-heading"><span class="kicker">Leitura automática do Keyence</span><small>O código recebido é enviado automaticamente ao Trace.</small></div>${offlineOperations > 0 ? `<p class="form-feedback is-error" role="alert">${numero(offlineOperations)} operação${offlineOperations === 1 ? "" : "ões"} aguardando envio. Não faça novas leituras até confirmar a sincronização.</p>` : ""}<form class="manual-operation-reading-form"><label for="automatic-scanner-barcode">Código de barras<input id="automatic-scanner-barcode" name="barcode" type="text" required maxlength="128" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="none" placeholder="${scannerInputPlaceholder}"${scannerInputDisabled ? " disabled" : " autofocus"} /></label><p class="form-feedback" data-form-feedback role="status" aria-live="polite" hidden></p></form></div>`
+  const latestScannerReading = store.state.latestScannerReading;
+  const scannerValue = latestScannerReading?.value || "Aguardando leitura do Keyence…";
+  const scannerValueClass = latestScannerReading?.result === "SEM_LEITURA" ? " is-error" : "";
+  const scannerMonitor = store.state.loadingId
+    ? `<div class="work-reader-monitor"><div class="work-reader-monitor-heading"><span class="kicker">Visor do leitor</span><small>Último código recebido automaticamente do Keyence.</small></div><div class="work-scanner-display"><span class="work-scanner-display-label">Código de barras</span><output id="automatic-scanner-barcode" class="work-scanner-display-value${scannerValueClass}" data-live="scanner-value" role="status" aria-live="polite" aria-atomic="true">${esc(scannerValue)}</output></div></div>`
     : "";
   const controls = `<div class="work-controls"><div class="work-routine-controls">${button("Ligar esteira", "run", "primary", bloqueio(commandLocks.run))}${button("Desligar esteira", "stop", "ghost", atributosPararEsteira)}${button("Ligar reversão", "reverse-on", "secondary", atributosLigarReversao)}${button("Desligar reversão", "reverse-off", "secondary", atributosDesligarReversao)}</div><div class="work-emergency-zone">${button("EMERGÊNCIA", "emergency", "danger", bloqueioEmergencia)}</div></div>`;
   const summaryReady = ["FINALIZANDO", "FINALIZADO"].includes(
@@ -332,7 +324,7 @@ function workControls(store) {
     : remainingTotal === 0
       ? `Quantidade física atingida · ${numero(validReadings)} códigos válidos`
       : `Falta${remainingTotal === 1 ? "" : "m"} ${numero(remainingTotal)} saca${remainingTotal === 1 ? "" : "s"} para a quantidade prevista`;
-  const totalSummary = `<section class="work-live-summary" aria-label="Contagem e progresso do carregamento"><div class="work-live-summary-heading"><strong>Sacas detectadas pelo sensor</strong><span><b data-live="detected">${numero(detectedBags)}</b> / <b data-live="planned">${numero(plannedTotal)}</b> previstas · <span data-live="progress-percent">${totalPercent}%</span> · <b data-live="loaded">${numero(validReadings)}</b> códigos válidos</span></div><div class="progress work-live-progress" role="progressbar" aria-label="Progresso de sacas detectadas pelo sensor M2052" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${totalPercent}"><i data-live="progress-bar" style="width:${totalPercent}%"></i></div><div class="work-live-summary-foot"><span data-live="remaining-label">${remainingLabel}</span></div><p class="work-completion-notice ${endNoticeTone}" data-live="end-notice"${endNotice ? "" : " hidden"}>${endNotice}</p>${manualOperationReading}</section>`;
+  const totalSummary = `<section class="work-live-summary" aria-label="Contagem e progresso do carregamento"><div class="work-live-summary-heading"><strong>Sacas detectadas pelo sensor</strong><span><b data-live="detected">${numero(detectedBags)}</b> / <b data-live="planned">${numero(plannedTotal)}</b> previstas · <span data-live="progress-percent">${totalPercent}%</span> · <b data-live="loaded">${numero(validReadings)}</b> códigos válidos</span></div><div class="progress work-live-progress" role="progressbar" aria-label="Progresso de sacas detectadas pelo sensor M2052" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${totalPercent}"><i data-live="progress-bar" style="width:${totalPercent}%"></i></div><div class="work-live-summary-foot"><span data-live="remaining-label">${remainingLabel}</span></div><p class="work-completion-notice ${endNoticeTone}" data-live="end-notice"${endNotice ? "" : " hidden"}>${endNotice}</p>${scannerMonitor}</section>`;
   const machinePanel = `<section class="panel work-machine-panel"><div class="panel-heading"><div><span class="kicker">Comandos da máquina</span><h3>Operar Dala</h3></div>${summaryAction ? `<div class="work-machine-heading-actions">${summaryAction}</div>` : ""}</div><div class="work-machine-controls">${stopConfirmation}${controls}</div></section>`;
   const statusColumn = `<section class="work-status-column">${totalSummary}${itemProgress}</section>`;
   const workHeader = `<header class="work-screen-header">${loadingPicker}<div class="work-screen-heading"><h2>${esc(workTitle)}</h2><p>Dala ${esc(equipmentLabel(store))} · Caminhão ${esc(store.state.truck || "—")} <span class="work-header-state">${badge}</span></p></div></header>`;

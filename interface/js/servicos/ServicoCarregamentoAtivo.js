@@ -187,6 +187,7 @@ export class ServicoCarregamentoAtivo {
       this.state.commandIntent = null;
       this.state.commandFeedback = "";
       this.state.loadingItems = [];
+      this.state.latestScannerReading = null;
       return null;
     }
 
@@ -206,6 +207,16 @@ export class ServicoCarregamentoAtivo {
     this.state.planned = Number(loading.planned_quantity) || 0;
     this.state.loaded = Number(loading.valid_readings) || 0;
     this.state.detectedBags = Number(loading.detected_bags) || 0;
+    this.state.latestScannerReading = loading.last_scanner_read_at
+      ? {
+          barcode: String(loading.last_scanner_barcode || ""),
+          result: String(loading.last_scanner_result || ""),
+          readAt: String(loading.last_scanner_read_at),
+          value: String(loading.last_scanner_result || "") === "SEM_LEITURA"
+            ? "Falha na leitura (sem código)"
+            : String(loading.last_scanner_barcode || "Leitura sem código"),
+        }
+      : null;
     this.state.truck = loading.plate || "—";
     this.state.romaneio = loading.romaneio_number || "—";
     this.state.equipmentCode = loading.equipment_code || "—";

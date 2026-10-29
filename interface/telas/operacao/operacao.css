@@ -240,7 +240,7 @@ body.work-page:has(.work-operation-screen) .work-completion-notice[hidden] {
   display: none;
 }
 
-body.work-page:has(.work-operation-screen) .work-manual-reading {
+body.work-page:has(.work-operation-screen) .work-reader-monitor {
   display: grid;
   grid-template-columns: minmax(0, 0.85fr) minmax(300px, 1.15fr);
   align-items: center;
@@ -249,61 +249,72 @@ body.work-page:has(.work-operation-screen) .work-manual-reading {
   border-top: 1px solid #cfe1e8;
 }
 
-body.work-page:has(.work-operation-screen) .work-manual-reading-heading {
+body.work-page:has(.work-operation-screen) .work-reader-monitor-heading {
   min-width: 0;
 }
 
-body.work-page:has(.work-operation-screen) .work-manual-reading-heading h3,
-body.work-page:has(.work-operation-screen) .work-manual-reading-heading p,
-body.work-page:has(.work-operation-screen) .work-manual-reading-heading small {
+body.work-page:has(.work-operation-screen) .work-reader-monitor-heading .kicker,
+body.work-page:has(.work-operation-screen) .work-reader-monitor-heading small {
+  display: block;
+}
+
+body.work-page:has(.work-operation-screen) .work-reader-monitor-heading h3,
+body.work-page:has(.work-operation-screen) .work-reader-monitor-heading p,
+body.work-page:has(.work-operation-screen) .work-reader-monitor-heading small {
   margin: 0;
 }
 
-body.work-page:has(.work-operation-screen) .work-manual-reading-heading h3 {
+body.work-page:has(.work-operation-screen) .work-reader-monitor-heading h3 {
   font-size: 15px;
 }
 
-body.work-page:has(.work-operation-screen) .work-manual-reading-heading p,
-body.work-page:has(.work-operation-screen) .work-manual-reading-heading small {
+body.work-page:has(.work-operation-screen) .work-reader-monitor-heading p,
+body.work-page:has(.work-operation-screen) .work-reader-monitor-heading small {
   color: var(--muted, #6b7785);
   font-size: 11px;
   line-height: 1.35;
 }
 
-body.work-page:has(.work-operation-screen) .manual-operation-reading-form {
+body.work-page:has(.work-operation-screen) .work-reader-monitor-heading small {
+  margin-top: 4px;
+}
+
+body.work-page:has(.work-operation-screen) .work-scanner-display {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  align-items: stretch;
-  gap: 6px;
+  gap: 4px;
   min-width: 0;
 }
 
-body.work-page:has(.work-operation-screen) .manual-operation-reading-form label {
-  display: grid;
-  min-width: 0;
-  gap: 4px;
+body.work-page:has(.work-operation-screen) .work-scanner-display-label {
   color: var(--muted, #6b7785);
   font-size: 11px;
 }
 
-body.work-page:has(.work-operation-screen) .manual-operation-reading-form input,
-body.work-page:has(.work-operation-screen) .manual-operation-reading-form button {
+body.work-page:has(.work-operation-screen) .work-scanner-display-value {
+  display: flex;
+  align-items: center;
   min-height: 44px;
-}
-
-body.work-page:has(.work-operation-screen) .manual-operation-reading-form input {
+  min-width: 0;
+  padding: 10px 14px;
+  overflow-wrap: anywhere;
+  border: 1px solid #cfe1e8;
+  border-radius: 12px;
+  background: #fff;
+  color: var(--ink, #1b2b38);
   font-size: 15px;
+  font-weight: 600;
 }
 
-body.work-page:has(.work-operation-screen) .manual-operation-reading-form .form-feedback,
-body.work-page:has(.work-operation-screen) .manual-reading-blocked {
+body.work-page:has(.work-operation-screen) .work-scanner-display-value.is-error {
+  border-color: #efb6b6;
+  background: #fff4f4;
+  color: #a52a2a;
+}
+
+body.work-page:has(.work-operation-screen) .work-reader-monitor .form-feedback {
   grid-column: 1 / -1;
   margin: 0;
-}
-
-body.work-page:has(.work-operation-screen) .manual-reading-blocked {
-  color: #76520a;
-  font-size: 11px;
 }
 
 body.work-page:has(.work-operation-screen) .work-scanner-corrections {
@@ -788,8 +799,7 @@ body.work-page:has(.work-operation-screen) .work-machine-controls .work-emergenc
     text-align: left;
   }
 
-  body.work-page:has(.work-operation-screen) .work-manual-reading,
-  body.work-page:has(.work-operation-screen) .manual-operation-reading-form {
+  body.work-page:has(.work-operation-screen) .work-reader-monitor {
     grid-template-columns: minmax(0, 1fr);
   }
 
@@ -797,9 +807,6 @@ body.work-page:has(.work-operation-screen) .work-machine-controls .work-emergenc
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
-  body.work-page:has(.work-operation-screen) .manual-operation-reading-form button {
-    width: 100%;
-  }
 }
 
 @media (max-width: 460px) {
@@ -963,12 +970,12 @@ body.work-page:has(.work-operation-screen) .work-live-summary-foot {
   font-size: 11px;
 }
 
-body.work-page:has(.work-operation-screen) .work-manual-reading {
+body.work-page:has(.work-operation-screen) .work-reader-monitor {
   gap: 8px 14px;
   padding-top: 8px;
 }
 
-body.work-page:has(.work-operation-screen) .work-manual-reading-heading p {
+body.work-page:has(.work-operation-screen) .work-reader-monitor-heading p {
   margin-top: 2px;
 }
 
