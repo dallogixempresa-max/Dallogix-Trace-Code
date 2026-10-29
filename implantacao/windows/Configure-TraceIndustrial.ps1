@@ -45,7 +45,7 @@ $settings = Show-TraceIndustrialSettingsDialog `
 if ($null -eq $settings) { exit 0 }
 
 foreach ($name in @(
-    'scanner_model', 'scanner_usb_pattern', 'keyence_pc_ip', 'keyence_reader_ip', 'scanner_no_read_timeout_ms',
+    'scanner_model', 'scanner_usb_pattern', 'keyence_pc_ip', 'keyence_reader_ip', 'scanner_no_read_timeout_ms', 'sensor_to_reader_distance_m',
     'plc_model', 'physical_clp_enabled', 'io_map_status', 'modbus_map',
     'modbus_unit_id', 'modbus_heartbeat_function', 'modbus_heartbeat_register',
     'modbus_sensor_register', 'sensor_active_level', 'sensor_signal_mode'

@@ -5,6 +5,7 @@ define("TRACE_SKIP_SESSION", true);
 
 require_once __DIR__ . "/../configuracao/bootstrap.php";
 require_once __DIR__ . "/../../scripts/image_storage_path.php";
+require_once __DIR__ . "/operacoes/temporizacao_leitor.php";
 
 exigir_metodo_http(["POST"]);
 $device = require_device_token(["SCANNER"]);
@@ -14,6 +15,11 @@ $action = strtoupper(trim((string) ($payload["action"] ?? "")));
 $pdo = db();
 
 if ($action === "STATUS") {
+    try {
+        $scannerObservedAtMs = trace_scanner_observed_at_ms($payload["scanner_received_at_epoch_ms"] ?? null);
+    } catch (InvalidArgumentException $exception) {
+        json_response(["error" => $exception->getMessage()], 422);
+    }
     $active = $pdo->prepare(
         "SELECT id FROM carregamentos
          WHERE equipment_id = :equipment_id AND company_id = :company_id
@@ -27,21 +33,15 @@ if ($action === "STATUS") {
     $loadingId = (int) ($active->fetchColumn() ?: 0);
     $pendingSensorEventIds = [];
     if ($loadingId > 0) {
-        $windowMs = filter_var(getenv("TRACE_SCANNER_NO_READ_TIMEOUT_MS") ?: "1500", FILTER_VALIDATE_INT);
-        $windowMs = max(500, min(10000, $windowMs === false ? 1500 : (int) $windowMs));
-        $windowMicroseconds = $windowMs * 1000;
-        $pendingEvents = $pdo->prepare(
-            "SELECT s.id FROM eventos_sensor s
-             WHERE s.carregamento_id = :loading_id AND s.equipment_id = :equipment_id
-               AND s.detected_at >= DATE_SUB(NOW(3), INTERVAL {$windowMicroseconds} MICROSECOND)
-               AND NOT EXISTS (SELECT 1 FROM leituras l WHERE l.sensor_event_id = s.id)
-             ORDER BY s.detected_at ASC, s.id ASC LIMIT 20",
+        $match = trace_pending_scanner_event_match(
+            $pdo,
+            $loadingId,
+            (int) $device["equipment_id"],
+            $scannerObservedAtMs,
         );
-        $pendingEvents->execute([
-            "loading_id" => $loadingId,
-            "equipment_id" => $device["equipment_id"],
-        ]);
-        $pendingSensorEventIds = array_map("intval", $pendingEvents->fetchAll(PDO::FETCH_COLUMN));
+        if ($match["best"] !== null) {
+            $pendingSensorEventIds = [$match["best"]["sensor_event_id"]];
+        }
     }
     json_response(["data" => [
         "equipment_id" => $device["equipment_id"],
@@ -56,7 +56,8 @@ if ($action === "PENDING_IMAGES") {
     $statement = $pdo->prepare(
         "SELECT r.id, r.sensor_event_id, r.status,
                 CAST(ROUND(UNIX_TIMESTAMP(r.requested_at) * 1000) AS UNSIGNED) AS requested_at_epoch_ms,
-                CAST(ROUND(UNIX_TIMESTAMP(s.detected_at) * 1000) AS UNSIGNED) AS sensor_detected_at_epoch_ms
+                s.device_detected_at,
+                CAST(ROUND(UNIX_TIMESTAMP(s.detected_at) * 1000) AS UNSIGNED) AS server_detected_at_epoch_ms
          FROM solicitacoes_imagens_evidencia r
          JOIN carregamentos c ON c.id = r.carregamento_id
          JOIN eventos_sensor s ON s.id = r.sensor_event_id AND s.carregamento_id = r.carregamento_id
@@ -69,13 +70,20 @@ if ($action === "PENDING_IMAGES") {
         "equipment_id" => $device["equipment_id"],
         "company_id" => $device["company_id"],
     ]);
-    json_response(["data" => array_map(static fn(array $row): array => [
-        "id" => (int) $row["id"],
-        "sensor_event_id" => (int) $row["sensor_event_id"],
-        "status" => $row["status"],
-        "requested_at_epoch_ms" => (int) $row["requested_at_epoch_ms"],
-        "sensor_detected_at_epoch_ms" => (int) $row["sensor_detected_at_epoch_ms"],
-    ], $statement->fetchAll(PDO::FETCH_ASSOC))]);
+    $requests = array_map(static function (array $row): array {
+        $sensorDetectedAtMs = $row["device_detected_at"] !== null
+            ? trace_sql_datetime_to_epoch_ms((string) $row["device_detected_at"])
+            : (int) $row["server_detected_at_epoch_ms"];
+        return [
+            "id" => (int) $row["id"],
+            "sensor_event_id" => (int) $row["sensor_event_id"],
+            "status" => $row["status"],
+            "requested_at_epoch_ms" => (int) $row["requested_at_epoch_ms"],
+            "sensor_detected_at_epoch_ms" => $sensorDetectedAtMs,
+            "image_expected_at_epoch_ms" => $sensorDetectedAtMs + trace_scanner_timing()["travel_ms"],
+        ];
+    }, $statement->fetchAll(PDO::FETCH_ASSOC));
+    json_response(["data" => $requests]);
 }
 
 if ($action !== "UPLOAD_IMAGE") {

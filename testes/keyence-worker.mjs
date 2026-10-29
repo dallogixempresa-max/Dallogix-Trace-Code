@@ -12,6 +12,7 @@ const worker = await readFile(new URL("../integracoes/keyence-worker/keyence-wor
 const imageEndpoint = await readFile(new URL("../servidor/api/keyence_worker.php", import.meta.url), "utf8");
 const readingsEndpoint = await readFile(new URL("../servidor/api/operacoes/leituras.php", import.meta.url), "utf8");
 const sensorEventsEndpoint = await readFile(new URL("../servidor/api/operacoes/sensor_eventos.php", import.meta.url), "utf8");
+const scannerTiming = await readFile(new URL("../servidor/api/operacoes/temporizacao_leitor.php", import.meta.url), "utf8");
 const manifestEndpoint = await readFile(new URL("../servidor/api/romaneios/romaneios.php", import.meta.url), "utf8");
 const reportEndpoint = await readFile(new URL("../servidor/api/relatorios/relatorio_auditoria.php", import.meta.url), "utf8");
 const pdfGenerator = await readFile(new URL("../servidor/src/Aplicacao/RelatorioAuditoriaPdf.php", import.meta.url), "utf8");
@@ -136,8 +137,12 @@ test("associa códigos às passagens em ordem e reserva um evento por quadro", (
   reserved.add(103);
   assert.equal(nextUnreservedSensorEventId([101, 102, 103], reserved), null);
   assert.match(imageEndpoint, /pending_sensor_event_ids/);
-  assert.match(imageEndpoint, /ORDER BY s\.detected_at ASC, s\.id ASC/);
-  assert.match(readingsEndpoint, /ORDER BY s\.detected_at ASC, s\.id ASC LIMIT 1 FOR UPDATE/);
+  assert.match(imageEndpoint, /trace_pending_scanner_event_match\(/);
+  assert.match(readingsEndpoint, /trace_pending_scanner_event_match\([\s\S]*?\$scannerObservedAtMs,\s*true,/);
+  assert.match(scannerTiming, /\$expectedAtMs\s*=\s*\$detectedAtMs\s*\+\s*\$timing\["travel_ms"\]/);
+  assert.match(scannerTiming, /ORDER BY s\.id ASC/);
+  assert.match(scannerTiming, /FOR UPDATE/);
+  assert.match(scannerTiming, /ambiguity_margin_ms/);
   assert.match(worker, /reservedSensorEventIds\.add\(sensorEventId\)/);
   assert.match(worker, /enqueueBarcodeFrame\(frame\)/);
 });

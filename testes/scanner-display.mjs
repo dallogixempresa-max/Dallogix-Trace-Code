@@ -53,7 +53,7 @@ test("AutoID Clipboard entrega cada atualização ao Trace e registra pelo senso
   assert.match(desktopHost, /AutoID Keyboard Wedge/);
   assert.match(desktopHost, /type = "trace-scanner-clipboard"/);
   assert.match(application, /installScannerClipboardReceiver/);
-  assert.match(application, /store\.registerScannerReading\(barcode\)/);
+  assert.match(application, /store\.registerScannerReading\(barcode,\s*Number\(message\.capturedAtEpochMs\)\s*\|\|\s*Date\.now\(\)\)/);
   assert.match(operationalReadingService, /X-Trace-Offline-ID/);
   assert.match(operationalReadingService, /Leitura aguardando o evento de passagem do sensor M2052\./);
   assert.doesNotMatch(operation, /<input[^>]+id="automatic-scanner-barcode"/);
@@ -88,12 +88,17 @@ test("leitura automática aguarda o pulso M2052 e atualiza o carregamento", asyn
     createEventId: () => "d4a00000-0000-4000-8000-000000000041",
   });
 
-  const result = await service.registerScannerReading("7898538751531");
+  const scannerReceivedAtEpochMs = 1793314343923;
+  const result = await service.registerScannerReading("7898538751531", scannerReceivedAtEpochMs);
 
   assert.equal(result.id, 41);
   assert.equal(requests.length, 2);
   assert.equal(requests[0].url, "/api/leituras.php");
-  assert.deepEqual(JSON.parse(requests[0].options.body), { carregamento_id: 7, barcode: "7898538751531" });
+  assert.deepEqual(JSON.parse(requests[0].options.body), {
+    carregamento_id: 7,
+    barcode: "7898538751531",
+    scanner_received_at_epoch_ms: scannerReceivedAtEpochMs,
+  });
   assert.equal(requests[0].options.headers["X-Trace-Offline-ID"], "d4a00000-0000-4000-8000-000000000041");
   assert.equal(requests[1].options.headers["X-Trace-Offline-ID"], requests[0].options.headers["X-Trace-Offline-ID"]);
   assert.deepEqual(refreshedLoadings, [7]);

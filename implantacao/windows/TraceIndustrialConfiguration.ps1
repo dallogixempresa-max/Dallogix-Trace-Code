@@ -25,6 +25,19 @@ function ConvertTo-TraceIndustrialSettings {
         modbus_sensor_register = 2052
         scanner_no_read_timeout_ms = 1500
     }
+    $distanceText = [string](Get-TraceConfigProperty $Configuration "sensor_to_reader_distance_m" "0.125")
+    if ([string]::IsNullOrWhiteSpace($distanceText)) { $distanceText = "0.125" }
+    $distanceText = $distanceText.Trim().Replace(',', '.')
+    $sensorToReaderDistance = 0.0
+    if (-not [double]::TryParse(
+        $distanceText,
+        [System.Globalization.NumberStyles]::AllowDecimalPoint,
+        [System.Globalization.CultureInfo]::InvariantCulture,
+        [ref]$sensorToReaderDistance
+    ) -or [double]::IsNaN($sensorToReaderDistance) -or [double]::IsInfinity($sensorToReaderDistance) -or
+        $sensorToReaderDistance -lt 0 -or $sensorToReaderDistance -gt 20) {
+        throw "sensor_to_reader_distance_m deve ser uma distância entre 0 e 20 metros."
+    }
     $activeLevel = "1"
     $signalMode = "rising_edge"
 
@@ -71,6 +84,9 @@ function ConvertTo-TraceIndustrialSettings {
     $keyencePcIp = [string](Get-TraceConfigProperty $Configuration "keyence_pc_ip" "")
     $keyenceReaderIp = [string](Get-TraceConfigProperty $Configuration "keyence_reader_ip" "")
     if ($scannerModel -eq "KEYENCE SR-X100W") {
+        if ($sensorToReaderDistance -le 0) {
+            throw "Informe a distância real entre o ponto M2052 e o início da área de leitura do Keyence."
+        }
         foreach ($entry in @(@{ Name = "keyence_pc_ip"; Value = $keyencePcIp }, @{ Name = "keyence_reader_ip"; Value = $keyenceReaderIp })) {
             $parsedIp = $null
             if (-not [System.Net.IPAddress]::TryParse($entry.Value, [ref]$parsedIp) -or
@@ -121,6 +137,7 @@ function ConvertTo-TraceIndustrialSettings {
         keyence_pc_ip = $keyencePcIp
         keyence_reader_ip = $keyenceReaderIp
         scanner_no_read_timeout_ms = $numericValues.scanner_no_read_timeout_ms
+        sensor_to_reader_distance_m = $sensorToReaderDistance
         modbus_unit_id = $numericValues.modbus_unit_id
         modbus_heartbeat_function = $numericValues.modbus_heartbeat_function
         modbus_heartbeat_register = $numericValues.modbus_heartbeat_register
@@ -189,7 +206,7 @@ function Show-TraceIndustrialSettingsDialog {
     $form.FormBorderStyle = "FixedDialog"
     $form.MaximizeBox = $false
     $form.MinimizeBox = $false
-    $form.ClientSize = New-Object System.Drawing.Size(700, 760)
+    $form.ClientSize = New-Object System.Drawing.Size(700, 820)
     $form.Font = New-Object System.Drawing.Font("Segoe UI", 9)
 
     $panel = New-Object System.Windows.Forms.Panel
@@ -337,14 +354,17 @@ function Show-TraceIndustrialSettingsDialog {
     $scannerCombo.SelectedIndex = $selectedScanner
 
     $timeoutField = & $textbox "scanner_no_read_timeout_ms" ([string](Get-TraceConfigProperty $CurrentConfig "scanner_no_read_timeout_ms" 1500)) 22 505 120
-    & $label "Prazo sem leitura antes de registrar SEM_LEITURA (500–10000 ms)" 22 482 640 20
-    & $label "No Keyence, configure o TCP para a porta 19000 e FTP passivo para a porta 2121. O FTP usa a senha KEYENCE_FTP_PASSWORD do .env." 22 538 645 42
-    $keyencePcIpField = & $textbox "keyence_pc_ip" ([string](Get-TraceConfigProperty $CurrentConfig "keyence_pc_ip" "")) 22 610 180
-    $keyenceReaderIpField = & $textbox "keyence_reader_ip" ([string](Get-TraceConfigProperty $CurrentConfig "keyence_reader_ip" "")) 250 610 180
-    & $label "IPv4 fixo do PC na rede isolada do leitor" 22 588 220 20
-    & $label "IPv4 fixo do KEYENCE SR-X100W" 250 588 220 20
-    & $label "A aplicação restringe TCP e FTP ao IP informado do leitor. Configure e teste o SR-X100W no software KEYENCE antes de ativar a leitura." 22 646 645 38
-    & $label "Aplicar uma alteração reinicia a API e a integração por alguns instantes. Faça isso entre carregamentos." 22 690 645 36
+    $distanceField = & $textbox "sensor_to_reader_distance_m" ([string](Get-TraceConfigProperty $CurrentConfig "sensor_to_reader_distance_m" "0.125")) 185 505 120
+    & $label "Espera após chegada (ms)" 22 482 155 20
+    & $label "Distância M2052–leitor (m)" 185 482 260 20
+    & $label "Informe a distância até o início da área de leitura. O Trace calcula o transporte a 0,7 m/s e soma a espera do leitor." 22 538 645 30
+    & $label "No Keyence, configure o TCP para a porta 19000 e FTP passivo para a porta 2121. O FTP usa a senha KEYENCE_FTP_PASSWORD do .env." 22 572 645 42
+    $keyencePcIpField = & $textbox "keyence_pc_ip" ([string](Get-TraceConfigProperty $CurrentConfig "keyence_pc_ip" "")) 22 640 180
+    $keyenceReaderIpField = & $textbox "keyence_reader_ip" ([string](Get-TraceConfigProperty $CurrentConfig "keyence_reader_ip" "")) 250 640 180
+    & $label "IPv4 fixo do PC na rede isolada do leitor" 22 618 220 20
+    & $label "IPv4 fixo do KEYENCE SR-X100W" 250 618 220 20
+    & $label "A aplicação restringe TCP e FTP ao IP informado do leitor. Configure e teste o SR-X100W no software KEYENCE antes de ativar a leitura." 22 676 645 38
+    & $label "Aplicar uma alteração reinicia a API e a integração por alguns instantes. Faça isso entre carregamentos." 22 720 645 36
 
     $buttons = New-Object System.Windows.Forms.FlowLayoutPanel
     $buttons.FlowDirection = "RightToLeft"
@@ -405,6 +425,7 @@ function Show-TraceIndustrialSettingsDialog {
         keyence_pc_ip = $keyencePcIpField.Text.Trim()
         keyence_reader_ip = $keyenceReaderIpField.Text.Trim()
         scanner_no_read_timeout_ms = $timeoutField.Text
+        sensor_to_reader_distance_m = $distanceField.Text
     }
     try {
         $settings = ConvertTo-TraceIndustrialSettings $values
@@ -483,6 +504,7 @@ function ConvertTo-TraceIndustrialEnvValues {
         TRACE_SENSOR_ACTIVE_LEVEL = [string]$Settings.sensor_active_level
         TRACE_SENSOR_SIGNAL_MODE = [string]$Settings.sensor_signal_mode
         TRACE_SCANNER_NO_READ_TIMEOUT_MS = [string]$Settings.scanner_no_read_timeout_ms
+        TRACE_SENSOR_TO_READER_DISTANCE_M = [string]::Format([System.Globalization.CultureInfo]::InvariantCulture, "{0:0.###}", [double]$Settings.sensor_to_reader_distance_m)
         KEYENCE_ENABLED = if ($Settings.scanner_model -eq "KEYENCE SR-X100W") { "1" } else { "0" }
         # O SR-X100W participa da associação leitura↔passagem; archive-only impede
         # o provisionamento do scanner e deixa o Trace sem receber os códigos.

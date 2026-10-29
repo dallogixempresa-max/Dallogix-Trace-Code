@@ -4,6 +4,7 @@ declare(strict_types=1);
 define("TRACE_SKIP_SESSION", true);
 
 require_once __DIR__ . "/../../configuracao/bootstrap.php";
+require_once __DIR__ . "/temporizacao_leitor.php";
 
 exigir_metodo_http(["POST"]);
 $device = require_device_token(["CLP", "SENSOR"]);
@@ -14,12 +15,7 @@ if ($action === "FINALIZE_EXPIRED") {
     if ($device["device_type"] !== "CLP") {
         json_response(["error" => "Somente o gateway do CLP pode finalizar eventos sem leitura."], 403);
     }
-    $rawTimeout = getenv("TRACE_SCANNER_NO_READ_TIMEOUT_MS");
-    $configuredTimeout = filter_var(
-        $rawTimeout === false || $rawTimeout === "" ? 1500 : $rawTimeout,
-        FILTER_VALIDATE_INT,
-    );
-    $timeoutMs = max(500, min(10000, $configuredTimeout === false ? 1500 : (int) $configuredTimeout));
+    $timeoutMs = trace_scanner_timing()["no_read_deadline_ms"];
     $pdo = db();
     $pdo->beginTransaction();
     try {
@@ -41,19 +37,25 @@ if ($action === "FINALIZE_EXPIRED") {
             json_response(["data" => ["finalized" => 0, "reason" => "no_active_loading"]]);
         }
 
+        $deviceDeadlineMs = (int) round(microtime(true) * 1000) - $timeoutMs;
         $timeoutMicroseconds = $timeoutMs * 1000;
         $events = $pdo->prepare(
             "SELECT s.id
              FROM eventos_sensor s
              WHERE s.carregamento_id = :loading_id
                AND s.equipment_id = :equipment_id
-               AND s.detected_at <= DATE_SUB(NOW(3), INTERVAL {$timeoutMicroseconds} MICROSECOND)
+               AND (
+                 (s.device_detected_at IS NOT NULL AND s.device_detected_at <= :device_deadline)
+                 OR (s.device_detected_at IS NULL
+                   AND s.detected_at <= DATE_SUB(NOW(3), INTERVAL {$timeoutMicroseconds} MICROSECOND))
+               )
                AND NOT EXISTS (SELECT 1 FROM leituras l WHERE l.sensor_event_id = s.id)
              ORDER BY s.id ASC LIMIT 20 FOR UPDATE SKIP LOCKED",
         );
         $events->execute([
             "loading_id" => (int) $loadingId,
             "equipment_id" => $device["equipment_id"],
+            "device_deadline" => trace_epoch_ms_to_sql_datetime($deviceDeadlineMs),
         ]);
 
         $finalized = [];
@@ -167,6 +169,7 @@ $equipmentId = filter_var(
 );
 $eventUuid = trim((string) ($payload["event_uuid"] ?? ""));
 $detectedAt = trim((string) ($payload["detected_at"] ?? ""));
+$detectedAtEpochMs = $payload["detected_at_epoch_ms"] ?? null;
 if (!$loadingId || !$equipmentId || !preg_match('/^[a-f0-9-]{36}$/i', $eventUuid)) {
     json_response(
         ["error" => "Carregamento, esteira e event_uuid válido são obrigatórios."],
@@ -178,7 +181,18 @@ if ((int) $equipmentId !== (int) $device["equipment_id"]) {
 }
 
 $deviceDetectedAt = null;
-if ($detectedAt !== "") {
+$parsedDeviceDate = null;
+if ($detectedAtEpochMs !== null && $detectedAtEpochMs !== "") {
+    $parsedEpochMs = filter_var($detectedAtEpochMs, FILTER_VALIDATE_INT);
+    if ($parsedEpochMs === false || (int) $parsedEpochMs < 1) {
+        json_response(["error" => "Data do evento inválida."], 422);
+    }
+    try {
+        $parsedDeviceDate = new DateTimeImmutable(trace_epoch_ms_to_sql_datetime((int) $parsedEpochMs));
+    } catch (InvalidArgumentException $exception) {
+        json_response(["error" => "Data do evento inválida."], 422);
+    }
+} elseif ($detectedAt !== "") {
     $parsedDeviceDate = DateTime::createFromFormat("!Y-m-d H:i:s.v", $detectedAt);
     $dateErrors = DateTime::getLastErrors();
     if (
@@ -188,10 +202,9 @@ if ($detectedAt !== "") {
     ) {
         json_response(["error" => "Data do evento inválida."], 422);
     }
-    // O relógio do dispositivo não pode ficar muito à frente, mas eventos
-    // legítimos podem chegar dias depois quando o PC trabalhou sem internet.
-    // Mantemos o horário do dispositivo dentro de uma janela de retenção para
-    // que o debounce seja calculado no instante real da detecção.
+}
+if ($parsedDeviceDate !== null) {
+    // Keep gateway event time for debounce, scan correlation and evidence timing.
     $now = new DateTimeImmutable("now");
     $oldestAccepted = $now->modify("-7 days");
     $latestAccepted = $now->modify("+5 minutes");
@@ -206,8 +219,6 @@ $configuredDebounce = filter_var(
     FILTER_VALIDATE_INT,
 );
 $debounceMs = max(0, min(5000, $configuredDebounce === false ? 400 : (int) $configuredDebounce));
-$debounceMicroseconds = $debounceMs * 1000;
-
 $pdo = db();
 $pdo->beginTransaction();
 try {
@@ -246,20 +257,29 @@ try {
         );
     }
 
-    $debounceReference = $deviceDetectedAt ?? (new DateTimeImmutable("now"))->format("Y-m-d H:i:s.v");
+    $debounceReferenceMs = $deviceDetectedAt !== null
+        ? (int) round(((float) $parsedDeviceDate->format("U.u")) * 1000)
+        : (int) round(microtime(true) * 1000);
+    $debounceStartMs = $debounceReferenceMs - $debounceMs;
     $debounce = $pdo->prepare(
         "SELECT id FROM eventos_sensor
          WHERE carregamento_id = :carregamento_id
            AND equipment_id = :equipment_id
-           AND COALESCE(device_detected_at, detected_at) >= DATE_SUB(:debounce_reference_start, INTERVAL {$debounceMicroseconds} MICROSECOND)
-           AND COALESCE(device_detected_at, detected_at) <= :debounce_reference_end
-         ORDER BY COALESCE(device_detected_at, detected_at) DESC LIMIT 1",
+           AND (
+             (device_detected_at IS NOT NULL AND device_detected_at BETWEEN :device_debounce_start AND :device_debounce_end)
+             OR (device_detected_at IS NULL
+               AND detected_at BETWEEN FROM_UNIXTIME(:server_debounce_start_ms / 1000.0)
+                                   AND FROM_UNIXTIME(:server_debounce_end_ms / 1000.0))
+           )
+         ORDER BY id DESC LIMIT 1",
     );
     $debounce->execute([
         "carregamento_id" => $loadingId,
         "equipment_id" => $equipmentId,
-        "debounce_reference_start" => $debounceReference,
-        "debounce_reference_end" => $debounceReference,
+        "device_debounce_start" => trace_epoch_ms_to_sql_datetime($debounceStartMs),
+        "device_debounce_end" => trace_epoch_ms_to_sql_datetime($debounceReferenceMs),
+        "server_debounce_start_ms" => $debounceStartMs,
+        "server_debounce_end_ms" => $debounceReferenceMs,
     ]);
     $debouncedId = $debounce->fetchColumn();
     if ($debouncedId !== false) {
@@ -285,31 +305,6 @@ try {
         "debounce_ms" => $debounceMs,
     ]);
     $eventId = (int) $pdo->lastInsertId();
-    // O leitor pode enviar o código alguns milissegundos antes de o gateway
-    // publicar a borda do sensor. Nesse caso, associe a leitura órfã mais
-    // recente à nova passagem, ainda dentro da mesma transação.
-    $earlyReading = $pdo->prepare(
-        "SELECT id FROM leituras
-         WHERE company_id = :company_id AND carregamento_id = :loading_id
-           AND sensor_event_id IS NULL AND barcode IS NOT NULL
-           AND read_at >= DATE_SUB(NOW(3), INTERVAL 1000000 MICROSECOND)
-         ORDER BY id ASC LIMIT 1 FOR UPDATE",
-    );
-    $earlyReading->execute([
-        "company_id" => $device["company_id"],
-        "loading_id" => $loadingId,
-    ]);
-    $earlyReadingId = $earlyReading->fetchColumn();
-    if ($earlyReadingId !== false) {
-        $associateEarlyReading = $pdo->prepare(
-            "UPDATE leituras SET sensor_event_id = :sensor_event_id
-             WHERE id = :reading_id AND sensor_event_id IS NULL",
-        );
-        $associateEarlyReading->execute([
-            "sensor_event_id" => $eventId,
-            "reading_id" => (int) $earlyReadingId,
-        ]);
-    }
     record_operational_event(
         $pdo,
         ["id" => null, "company_id" => $device["company_id"]],
@@ -321,7 +316,7 @@ try {
             "event_uuid" => $eventUuid,
             "device_id" => $device["id"],
             "device_code" => $device["device_code"],
-            "scanner_correlated_reading_id" => $earlyReadingId === false ? null : (int) $earlyReadingId,
+            "scanner_correlated_reading_id" => null,
         ],
     );
     $planned = $pdo->prepare(
@@ -425,7 +420,7 @@ try {
                 "load_status" => ($loading["state"] === "FINALIZANDO" || $becameFinalizing)
                     ? "COMPLETO" : "EM_ANDAMENTO",
                 "image_action" => "AGUARDANDO_RESULTADO_LEITURA",
-                "scanner_correlated" => $earlyReadingId !== false,
+                "scanner_correlated" => false,
             ],
         ],
         201,

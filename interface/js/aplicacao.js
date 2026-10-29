@@ -544,7 +544,7 @@ function installScannerClipboardReceiver() {
       }
 
       try {
-        await store.registerScannerReading(barcode);
+        await store.registerScannerReading(barcode, Number(message.capturedAtEpochMs) || Date.now());
         if (currentPage === "work") renderScreen();
       } catch (error) {
         logFrontend.aviso("leitor.clipboard.registro", error);

@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . "/../../configuracao/bootstrap.php";
+require_once __DIR__ . "/../operacoes/temporizacao_leitor.php";
 require_once __DIR__ . "/../../src/Aplicacao/RelatorioAuditoriaPdf.php";
 require_once __DIR__ . "/../../../scripts/image_storage_path.php";
 
@@ -232,12 +233,24 @@ foreach ($loadIds as $index => $loadingId) {
 }
 if ($loadIds !== []) {
     $passageQuery = $pdo->prepare(
-        "SELECT id, carregamento_id FROM eventos_sensor
-         WHERE carregamento_id IN ({$placeholders}) ORDER BY carregamento_id, detected_at, id",
+        "SELECT id, carregamento_id, device_detected_at,
+                CAST(ROUND(UNIX_TIMESTAMP(detected_at) * 1000) AS UNSIGNED) AS server_detected_at_epoch_ms
+         FROM eventos_sensor WHERE carregamento_id IN ({$placeholders})",
     );
     $passageQuery->execute($loadIds);
+    $passages = array_map(static function (array $passage): array {
+        $passage["event_at_epoch_ms"] = $passage["device_detected_at"] !== null
+            ? trace_sql_datetime_to_epoch_ms((string) $passage["device_detected_at"])
+            : (int) $passage["server_detected_at_epoch_ms"];
+        return $passage;
+    }, $passageQuery->fetchAll(PDO::FETCH_ASSOC));
+    usort($passages, static fn(array $left, array $right): int =>
+        ((int) $left["carregamento_id"] <=> (int) $right["carregamento_id"])
+        ?: ((int) $left["event_at_epoch_ms"] <=> (int) $right["event_at_epoch_ms"])
+        ?: ((int) $left["id"] <=> (int) $right["id"])
+    );
     $passageNumbers = [];
-    foreach ($passageQuery->fetchAll(PDO::FETCH_ASSOC) as $passage) {
+    foreach ($passages as $passage) {
         $loadingId = (int) $passage["carregamento_id"];
         $passageNumbers[$loadingId] = ($passageNumbers[$loadingId] ?? 0) + 1;
         $operationSummary["passages"]++;

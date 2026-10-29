@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . "/../../configuracao/bootstrap.php";
+require_once __DIR__ . "/temporizacao_leitor.php";
 require_once __DIR__ . "/../../src/Aplicacao/ClassificadorLeitura.php";
 require_once __DIR__ . "/../../src/Aplicacao/SolicitacaoLeitura.php";
 require_once __DIR__ . "/../../src/Aplicacao/ServicoLeituras.php";
@@ -45,6 +46,11 @@ if ($dispositivoScanner === null) {
 session_write_close();
 
 $payload = ler_json_da_requisicao();
+try {
+    $scannerObservedAtMs = trace_scanner_observed_at_ms($payload["scanner_received_at_epoch_ms"] ?? null);
+} catch (InvalidArgumentException $exception) {
+    responder_json(["error" => $exception->getMessage()], 422);
+}
 try {
     $solicitacao = SolicitacaoLeitura::fromPayload(
         $payload,
@@ -140,27 +146,26 @@ if (!in_array($loading["state"], ["CARREGANDO", "FINALIZANDO"], true)) {
 }
 
 $loadingValidCount = (int) $loading["leituras_validas"];
-// O Keyence envia o código por TCP. Se a API precisar associar o evento,
-// consome primeiro a passagem pendente mais antiga dentro da janela.
-if (!$sensorEventId && ($barcode !== "" || $noRead)) {
-    $associationWindowMs = max(500, min(10000, (int) (getenv("TRACE_SCANNER_NO_READ_TIMEOUT_MS") ?: 1500)));
-    $associationWindowMicroseconds = $associationWindowMs * 1000;
-    $pendingSensor = $pdo->prepare(
-        "SELECT s.id
-         FROM eventos_sensor s
-         WHERE s.carregamento_id = :carregamento_id
-           AND s.equipment_id = :equipment_id
-           AND s.detected_at >= DATE_SUB(NOW(3), INTERVAL {$associationWindowMicroseconds} MICROSECOND)
-           AND NOT EXISTS (SELECT 1 FROM leituras l WHERE l.sensor_event_id = s.id)
-         ORDER BY s.detected_at ASC, s.id ASC LIMIT 1 FOR UPDATE",
+$scannerMatch = null;
+if (($barcode !== "" || $noRead) && ($dispositivoScanner !== null || !$sensorEventId)) {
+    $scannerMatch = trace_pending_scanner_event_match(
+        $pdo,
+        (int) $loadingId,
+        (int) $loading["equipment_id"],
+        $scannerObservedAtMs,
+        true,
     );
-    $pendingSensor->execute([
-        "carregamento_id" => $loadingId,
-        "equipment_id" => $loading["equipment_id"],
-    ]);
-    $matchedSensorEventId = $pendingSensor->fetchColumn();
-    if ($matchedSensorEventId !== false) {
-        $sensorEventId = (int) $matchedSensorEventId;
+}
+
+// Sensor upstream: só associe o código ao evento cuja chegada prevista ao
+// início da área de leitura mais se aproxima do horário recebido pelo leitor.
+if (!$sensorEventId && ($barcode !== "" || $noRead)) {
+    if ($scannerMatch["ambiguous"]) {
+        $pdo->rollBack();
+        responder_json(["error" => "Leitura ambígua entre passagens do sensor; o código não foi associado."], 409);
+    }
+    if ($scannerMatch["best"] !== null) {
+        $sensorEventId = $scannerMatch["best"]["sensor_event_id"];
     }
 }
 if (($barcode !== "" || $noRead) && !$sensorEventId) {
@@ -192,11 +197,15 @@ if ($dispositivoScanner !== null) {
         $pdo->rollBack();
         responder_json(["error" => "A leitura Keyence precisa de um código e de um evento de passagem pendente."], 409);
     }
+    if ($scannerMatch["ambiguous"] || $scannerMatch["best"] === null
+        || $scannerMatch["best"]["sensor_event_id"] !== $sensorEventId) {
+        $pdo->rollBack();
+        responder_json(["error" => "A leitura não corresponde à janela prevista de uma passagem M2052."], 409);
+    }
     $availableSensorEvent = $pdo->prepare(
         "SELECT s.id FROM eventos_sensor s
          WHERE s.id = :sensor_event_id AND s.carregamento_id = :carregamento_id
            AND s.equipment_id = :equipment_id
-           AND s.detected_at >= DATE_SUB(NOW(3), INTERVAL 10 SECOND)
            AND NOT EXISTS (SELECT 1 FROM leituras l WHERE l.sensor_event_id = s.id)
          LIMIT 1 FOR UPDATE",
     );

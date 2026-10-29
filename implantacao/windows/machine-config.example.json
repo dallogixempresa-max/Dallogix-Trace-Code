@@ -12,6 +12,7 @@
   "keyence_pc_ip": "",
   "keyence_reader_ip": "",
   "scanner_no_read_timeout_ms": 1500,
+  "sensor_to_reader_distance_m": 0.125,
   "operation_mode": "SIMULATED",
   "plc_model": "",
   "physical_clp_enabled": false,

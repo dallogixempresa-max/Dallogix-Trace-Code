@@ -50,7 +50,7 @@ export class ServicoLeiturasOperacionais {
     return this.state.pendingReadings;
   }
 
-  async registerScannerReading(rawBarcode) {
+  async registerScannerReading(rawBarcode, scannerReceivedAtEpochMs = Date.now()) {
     const loadingId = Number(this.state.loadingId) || 0;
     if (!loadingId || !["CARREGANDO", "FINALIZANDO"].includes(this.state.operationalState)) {
       throw new Error("Não há carregamento ativo para associar a leitura do leitor.");
@@ -73,7 +73,11 @@ export class ServicoLeiturasOperacionais {
           ...this.jsonHeaders(),
           "X-Trace-Offline-ID": offlineEventId,
         },
-        body: JSON.stringify({ carregamento_id: loadingId, barcode }),
+        body: JSON.stringify({
+          carregamento_id: loadingId,
+          barcode,
+          scanner_received_at_epoch_ms: Number(scannerReceivedAtEpochMs) || Date.now(),
+        }),
       });
 
       if (response.status === 409) {
