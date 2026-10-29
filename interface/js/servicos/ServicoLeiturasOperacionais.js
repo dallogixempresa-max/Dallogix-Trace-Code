@@ -9,6 +9,7 @@ export class ServicoLeiturasOperacionais {
     getPendingReadingsRequestId,
     loadActiveLoading,
     loadPendingReadings,
+    createEventId = () => globalThis.crypto?.randomUUID?.() || "",
   }) {
     this.api = api;
     this.state = state;
@@ -19,6 +20,7 @@ export class ServicoLeiturasOperacionais {
     this.getPendingReadingsRequestId = getPendingReadingsRequestId;
     this.loadActiveLoading = loadActiveLoading;
     this.reloadPendingReadings = loadPendingReadings;
+    this.createEventId = createEventId;
   }
 
   async loadPendingReadings(page = this.state.pendingReadingsPage) {
@@ -46,6 +48,47 @@ export class ServicoLeiturasOperacionais {
     this.state.pendingReadingsTotal = Number(result.pagination?.total) || this.state.pendingReadings.length;
     this.state.pendingReadingsLoadingId = loadingId;
     return this.state.pendingReadings;
+  }
+
+  async registerScannerReading(rawBarcode) {
+    const loadingId = Number(this.state.loadingId) || 0;
+    if (!loadingId || !["CARREGANDO", "FINALIZANDO"].includes(this.state.operationalState)) {
+      throw new Error("Não há carregamento ativo para associar a leitura do leitor.");
+    }
+
+    const barcode = String(rawBarcode || "").trim();
+    if (!barcode || barcode.length > 128 || /[\x00-\x1F\x7F]/.test(barcode)) {
+      throw new Error("O leitor enviou um código de barras inválido.");
+    }
+    const offlineEventId = String(this.createEventId() || "");
+    if (!/^[a-f0-9-]{16,36}$/i.test(offlineEventId)) {
+      throw new Error("Não foi possível identificar esta leitura automática.");
+    }
+
+    const associationDeadline = Date.now() + 1500;
+    while (true) {
+      const response = await this.api.fetch("/api/leituras.php", {
+        method: "POST",
+        headers: {
+          ...this.jsonHeaders(),
+          "X-Trace-Offline-ID": offlineEventId,
+        },
+        body: JSON.stringify({ carregamento_id: loadingId, barcode }),
+      });
+
+      if (response.status === 409) {
+        const body = await response.clone().json().catch(() => ({}));
+        const waitingForPassage = body.error === "Leitura aguardando o evento de passagem do sensor M2052.";
+        if (waitingForPassage && Date.now() < associationDeadline) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          continue;
+        }
+      }
+
+      const result = await this.jsonResponse(response, "Não foi possível registrar a leitura do leitor.");
+      await this.loadActiveLoading(loadingId);
+      return result.data;
+    }
   }
 
   async confirmStopRemoval(loadingId = this.state.loadingId) {
