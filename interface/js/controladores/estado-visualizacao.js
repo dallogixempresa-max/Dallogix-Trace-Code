@@ -54,7 +54,7 @@ export function createLiveViewController({
           ? `Quantidade física atingida · ${numero(validReadings)} códigos válidos`
           : `Falta${remaining === 1 ? "" : "m"} ${numero(remaining)} saca${remaining === 1 ? "" : "s"} para a quantidade prevista`,
       "progress-percent": `${percent}%`,
-      "scanner-value": store.state.latestScannerReading?.value || "Aguardando leitura do Keyence…",
+      "scanner-value": store.state.latestScannerReading?.value || "Aguardando leitura…",
     };
     Object.entries(values).forEach(([key, value]) => {
       document.querySelectorAll(`[data-live="${key}"]`).forEach((node) => {

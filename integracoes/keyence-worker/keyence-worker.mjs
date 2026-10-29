@@ -3,7 +3,7 @@ import { createConnection as createTcpConnection, createServer as createTcpServe
 import { mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createFtpReceiver } from "./ftp-receiver.mjs";
-import { groupImageFrames, isKeyenceNoReadFrame, matchPendingImage, nextUnreservedSensorEventId, parseBarcodeFrame, scanEventId, sha256 } from "./keyence-core.mjs";
+import { groupImageFrames, isAllowedSourceAddress, isKeyenceNoReadFrame, matchPendingImage, nextUnreservedSensorEventId, parseBarcodeFrame, parseLinuxDefaultGateway, scanEventId, sha256 } from "./keyence-core.mjs";
 import { importArchivedImages } from "./image-archive.mjs";
 
 const SERVICE_NAME = "keyence-worker";
@@ -38,6 +38,8 @@ const IMAGE_ARCHIVE_POLL_MS = boundedInteger(process.env.KEYENCE_IMAGE_ARCHIVE_P
 const IMAGE_MAX_AGE_MS = boundedInteger(process.env.KEYENCE_IMAGE_MAX_AGE_MS, 300000, 30000, 86400000);
 const POLL_MS = boundedInteger(process.env.KEYENCE_POLL_MS, 500, 100, 5000);
 const HEARTBEAT_MS = boundedInteger(process.env.KEYENCE_HEARTBEAT_MS, 5000, 1000, 60000);
+const SCANNER_NO_READ_TIMEOUT_MS = boundedInteger(process.env.TRACE_SCANNER_NO_READ_TIMEOUT_MS, 1500, 500, 10000);
+const SCAN_ASSOCIATION_WAIT_MS = Math.max(100, SCANNER_NO_READ_TIMEOUT_MS - 250);
 const MAX_SCAN_BYTES = 2048;
 
 let shuttingDown = false;
@@ -79,10 +81,6 @@ function setError(error) {
 
 function apiUrl(path) {
   return new URL(path, API_BASE + "/");
-}
-
-function normalizedAddress(address = "") {
-  return address.startsWith("::ffff:") ? address.slice(7) : address;
 }
 
 async function apiRequest(path, { jsonBody = null, formBody = null, timeoutMs = 10000, idempotencyKey = "" } = {}) {
@@ -149,14 +147,15 @@ async function queueBarcode(rawFrame) {
   let loading = null;
   let sensorEventId = null;
   try {
-    for (let attempt = 0; attempt < 5; attempt += 1) {
+    const associationDeadline = Date.now() + SCAN_ASSOCIATION_WAIT_MS;
+    do {
       loading = await refreshActiveLoading();
       sensorEventId = loading
         ? nextUnreservedSensorEventId(loading.sensorEventIds, reservedSensorEventIds)
         : null;
-      if (!loading || sensorEventId) break;
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
+      if (!loading || sensorEventId || Date.now() >= associationDeadline) break;
+      await new Promise((resolve) => setTimeout(resolve, Math.min(100, associationDeadline - Date.now())));
+    } while (Date.now() <= associationDeadline);
   } catch (error) {
     setError(error);
     if (Date.now() - activeLoadingCheckedAt > 5000) {
@@ -508,10 +507,10 @@ async function refreshReaderNetworkStatus() {
   await probeReaderNetwork();
 }
 
-function startTcpReceiver() {
+function startTcpReceiver(allowedAddresses) {
   tcpServer = createTcpServer((socket) => {
-    const remote = normalizedAddress(socket.remoteAddress || "");
-    if (remote !== normalizedAddress(TCP_ALLOWED_ADDRESS)) {
+    const remote = String(socket.remoteAddress || "").replace(/^::ffff:/, "");
+    if (!isAllowedSourceAddress(remote, allowedAddresses)) {
       log("warn", "Conexão TCP Keyence rejeitada por endereço de origem.", { remote_address: remote });
       socket.destroy();
       return;
@@ -591,7 +590,20 @@ async function start() {
   await mkdir(SCAN_QUEUE_DIR, { recursive: true, mode: 0o770 });
   await mkdir(FAILED_SCAN_DIR, { recursive: true, mode: 0o770 });
   await loadScanQueueReservations();
-  await startTcpReceiver();
+  let dockerGateway = null;
+  try {
+    dockerGateway = parseLinuxDefaultGateway(await readFile("/proc/net/route", "utf8"));
+  } catch (error) {
+    log("warn", "Não foi possível identificar o gateway do Docker; somente o IP direto do leitor será aceito.", {
+      reason: String(error?.message || error).slice(0, 180),
+    });
+  }
+  // No Docker Desktop do Windows, a publicação de portas troca o IP do leitor
+  // pelo gateway do bridge. O Firewall do Windows limita a origem externa ao
+  // IP fixo do leitor antes de encaminhar a conexão para este container.
+  const tcpAllowedAddresses = [...new Set([TCP_ALLOWED_ADDRESS, dockerGateway].filter(Boolean))];
+  const ftpAllowedAddresses = [...new Set([FTP_ALLOWED_ADDRESS, dockerGateway].filter(Boolean))];
+  await startTcpReceiver(tcpAllowedAddresses);
   ftpReceiver = createFtpReceiver({
     bindAddress: TCP_BIND_ADDRESS,
     port: FTP_CONTROL_PORT,
@@ -600,7 +612,7 @@ async function start() {
     advertisedAddress: FTP_PASV_ADDRESS,
     username: FTP_USER,
     password: FTP_PASSWORD,
-    allowedAddress: FTP_ALLOWED_ADDRESS,
+    allowedAddresses: ftpAllowedAddresses,
     inboxDirectory: INBOX_DIR,
     onImage: () => void processImageQueue(),
     log,
@@ -614,6 +626,7 @@ async function start() {
     passive_ports: [FTP_PASSIVE_START, FTP_PASSIVE_END],
     ftp_source_allowlist: FTP_ALLOWED_ADDRESS || "não configurada",
     tcp_source_allowlist: TCP_ALLOWED_ADDRESS,
+    docker_gateway_ingress: dockerGateway,
   });
 
   let lastHeartbeatAt = 0;

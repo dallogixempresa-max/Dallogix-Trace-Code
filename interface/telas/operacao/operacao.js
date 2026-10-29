@@ -150,8 +150,8 @@ export function workControlLocks(state, {
       ? "Confirme que a unidade foi removida e que a esteira está fisicamente parada antes de retomar."
     : !stopped
       ? stateLock("iniciar a esteira")
-      : state.reversalCommand !== "REVERSAO_DESATIVAR"
-        ? "Confirme a reversão desligada antes de ligar a esteira para frente."
+      : state.reversalCommand === "REVERSAO_ATIVAR"
+        ? "Desligue a reversão antes de ligar a esteira para frente."
         : "";
   locks.stop = emergency
     ? "A emergência já mantém a operação parada."
@@ -246,10 +246,10 @@ function workControls(store) {
     : bloqueio(commandLocks.stop);
   const loadingPicker = `<div class="work-header-actions"><button class="button secondary small work-back-button" data-action="goto-manifests" type="button">← Romaneios</button>${(store.state.activeLoadings || []).length > 1 ? `<button class="button secondary small work-back-button" data-action="change-loading" type="button">Trocar Dala</button>` : ""}</div>`;
   const latestScannerReading = store.state.latestScannerReading;
-  const scannerValue = latestScannerReading?.value || "Aguardando leitura do Keyence…";
+  const scannerValue = latestScannerReading?.value || "Aguardando leitura…";
   const scannerValueClass = latestScannerReading?.result === "SEM_LEITURA" ? " is-error" : "";
   const scannerMonitor = store.state.loadingId
-    ? `<div class="work-reader-monitor"><div class="work-reader-monitor-heading"><span class="kicker">Visor do leitor</span><small>Último código recebido automaticamente do Keyence.</small></div><div class="work-scanner-display"><span class="work-scanner-display-label">Código de barras</span><output id="automatic-scanner-barcode" class="work-scanner-display-value${scannerValueClass}" data-live="scanner-value" role="status" aria-live="polite" aria-atomic="true">${esc(scannerValue)}</output></div></div>`
+    ? `<div class="work-reader-monitor"><div class="work-reader-monitor-heading"><span class="kicker">Visor do leitor</span><small>Último código recebido automaticamente do leitor.</small></div><div class="work-scanner-display"><span class="work-scanner-display-label">Código de barras</span><output id="automatic-scanner-barcode" class="work-scanner-display-value${scannerValueClass}" data-live="scanner-value" role="status" aria-live="polite" aria-atomic="true">${esc(scannerValue)}</output></div></div>`
     : "";
   const controls = `<div class="work-controls"><div class="work-routine-controls">${button("Ligar esteira", "run", "primary", bloqueio(commandLocks.run))}${button("Desligar esteira", "stop", "ghost", atributosPararEsteira)}${button("Ligar reversão", "reverse-on", "secondary", atributosLigarReversao)}${button("Desligar reversão", "reverse-off", "secondary", atributosDesligarReversao)}</div><div class="work-emergency-zone">${button("EMERGÊNCIA", "emergency", "danger", bloqueioEmergencia)}</div></div>`;
   const summaryReady = ["FINALIZANDO", "FINALIZADO"].includes(
