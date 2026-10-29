@@ -25,20 +25,46 @@ export function nextUnreservedSensorEventId(pendingEventIds, reservedEventIds = 
   return null;
 }
 
-export function matchPendingImage(receivedAt, requests, windowMs) {
+export function matchPendingImage(receivedAt, requests, windowMs, timestampField = "requested_at_epoch_ms", ambiguityMarginMs = 250) {
   const candidates = (Array.isArray(requests) ? requests : [])
     .map((request) => ({
       request,
-      distance: Math.abs(Number(receivedAt) - Number(request.requested_at_epoch_ms)),
+      distance: Math.abs(Number(receivedAt) - Number(request[timestampField])),
     }))
     .filter((candidate) => Number.isFinite(candidate.distance) && candidate.distance <= windowMs)
     .sort((left, right) => left.distance - right.distance);
 
   if (candidates.length === 0) return { request: null, reason: "sem_solicitacao_compativel" };
-  if (candidates.length > 1) {
+  if (candidates.length > 1 && candidates[1].distance - candidates[0].distance <= ambiguityMarginMs) {
     return { request: null, reason: "solicitacoes_ambiguas" };
   }
   return { request: candidates[0].request, reason: null };
+}
+
+export function groupImageFrames(frames, burstWindowMs) {
+  const ordered = (Array.isArray(frames) ? frames : [])
+    .filter((frame) => Number.isFinite(Number(frame.receivedAt)) && Number(frame.receivedAt) >= 0)
+    .slice()
+    .sort((left, right) => Number(left.receivedAt) - Number(right.receivedAt));
+  const groups = [];
+
+  for (const frame of ordered) {
+    const group = groups.at(-1);
+    if (group && Number(frame.receivedAt) - group.lastReceivedAt <= burstWindowMs) {
+      group.frames.push(frame);
+      group.lastReceivedAt = Number(frame.receivedAt);
+      group.representative = frame;
+      continue;
+    }
+    groups.push({
+      firstReceivedAt: Number(frame.receivedAt),
+      lastReceivedAt: Number(frame.receivedAt),
+      frames: [frame],
+      representative: frame,
+    });
+  }
+
+  return groups;
 }
 
 export function scanEventId() {

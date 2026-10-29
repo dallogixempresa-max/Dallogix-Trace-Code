@@ -3,7 +3,8 @@ import { createConnection as createTcpConnection, createServer as createTcpServe
 import { mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createFtpReceiver } from "./ftp-receiver.mjs";
-import { isKeyenceNoReadFrame, matchPendingImage, nextUnreservedSensorEventId, parseBarcodeFrame, scanEventId, sha256 } from "./keyence-core.mjs";
+import { groupImageFrames, isKeyenceNoReadFrame, matchPendingImage, nextUnreservedSensorEventId, parseBarcodeFrame, scanEventId, sha256 } from "./keyence-core.mjs";
+import { importArchivedImages } from "./image-archive.mjs";
 
 const SERVICE_NAME = "keyence-worker";
 const boundedInteger = (rawValue, fallback, minimum, maximum) => {
@@ -25,11 +26,15 @@ const FTP_PASV_ADDRESS = process.env.KEYENCE_FTP_PASV_ADDRESS || "";
 const FTP_ALLOWED_ADDRESS = process.env.KEYENCE_FTP_ALLOWED_ADDRESS || "";
 const TCP_ALLOWED_ADDRESS = process.env.KEYENCE_TCP_ALLOWED_ADDRESS || "";
 const INBOX_DIR = process.env.KEYENCE_INBOX_DIR || "/var/lib/trace/keyence-inbox";
+const IMAGE_ARCHIVE_DIR = process.env.KEYENCE_IMAGE_ARCHIVE_DIR || "";
 const SCAN_QUEUE_DIR = join(INBOX_DIR, "scans");
 const FAILED_SCAN_DIR = join(INBOX_DIR, "failed-scans");
 const TCP_BIND_ADDRESS = process.env.KEYENCE_SERVICE_BIND || "0.0.0.0";
 const IMAGE_MATCH_WINDOW_MS = boundedInteger(process.env.KEYENCE_IMAGE_MATCH_WINDOW_MS, 3000, 1000, 60000);
+const IMAGE_ARCHIVE_MATCH_WINDOW_MS = boundedInteger(process.env.KEYENCE_IMAGE_ARCHIVE_MATCH_WINDOW_MS, 1500, 500, 10000);
 const IMAGE_SETTLE_MS = boundedInteger(process.env.KEYENCE_IMAGE_SETTLE_MS, 800, 0, 10000);
+const IMAGE_BURST_WINDOW_MS = boundedInteger(process.env.KEYENCE_IMAGE_BURST_WINDOW_MS, 100, 0, 1000);
+const IMAGE_ARCHIVE_POLL_MS = boundedInteger(process.env.KEYENCE_IMAGE_ARCHIVE_POLL_MS, 2000, 500, 10000);
 const IMAGE_MAX_AGE_MS = boundedInteger(process.env.KEYENCE_IMAGE_MAX_AGE_MS, 300000, 30000, 86400000);
 const POLL_MS = boundedInteger(process.env.KEYENCE_POLL_MS, 500, 100, 5000);
 const HEARTBEAT_MS = boundedInteger(process.env.KEYENCE_HEARTBEAT_MS, 5000, 1000, 60000);
@@ -48,6 +53,9 @@ let activeLoading = null;
 let activeLoadingCheckedAt = 0;
 let lastError = "";
 let unmatchedImageCount = 0;
+let imageArchiveAvailable = null;
+let lastImageArchivePollAt = 0;
+const loggedAmbiguousImageGroups = new Set();
 let pollTimer = null;
 let processingImages = false;
 let scanQueuePromise = null;
@@ -276,11 +284,14 @@ async function pendingImages() {
   return Array.isArray(result?.data) ? result.data : [];
 }
 
-async function uploadImage(file, request) {
+async function uploadImage(file, request, capturedAtEpochMs) {
   const bytes = await readFile(file);
   const form = new FormData();
   form.append("action", "UPLOAD_IMAGE");
   form.append("request_id", String(request.id));
+  form.append("captured_at_epoch_ms", String(Math.round(capturedAtEpochMs)));
+  const sourceName = file.split(/[\\/]/).at(-1)?.match(/-archive-([A-Za-z0-9._-]{1,80})$/i)?.[1];
+  if (sourceName) form.append("source_file_name", sourceName);
   form.append("file", new Blob([bytes], { type: "image/jpeg" }), "keyence-evidence.jpg");
   const result = await apiRequest("/api/keyence_worker.php", { formBody: form, timeoutMs: 20000 });
   if (!result?.data?.request_id) throw new Error("Trace não confirmou a imagem Keyence.");
@@ -288,15 +299,49 @@ async function uploadImage(file, request) {
   log("info", "Imagem Keyence vinculada à falha de leitura.", {
     request_id: Number(request.id),
     sensor_event_id: Number(request.sensor_event_id),
+    ...(sourceName ? { source_file_name: sourceName } : {}),
+    captured_at_epoch_ms: Math.round(capturedAtEpochMs),
     duplicate: Boolean(result.data.duplicate),
   });
+}
+
+async function removeImageGroup(group, keepName = "") {
+  for (const frame of group.frames) {
+    if (frame.name === keepName) continue;
+    try {
+      await unlink(join(INBOX_DIR, frame.name));
+      unmatchedImageCount = Math.max(0, unmatchedImageCount - 1);
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+  }
 }
 
 async function processImageQueue() {
   if (processingImages || shuttingDown || !ftpReachable || !DEVICE_TOKEN) return;
   processingImages = true;
   try {
-    let names = (await readdir(INBOX_DIR)).filter((name) => /^\d{13}--[a-f0-9]{64}-[a-f0-9]{8}\.jpg$/i.test(name)).sort();
+    if (IMAGE_ARCHIVE_DIR && Date.now() - lastImageArchivePollAt >= IMAGE_ARCHIVE_POLL_MS) {
+      lastImageArchivePollAt = Date.now();
+      const archiveResult = await importArchivedImages({
+        sourceDirectory: IMAGE_ARCHIVE_DIR,
+        inboxDirectory: INBOX_DIR,
+        now: lastImageArchivePollAt,
+        settleMs: IMAGE_SETTLE_MS,
+        maxAgeMs: IMAGE_MAX_AGE_MS,
+        log,
+      });
+      if (archiveResult.available !== imageArchiveAvailable) {
+        imageArchiveAvailable = archiveResult.available;
+        log(imageArchiveAvailable ? "info" : "warn", imageArchiveAvailable
+          ? "Pasta local de imagens Keyence está montada no Trace."
+          : "Pasta local de imagens Keyence não está acessível ao Trace.");
+      }
+    }
+
+    let names = (await readdir(INBOX_DIR))
+      .filter((name) => /^\d{13}--[a-f0-9]{64}-[a-f0-9]{8}(?:-archive(?:-[A-Za-z0-9._-]{1,80})?)?\.jpg$/i.test(name))
+      .sort();
     for (const name of names) {
       const receivedAt = Number(name.slice(0, 13));
       if (Number.isFinite(receivedAt) && Date.now() - receivedAt > IMAGE_MAX_AGE_MS) {
@@ -311,44 +356,77 @@ async function processImageQueue() {
     if (names.length === 0) return;
     const requests = await pendingImages();
     const reserved = new Set();
-    for (const name of names) {
-      const receivedAt = Number(name.slice(0, 13));
-      const file = join(INBOX_DIR, name);
+    const groups = groupImageFrames(names.map((name) => ({
+      name,
+      receivedAt: Number(name.slice(0, 13)),
+      archived: /-archive(?:-|\.jpg$)/i.test(name),
+    })), IMAGE_BURST_WINDOW_MS);
+    for (const group of groups) {
+      const receivedAt = Number(group.representative.receivedAt);
       if (!Number.isFinite(receivedAt)) continue;
-      if (Date.now() - receivedAt < IMAGE_SETTLE_MS) continue;
-      const available = requests.filter((request) => !reserved.has(Number(request.id)));
-      const match = matchPendingImage(receivedAt, available, IMAGE_MATCH_WINDOW_MS);
+      if (group.frames.some((frame) => Date.now() - Number(frame.receivedAt) < IMAGE_SETTLE_MS)) continue;
+      const timestampField = group.frames.some((frame) => frame.archived)
+        ? "sensor_detected_at_epoch_ms"
+        : "requested_at_epoch_ms";
+      const matchWindowMs = timestampField === "sensor_detected_at_epoch_ms"
+        ? IMAGE_ARCHIVE_MATCH_WINDOW_MS
+        : IMAGE_MATCH_WINDOW_MS;
+      const match = matchPendingImage(receivedAt, requests, matchWindowMs, timestampField);
+      const groupKey = group.frames.map((frame) => frame.name).join("|");
       if (!match.request) {
         if (match.reason === "solicitacoes_ambiguas") {
-          await unlink(file);
-          unmatchedImageCount -= 1;
-          log("warn", "Imagem Keyence ambígua; não foi associada a uma solicitação.", {
-            sha256: name.slice(15, 79),
-            candidate_requests: available.length,
-          });
-        } else if (Date.now() - receivedAt > IMAGE_MATCH_WINDOW_MS + IMAGE_SETTLE_MS) {
-          await unlink(file);
-          unmatchedImageCount -= 1;
+          if (!loggedAmbiguousImageGroups.has(groupKey)) {
+            loggedAmbiguousImageGroups.add(groupKey);
+            log("warn", "Imagem Keyence ambígua; preservada na fila sem anexar a uma falha incorreta.", {
+              image_count: group.frames.length,
+              candidate_requests: requests.filter((request) => {
+                const timestamp = Number(request[timestampField]);
+                return Number.isFinite(timestamp) && Math.abs(receivedAt - timestamp) <= matchWindowMs;
+              }).length,
+            });
+          }
+        } else if (Date.now() - receivedAt > matchWindowMs + IMAGE_SETTLE_MS) {
+          await removeImageGroup(group);
+          loggedAmbiguousImageGroups.delete(groupKey);
           log("warn", "Imagem Keyence sem solicitação compatível; o arquivo foi descartado.", {
-            sha256: name.slice(15, 79),
+            image_count: group.frames.length,
+            sha256: group.representative.name.slice(15, 79),
           });
         }
         continue;
       }
+      if (match.request.status === "CAPTURADA") {
+        await removeImageGroup(group);
+        loggedAmbiguousImageGroups.delete(groupKey);
+        log("info", "Imagem Keyence repetida descartada; esta passagem já tem evidência.", {
+          sensor_event_id: Number(match.request.sensor_event_id),
+          image_count: group.frames.length,
+        });
+        continue;
+      }
+      if (reserved.has(Number(match.request.id))) {
+        await removeImageGroup(group);
+        log("info", "Quadro adicional da mesma passagem descartado após selecionar uma evidência.", {
+          sensor_event_id: Number(match.request.sensor_event_id),
+          image_count: group.frames.length,
+        });
+        continue;
+      }
       reserved.add(Number(match.request.id));
       try {
-        await uploadImage(file, match.request);
-        unmatchedImageCount -= 1;
+        await uploadImage(join(INBOX_DIR, group.representative.name), match.request, receivedAt);
+        unmatchedImageCount = Math.max(0, unmatchedImageCount - 1);
+        await removeImageGroup(group, group.representative.name);
+        loggedAmbiguousImageGroups.delete(groupKey);
       } catch (error) {
         if (error.status === 404 || error.status === 409) {
           // Outro processo pode ter reservado a mesma solicitação durante o envio.
-          // Deixe o JPG na fila até o próximo ciclo, quando o estado ficará claro.
+          // Deixe o grupo na fila até o próximo ciclo, quando o estado ficará claro.
           continue;
         }
         setError(error);
         if (Number(error.status) >= 400 && Number(error.status) < 500 && error.status !== 429) {
-          await unlink(file);
-          unmatchedImageCount -= 1;
+          await removeImageGroup(group);
           log("error", "Imagem Keyence rejeitada pela API e descartada.", {
             request_id: Number(match.request.id),
             http_status: error.status,
@@ -366,7 +444,8 @@ async function processImageQueue() {
 }
 
 async function publishHeartbeat() {
-  const status = lastError ? "ERRO" : "ONLINE";
+  const archiveUnavailable = Boolean(IMAGE_ARCHIVE_DIR) && imageArchiveAvailable === false;
+  const status = lastError || archiveUnavailable ? "ERRO" : "ONLINE";
   await apiRequest("/api/device_heartbeat.php", {
     jsonBody: {
       device_type: "SCANNER",
@@ -383,6 +462,8 @@ async function publishHeartbeat() {
         reader_last_read_age_ms: readerLastReadAtMs === null ? null : Math.max(0, Date.now() - readerLastReadAtMs),
         active_loading: Boolean(activeLoading),
         unmatched_image_count: unmatchedImageCount,
+        image_archive_directory_available: IMAGE_ARCHIVE_DIR ? imageArchiveAvailable : null,
+        ...(archiveUnavailable ? { reason_code: "keyence_image_archive_unavailable" } : {}),
         ...(lastError ? { reason_code: "keyence_worker_error", error: lastError } : {}),
       },
     },
@@ -489,6 +570,7 @@ async function start() {
       reader_last_read_at: readerLastReadAt,
       reader_last_read_age_ms: readerLastReadAtMs === null ? null : Math.max(0, Date.now() - readerLastReadAtMs),
       unmatched_image_count: unmatchedImageCount,
+      image_archive_directory_available: IMAGE_ARCHIVE_DIR ? imageArchiveAvailable : null,
       scan_queue_directory: SCAN_QUEUE_DIR,
     }));
   });

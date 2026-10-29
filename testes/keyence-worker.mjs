@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createConnection, createServer } from "node:net";
 import test from "node:test";
 import { createFtpReceiver } from "../integracoes/keyence-worker/ftp-receiver.mjs";
-import { matchPendingImage, nextUnreservedSensorEventId, parseBarcodeFrame } from "../integracoes/keyence-worker/keyence-core.mjs";
+import { groupImageFrames, matchPendingImage, nextUnreservedSensorEventId, parseBarcodeFrame } from "../integracoes/keyence-worker/keyence-core.mjs";
+import { importArchivedImages } from "../integracoes/keyence-worker/image-archive.mjs";
 
 const worker = await readFile(new URL("../integracoes/keyence-worker/keyence-worker.mjs", import.meta.url), "utf8");
 const imageEndpoint = await readFile(new URL("../servidor/api/keyence_worker.php", import.meta.url), "utf8");
@@ -13,6 +14,7 @@ const readingsEndpoint = await readFile(new URL("../servidor/api/operacoes/leitu
 const sensorEventsEndpoint = await readFile(new URL("../servidor/api/operacoes/sensor_eventos.php", import.meta.url), "utf8");
 const manifestEndpoint = await readFile(new URL("../servidor/api/romaneios/romaneios.php", import.meta.url), "utf8");
 const reportEndpoint = await readFile(new URL("../servidor/api/relatorios/relatorio_auditoria.php", import.meta.url), "utf8");
+const pdfGenerator = await readFile(new URL("../servidor/src/Aplicacao/RelatorioAuditoriaPdf.php", import.meta.url), "utf8");
 const compose = await readFile(new URL("../docker-compose.yml", import.meta.url), "utf8");
 
 function freePort() {
@@ -67,6 +69,63 @@ test("valida códigos TCP e só associa imagem quando há solicitação inequív
   assert.equal(matchPendingImage(10500, requests.slice(0, 1), 8000).request.id, 1);
   assert.equal(matchPendingImage(15000, requests, 8000).reason, "solicitacoes_ambiguas");
   assert.equal(matchPendingImage(40000, requests, 8000).reason, "sem_solicitacao_compativel");
+  const closeRequests = [
+    { id: 3, sensor_detected_at_epoch_ms: 10000 },
+    { id: 4, sensor_detected_at_epoch_ms: 12000 },
+  ];
+  assert.equal(matchPendingImage(10500, closeRequests, 3000, "sensor_detected_at_epoch_ms").request.id, 3);
+  assert.equal(matchPendingImage(11000, closeRequests, 3000, "sensor_detected_at_epoch_ms").reason, "solicitacoes_ambiguas");
+  const groups = groupImageFrames([
+    { name: "190_E_01.JPG", receivedAt: 10000 },
+    { name: "190_E_02.JPG", receivedAt: 10020 },
+    { name: "191_E_01.JPG", receivedAt: 10400 },
+  ], 250);
+  assert.equal(groups.length, 2);
+  assert.equal(groups[0].representative.name, "190_E_02.JPG");
+});
+
+test("importa cópias recentes da pasta Keyence sem alterar os originais nem repetir arquivos", async () => {
+  const root = await mkdtemp(join(tmpdir(), "trace-keyence-archive-"));
+  const sourceDirectory = join(root, "falhas");
+  const nestedSource = join(sourceDirectory, "2026", "10");
+  const inboxDirectory = join(root, "inbox");
+  await mkdir(nestedSource, { recursive: true });
+  const sourceFile = join(nestedSource, "190_E_02.JPG");
+  const jpeg = Buffer.alloc(256, 0x11);
+  jpeg[0] = 0xff;
+  jpeg[1] = 0xd8;
+  jpeg[jpeg.length - 2] = 0xff;
+  jpeg[jpeg.length - 1] = 0xd9;
+  await writeFile(sourceFile, jpeg);
+  const capturedAt = Date.now() - 2000;
+  await utimes(sourceFile, capturedAt / 1000, capturedAt / 1000);
+  const staleFile = join(nestedSource, "180_E_01.JPG");
+  await writeFile(staleFile, jpeg);
+  await utimes(staleFile, (capturedAt - 600000) / 1000, (capturedAt - 600000) / 1000);
+
+  try {
+    const first = await importArchivedImages({
+      sourceDirectory,
+      inboxDirectory,
+      now: Date.now(),
+      settleMs: 500,
+      maxAgeMs: 300000,
+    });
+    assert.deepEqual(first, { available: true, imported: 1, skipped: 0 });
+    const names = await readdir(inboxDirectory);
+    const importedName = names.find((name) => name.includes("-archive-190_E_02.JPG"));
+    assert.ok(importedName);
+    assert.match(importedName, /^\d{13}--[a-f0-9]{64}-[a-f0-9]{8}-archive-190_E_02\.JPG$/);
+    assert.equal(Number(importedName.slice(0, 13)), Math.round((await stat(sourceFile)).mtimeMs));
+    assert.deepEqual(await readFile(sourceFile), jpeg);
+    assert.equal((await importArchivedImages({ sourceDirectory, inboxDirectory, settleMs: 500, maxAgeMs: 300000 })).imported, 0);
+
+    await rm(join(inboxDirectory, importedName));
+    assert.equal((await importArchivedImages({ sourceDirectory, inboxDirectory, settleMs: 500, maxAgeMs: 300000 })).imported, 0);
+    assert.deepEqual(await readFile(sourceFile), jpeg);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("associa códigos às passagens em ordem e reserva um evento por quadro", () => {
@@ -151,9 +210,18 @@ test("integra SCANNER, fila SEM_LEITURA, imagem do Keyence e limpeza depois do P
   assert.match(worker, /KEYENCE_TCP_ALLOWED_ADDRESS/);
   assert.match(imageEndpoint, /r\.reason = 'SEM_LEITURA'/);
   assert.match(imageEndpoint, /KEYENCE_IMAGEM_EVIDENCIA_RECEBIDA/);
+  assert.match(imageEndpoint, /captured_at_epoch_ms/);
+  assert.match(imageEndpoint, /sensor_detected_at_epoch_ms/);
+  assert.match(imageEndpoint, /source_file_name/);
   assert.match(reportEndpoint, /FROM imagens i[\s\S]*?WHERE i\.carregamento_id IN \(\{\$placeholders\}\) AND i\.reason <> 'NORMAL'/);
   assert.match(reportEndpoint, /Sacas detectadas pelo sensor M2052/);
   assert.match(reportEndpoint, /RelatorioAuditoriaPdf/);
+  assert.match(reportEndpoint, /COALESCE\(l\.sensor_event_id, r\.sensor_event_id\) AS sensor_event_id/);
+  assert.match(reportEndpoint, /Falha de leitura · \{\$sackReference\} · \{\$capturedAt\}/);
+  assert.match(pdfGenerator, /\$channels === 1 \? 1 : \(\$channels === 4 \? 4 : 3\)/);
+  assert.match(pdfGenerator, /\$colors === 1 \? "\/DeviceGray"/);
+  assert.match(pdfGenerator, /\$maxWidth = 360\.0/);
+  assert.match(pdfGenerator, /\$maxHeight = 270\.0/);
   assert.match(reportEndpoint, /inserirDadosDaImagemDaOcorrencia/);
   assert.match(reportEndpoint, /trace_cleanup_report_evidence/);
   assert.match(reportEndpoint, /solicitacoes_imagens_evidencia/);
@@ -162,5 +230,7 @@ test("integra SCANNER, fila SEM_LEITURA, imagem do Keyence e limpeza depois do P
   assert.doesNotMatch(worker, /câmera Trace|contingência RTSP/i);
   assert.match(compose, /keyence-worker:[\s\S]*?profiles: \["industrial"\]/);
   assert.match(compose, /KEYENCE_FTP_PASSIVE_START/);
-  assert.match(compose, /health\?\.running === true && \(health\?\.enabled === false \|\| \(health\?\.tcp_output_listening === true && health\?\.ftp_image_receiver_listening === true\)\)/);
+  assert.match(compose, /KEYENCE_IMAGE_ARCHIVE_HOST_DIR:-C:\/Keyence\/Falhas/);
+  assert.match(compose, /target: \/var\/lib\/trace\/keyence-falhas\s+read_only: true/);
+  assert.match(compose, /health\?\.running === true && \(health\?\.enabled === false \|\| \(health\?\.tcp_output_listening === true && health\?\.ftp_image_receiver_listening === true && health\?\.image_archive_directory_available === true\)\)/);
 });

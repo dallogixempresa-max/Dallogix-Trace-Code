@@ -173,16 +173,21 @@ final class RelatorioAuditoriaPdf
             || $info[0] < 1 || $info[1] < 1 || $info[0] > 10000 || $info[1] > 10000) {
             return false;
         }
-        $image = $mime === "image/jpeg"
-            ? [
+        if ($mime === "image/jpeg") {
+            $channels = (int) ($info["channels"] ?? 3);
+            $colors = $channels === 1 ? 1 : ($channels === 4 ? 4 : 3);
+            $colorSpace = $colors === 1 ? "/DeviceGray" : ($colors === 4 ? "/DeviceCMYK" : "/DeviceRGB");
+            $image = [
                 "data" => $data,
                 "width" => (int) $info[0],
                 "height" => (int) $info[1],
-                "colorSpace" => (($info["channels"] ?? 3) === 4 ? "/DeviceCMYK" : "/DeviceRGB"),
+                "colorSpace" => $colorSpace,
                 "filter" => "DCTDecode",
-                "colors" => (($info["channels"] ?? 3) === 4 ? 4 : 3),
-            ]
-            : DecodificadorImagemPng::decodificar($data);
+                "colors" => $colors,
+            ];
+        } else {
+            $image = DecodificadorImagemPng::decodificar($data);
+        }
         if ($image === null) {
             return false;
         }
@@ -192,8 +197,8 @@ final class RelatorioAuditoriaPdf
         }
         $alias = "Im" . (++$this->imageSequence);
         $this->images[$alias] = $image;
-        $maxWidth = 245.0;
-        $maxHeight = 170.0;
+        $maxWidth = 360.0;
+        $maxHeight = 270.0;
         $scale = min($maxWidth / $info[0], $maxHeight / $info[1], 1.0);
         $width = $info[0] * $scale;
         $height = $info[1] * $scale;
