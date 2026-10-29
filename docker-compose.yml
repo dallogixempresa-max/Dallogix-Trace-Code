@@ -280,13 +280,21 @@ services:
       KEYENCE_FTP_ALLOWED_ADDRESS: ${KEYENCE_FTP_ALLOWED_ADDRESS:-}
       KEYENCE_TCP_ALLOWED_ADDRESS: ${KEYENCE_TCP_ALLOWED_ADDRESS:-}
       KEYENCE_IMAGE_MATCH_WINDOW_MS: ${KEYENCE_IMAGE_MATCH_WINDOW_MS:-3000}
+      KEYENCE_IMAGE_ARCHIVE_MATCH_WINDOW_MS: ${KEYENCE_IMAGE_ARCHIVE_MATCH_WINDOW_MS:-1500}
       KEYENCE_IMAGE_SETTLE_MS: ${KEYENCE_IMAGE_SETTLE_MS:-800}
+      KEYENCE_IMAGE_BURST_WINDOW_MS: ${KEYENCE_IMAGE_BURST_WINDOW_MS:-100}
+      KEYENCE_IMAGE_ARCHIVE_POLL_MS: ${KEYENCE_IMAGE_ARCHIVE_POLL_MS:-2000}
       KEYENCE_IMAGE_MAX_AGE_MS: ${KEYENCE_IMAGE_MAX_AGE_MS:-300000}
       KEYENCE_IMAGE_RECEIVE_TIMEOUT_MS: ${KEYENCE_IMAGE_RECEIVE_TIMEOUT_MS:-6000}
       KEYENCE_INBOX_DIR: /var/lib/trace/keyence-inbox
+      KEYENCE_IMAGE_ARCHIVE_DIR: /var/lib/trace/keyence-falhas
       KEYENCE_SERVICE_BIND: 0.0.0.0
     volumes:
       - ./armazenamento/keyence-inbox:/var/lib/trace/keyence-inbox
+      - type: bind
+        source: ${KEYENCE_IMAGE_ARCHIVE_HOST_DIR:-C:/Keyence/Falhas}
+        target: /var/lib/trace/keyence-falhas
+        read_only: true
     ports:
       - "${KEYENCE_BIND_ADDRESS:-127.0.0.1}:${KEYENCE_TCP_PORT:-19000}:19000"
       - "${KEYENCE_BIND_ADDRESS:-127.0.0.1}:${KEYENCE_FTP_PORT:-2121}:2121"
@@ -297,7 +305,7 @@ services:
           "CMD",
           "node",
           "-e",
-          "fetch('http://127.0.0.1:8091/health').then(async (response) => { const health = response.ok ? await response.json() : null; process.exit(health?.running === true && (health?.enabled === false || (health?.tcp_output_listening === true && health?.ftp_image_receiver_listening === true)) ? 0 : 1); }).catch(() => process.exit(1))",
+          "fetch('http://127.0.0.1:8091/health').then(async (response) => { const health = response.ok ? await response.json() : null; process.exit(health?.running === true && (health?.enabled === false || (health?.tcp_output_listening === true && health?.ftp_image_receiver_listening === true && health?.image_archive_directory_available === true)) ? 0 : 1); }).catch(() => process.exit(1))",
         ]
       interval: 15s
       timeout: 3s

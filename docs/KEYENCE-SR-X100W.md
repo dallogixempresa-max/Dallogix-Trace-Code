@@ -1,6 +1,6 @@
 # Integração do KEYENCE SR-X100W com o Trace
 
-**Situação:** software implementado e opcional; configuração física e homologação do SR-X100W ainda pendentes.
+**Situação:** o Trace pode receber fotos por FTP e importar cópias da pasta local de falhas. A validação física do relógio, latência e vínculo de cada foto ainda depende de um novo evento no PC industrial.
 
 ## Fluxo implementado
 
@@ -8,9 +8,9 @@ O SR-X100W envia os códigos pela conexão TCP local ao `keyence-worker` do PC i
 
 O cartão do leitor só mostra **ONLINE** quando o worker, no PC industrial, abre uma conexão TCP de diagnóstico com o IP do SR-X100W na porta `KEYENCE_READER_PROBE_PORT` (padrão `80`), ou recebe um código decodificado nos últimos 15 segundos. Duas sondagens sem resposta marcam **SEM RESPOSTA**; a tela não confunde o heartbeat do worker com a presença do leitor. A sondagem confirma que a interface de rede do endereço configurado responde, não que o leitor está focado ou decodificando corretamente. Um código recebido confirma o fluxo de leitura. O SR-X suporta HTTP e HTTPS; se a porta da interface Web foi alterada, configure a porta correspondente no `.env` do PC.
 
-O CLP continua registrando a passagem da saca pelo M2052. Quando o Trace encerra o tempo de leitura sem receber código, cria `SEM_LEITURA` e uma solicitação de imagem. O marcador `ERROR`, inclusive quando vem colado a um valor numérico de 8 a 14 dígitos, é tratado como falha de leitura e não como código de produto. O SR-X100W envia a imagem JPEG de erro por FTP. O worker compara o horário de chegada com as solicitações pendentes e só envia a imagem quando encontra uma correspondência sem ambiguidade. A API valida a imagem, associa a solicitação e o arquivo à leitura e ao evento da saca e grava o arquivo no armazenamento local do Trace.
+O CLP continua registrando a passagem da saca pelo M2052. Quando o Trace encerra o tempo de leitura sem receber código, cria `SEM_LEITURA` e uma solicitação de imagem. O marcador `ERROR`, inclusive quando vem colado a um valor numérico de 8 a 14 dígitos, é tratado como falha de leitura e não como código de produto. As fotos podem chegar por FTP ou ser copiadas da pasta de arquivo do leitor, configurada no PC como `C:\Keyence\Falhas`. Essa pasta é montada somente para leitura dentro do worker; o Trace nunca apaga nem altera as imagens originais. Para fotos importadas, o worker usa o horário de modificação do JPEG como horário de captura aproximado, agrupa quadros do mesmo disparo e compara esse horário ao `detected_at` da passagem M2052. O nome original do arquivo é preservado na auditoria do recebimento. A API valida a imagem e vincula a foto à solicitação `SEM_LEITURA`, à leitura e ao evento da saca; o PDF busca essa relação no banco e identifica a carga, o número sequencial do saco e a hora da foto.
 
-Se a imagem Keyence não chegar dentro do prazo ou a correspondência não for segura, a solicitação termina como `ERRO`; o relatório mantém a ocorrência `SEM_LEITURA` sem inventar uma associação de imagem. Imagens sem vínculo ficam na caixa local por até cinco minutos; depois são removidas e registradas no log. Códigos desconhecidos continuam sendo classificados pela regra atual do Trace.
+Se não houver uma passagem compatível ou houver duas passagens com horários próximos demais, a foto não é associada: o relatório mantém a ocorrência `SEM_LEITURA` e informa que a evidência está pendente/ausente, sem anexar uma foto possivelmente errada. Cópias temporárias sem vínculo ficam na fila do Trace por até cinco minutos; depois são removidas e registradas no log. As imagens originais de `C:\Keyence\Falhas` são preservadas. Imagens antigas não são reaproveitadas para um novo romaneio: só entram na fila as que foram gravadas nos últimos cinco minutos, para evitar ligar uma foto histórica à saca errada. Códigos desconhecidos continuam sendo classificados pela regra atual do Trace.
 
 O sinal de passagem M2052 é a contagem física: cada evento aceito soma uma saca, mesmo quando o leitor não decodifica o código. O código TCP identifica o produto e só pode ser associado uma vez a um evento M2052. `ERROR` ou o timeout do leitor gera `SEM_LEITURA`, ocorrência e pedido de imagem; isso não pausa a esteira nem transforma o evento em leitura válida. A interface mostra sacas detectadas e códigos válidos separadamente. Ao atingir a quantidade física prevista, o carregamento entra em finalização e continua aceitando a resposta final do leitor.
 
@@ -27,6 +27,8 @@ Uma leitura `SEM_LEITURA` é imutável no fluxo operacional: não se permite con
    ```
 
 2. No `.env` local do Trace, configurar `KEYENCE_ENABLED=1` e uma senha FTP exclusiva com pelo menos 16 caracteres, o IP industrial fixo do PC em `KEYENCE_BIND_ADDRESS` e `KEYENCE_FTP_PASV_ADDRESS`, além do IP fixo do leitor em `KEYENCE_FTP_ALLOWED_ADDRESS` e `KEYENCE_TCP_ALLOWED_ADDRESS`. Usar `KEYENCE_ARCHIVE_ONLY=1` para somente arquivar imagens por FTP; nesse modo, `KEYENCE_DEVICE_TOKEN` não é necessário. Para associar códigos à Dala, usar `KEYENCE_ARCHIVE_ONLY=0` e configurar o token `SCANNER` em `KEYENCE_DEVICE_TOKEN`.
+
+   `KEYENCE_IMAGE_ARCHIVE_HOST_DIR` define a pasta de origem montada no contêiner em modo somente leitura. No PC industrial Windows, o configurador usa `C:/Keyence/Falhas`; o serviço informa `image_archive_directory_available` no health e no heartbeat, e fica degradado se essa pasta configurada não estiver acessível.
 
 3. No Windows, o instalador mantém ativo o perfil `industrial`; o serviço Keyence fica inativo até `KEYENCE_ENABLED=1` e os campos obrigatórios passarem pela validação. Em Linux, subir o perfil:
 
@@ -72,6 +74,10 @@ Enquanto o Network Navigator estiver conectado ao SR-X, o leitor não pode usar 
 | `KEYENCE_TCP_ALLOWED_ADDRESS` | vazio | IP fixo do SR-X100W permitido na conexão de códigos; obrigatório para iniciar o worker. |
 | `KEYENCE_IMAGE_MATCH_WINDOW_MS` | `3000` | Janela máxima entre a solicitação do Trace e a chegada da imagem. |
 | `KEYENCE_IMAGE_SETTLE_MS` | `800` | Espera antes de tentar associar uma imagem recém-recebida. |
+| `KEYENCE_IMAGE_ARCHIVE_MATCH_WINDOW_MS` | `1500` | Janela máxima entre `detected_at` do M2052 e o horário do JPEG local. Correspondências próximas demais ficam pendentes. |
+| `KEYENCE_IMAGE_BURST_WINDOW_MS` | `100` | Agrupa quadros do mesmo disparo e usa o mais recente como evidência. |
+| `KEYENCE_IMAGE_ARCHIVE_POLL_MS` | `2000` | Intervalo para procurar novas imagens na pasta local. |
+| `KEYENCE_IMAGE_ARCHIVE_HOST_DIR` | `C:/Keyence/Falhas` | Origem no PC, montada em modo somente leitura. |
 | `KEYENCE_IMAGE_MAX_AGE_MS` | `300000` | Prazo para imagem sem correspondência antes da remoção da caixa de entrada. |
 | `KEYENCE_IMAGE_RECEIVE_TIMEOUT_MS` | `6000` | Prazo para receber e associar a foto de erro antes de marcar a solicitação como `ERRO`. |
 

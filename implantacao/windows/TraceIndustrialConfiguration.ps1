@@ -487,6 +487,7 @@ function ConvertTo-TraceIndustrialEnvValues {
         # O SR-X100W participa da associação leitura↔passagem; archive-only impede
         # o provisionamento do scanner e deixa o Trace sem receber os códigos.
         KEYENCE_ARCHIVE_ONLY = "0"
+        KEYENCE_IMAGE_ARCHIVE_HOST_DIR = if ($Settings.scanner_model -eq "KEYENCE SR-X100W") { "C:/Keyence/Falhas" } else { "" }
         KEYENCE_BIND_ADDRESS = [string]$Settings.keyence_pc_ip
         KEYENCE_FTP_PASV_ADDRESS = [string]$Settings.keyence_pc_ip
         KEYENCE_TCP_ALLOWED_ADDRESS = [string]$Settings.keyence_reader_ip
