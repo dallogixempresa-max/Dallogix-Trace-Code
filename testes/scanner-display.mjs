@@ -8,6 +8,7 @@ const operationalForms = await readFile(new URL("../interface/js/controladores/f
 const activeLoading = await readFile(new URL("../interface/js/servicos/ServicoCarregamentoAtivo.js", import.meta.url), "utf8");
 const monitoringRepository = await readFile(new URL("../servidor/src/Persistencia/RepositorioMonitoramento.php", import.meta.url), "utf8");
 const application = await readFile(new URL("../interface/js/aplicacao.js", import.meta.url), "utf8");
+const keyenceWorkerApi = await readFile(new URL("../servidor/api/keyence_worker.php", import.meta.url), "utf8");
 
 test("visor do leitor não cria campo editável nem caminho de envio manual", () => {
   assert.match(operation, /<output id="automatic-scanner-barcode"[^>]*data-live="scanner-value"/);
@@ -24,4 +25,8 @@ test("última leitura do serviço Keyence alimenta o visor em atualizações ao 
   assert.match(activeLoading, /latestScannerReading = loading\.last_scanner_read_at/);
   assert.match(activeLoading, /Falha na leitura \(sem código\)/);
   assert.match(liveView, /"scanner-value": store\.state\.latestScannerReading\?\.value/);
+});
+
+test("leitor continua recebendo evento pendente durante finalização do carregamento", () => {
+  assert.match(keyenceWorkerApi, /state IN \('CARREGANDO', 'FINALIZANDO'\)/);
 });
