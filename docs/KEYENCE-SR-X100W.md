@@ -16,13 +16,13 @@ Quando o último carregamento do romaneio é finalizado, a tela chama a geraçã
 
 ## Configuração do PC industrial
 
-1. No servidor, provisionar um dispositivo `SCANNER` associado ao ID da Dala que o SR-X100W atenderá. O token deste leitor é separado do token do CLP.
+1. No modo integrado (código TCP associado à Dala), provisionar um dispositivo `SCANNER` associado ao ID da Dala que o SR-X100W atenderá. O token deste leitor é separado do token do CLP. No modo `KEYENCE_ARCHIVE_ONLY=1`, usado para apenas receber e arquivar imagens por FTP, o Trace não associa leituras do Keyence e não exige nem provisiona o token `SCANNER`; a sincronização da instalação e do CLP continua independente desse modo.
 
    ```sh
    php scripts/provision_device.php --equipment-id=ID_DA_DALA --device-type=SCANNER --device-code=KEYENCE-SRX100W --token=TOKEN_FORTE
    ```
 
-2. No `.env` local do Trace, configurar `KEYENCE_ENABLED=1`, `KEYENCE_DEVICE_TOKEN`, uma senha FTP exclusiva com pelo menos 16 caracteres, o IP industrial fixo do PC em `KEYENCE_BIND_ADDRESS` e `KEYENCE_FTP_PASV_ADDRESS`, além do IP fixo do leitor em `KEYENCE_FTP_ALLOWED_ADDRESS` e `KEYENCE_TCP_ALLOWED_ADDRESS`.
+2. No `.env` local do Trace, configurar `KEYENCE_ENABLED=1` e uma senha FTP exclusiva com pelo menos 16 caracteres, o IP industrial fixo do PC em `KEYENCE_BIND_ADDRESS` e `KEYENCE_FTP_PASV_ADDRESS`, além do IP fixo do leitor em `KEYENCE_FTP_ALLOWED_ADDRESS` e `KEYENCE_TCP_ALLOWED_ADDRESS`. Usar `KEYENCE_ARCHIVE_ONLY=1` para somente arquivar imagens por FTP; nesse modo, `KEYENCE_DEVICE_TOKEN` não é necessário. Para associar códigos à Dala, usar `KEYENCE_ARCHIVE_ONLY=0` e configurar o token `SCANNER` em `KEYENCE_DEVICE_TOKEN`.
 
 3. No Windows, o instalador mantém ativo o perfil `industrial`; o serviço Keyence fica inativo até `KEYENCE_ENABLED=1` e os campos obrigatórios passarem pela validação. Em Linux, subir o perfil:
 
@@ -55,6 +55,7 @@ Enquanto o Network Navigator estiver conectado ao SR-X, o leitor não pode usar 
 | Variável | Padrão | Uso |
 | --- | --- | --- |
 | `KEYENCE_ENABLED` | `0` | Habilita o serviço Keyence quando o perfil estiver ativo. |
+| `KEYENCE_ARCHIVE_ONLY` | `0` | Recebe e arquiva imagens por FTP sem associar leituras ao Trace nem exigir token `SCANNER`. |
 | `KEYENCE_DEVICE_TOKEN` | vazio | Token `SCANNER` provisionado para a Dala. |
 | `KEYENCE_BIND_ADDRESS` | `127.0.0.1` | IP da interface do PC onde as portas serão publicadas; trocar pelo IP industrial fixo. |
 | `KEYENCE_TCP_PORT` | `19000` | Porta publicada para saída TCP do leitor. |

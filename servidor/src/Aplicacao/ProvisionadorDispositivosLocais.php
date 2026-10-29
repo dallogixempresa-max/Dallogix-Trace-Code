@@ -26,8 +26,16 @@ final class ProvisionadorDispositivosLocais
 
         $devices = [
             ["CLP", "PLC-{$equipmentCode}", trim((string) (getenv("TRACE_DEVICE_TOKEN") ?: ""))],
-            ["SCANNER", "KEYENCE-SRX100W-{$equipmentCode}", trim((string) (getenv("KEYENCE_DEVICE_TOKEN") ?: ""))],
         ];
+        $keyenceEnabled = trim((string) (getenv("KEYENCE_ENABLED") ?: "0")) === "1";
+        $archiveOnly = trim((string) (getenv("KEYENCE_ARCHIVE_ONLY") ?: "0")) === "1";
+        if ($keyenceEnabled && !$archiveOnly) {
+            $devices[] = [
+                "SCANNER",
+                "KEYENCE-SRX100W-{$equipmentCode}",
+                trim((string) (getenv("KEYENCE_DEVICE_TOKEN") ?: "")),
+            ];
+        }
         $statement = $connection->prepare(
             "INSERT INTO dispositivos
                 (company_id, equipment_id, device_code, device_type, token_hash,
