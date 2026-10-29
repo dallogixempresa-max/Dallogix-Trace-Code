@@ -38,6 +38,7 @@ $keyence.scanner_model = 'KEYENCE SR-X100W'
 $keyence.scanner_usb_pattern = ''
 $keyence.keyence_pc_ip = '192.168.10.10'
 $keyence.keyence_reader_ip = '192.168.10.20'
+$keyence.sensor_to_reader_distance_m = '0.125'
 $parsedKeyence = ConvertTo-TraceIndustrialSettings $keyence
 $keyenceEnv = ConvertTo-TraceIndustrialEnvValues $parsedKeyence
 Assert-True ($parsedKeyence.scanner_model -eq 'KEYENCE SR-X100W') 'Keyence scanner selection was rejected.'

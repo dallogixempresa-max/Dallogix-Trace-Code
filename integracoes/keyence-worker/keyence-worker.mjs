@@ -112,8 +112,13 @@ async function apiRequest(path, { jsonBody = null, formBody = null, timeoutMs = 
   return data;
 }
 
-async function refreshActiveLoading() {
-  const result = await apiRequest("/api/keyence_worker.php", { jsonBody: { action: "STATUS" } });
+async function refreshActiveLoading(scannerObservedAtEpochMs = null) {
+  const result = await apiRequest("/api/keyence_worker.php", {
+    jsonBody: {
+      action: "STATUS",
+      ...(Number.isSafeInteger(scannerObservedAtEpochMs) ? { scanner_received_at_epoch_ms: scannerObservedAtEpochMs } : {}),
+    },
+  });
   const data = result?.data || {};
   const pendingSensorEventIds = Array.isArray(data.pending_sensor_event_ids)
     ? data.pending_sensor_event_ids.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0)
@@ -149,7 +154,7 @@ async function queueBarcode(rawFrame) {
   try {
     const associationDeadline = Date.now() + SCAN_ASSOCIATION_WAIT_MS;
     do {
-      loading = await refreshActiveLoading();
+      loading = await refreshActiveLoading(readerLastReadAtMs);
       sensorEventId = loading
         ? nextUnreservedSensorEventId(loading.sensorEventIds, reservedSensorEventIds)
         : null;
@@ -179,6 +184,7 @@ async function queueBarcode(rawFrame) {
     loading_id: loading.id,
     sensor_event_id: sensorEventId,
     received_at: new Date().toISOString(),
+    received_at_epoch_ms: readerLastReadAtMs,
   };
   await mkdir(SCAN_QUEUE_DIR, { recursive: true, mode: 0o770 });
   const file = join(SCAN_QUEUE_DIR, `${Date.now()}-${event.offline_id}.json`);
@@ -235,6 +241,7 @@ function processScanQueue() {
               sensor_event_id: Number(event.sensor_event_id) || null,
               barcode: String(event.barcode),
               no_read: event.no_read === true,
+              scanner_received_at_epoch_ms: Number(event.received_at_epoch_ms) || null,
             },
             timeoutMs: 10000,
             idempotencyKey: String(event.offline_id),
@@ -365,9 +372,9 @@ async function processImageQueue() {
       if (!Number.isFinite(receivedAt)) continue;
       if (group.frames.some((frame) => Date.now() - Number(frame.receivedAt) < IMAGE_SETTLE_MS)) continue;
       const timestampField = group.frames.some((frame) => frame.archived)
-        ? "sensor_detected_at_epoch_ms"
+        ? "image_expected_at_epoch_ms"
         : "requested_at_epoch_ms";
-      const matchWindowMs = timestampField === "sensor_detected_at_epoch_ms"
+      const matchWindowMs = timestampField === "image_expected_at_epoch_ms"
         ? IMAGE_ARCHIVE_MATCH_WINDOW_MS
         : IMAGE_MATCH_WINDOW_MS;
       const match = matchPendingImage(receivedAt, requests, matchWindowMs, timestampField);

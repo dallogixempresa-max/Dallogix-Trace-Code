@@ -618,8 +618,8 @@ export class ArmazenamentoTrace {
   async registerReturn(readingId, reason) {
     return this.servicoLeiturasOperacionais.registerReturn(readingId, reason);
   }
-  async registerScannerReading(barcode) {
-    return this.servicoLeiturasOperacionais.registerScannerReading(barcode);
+  async registerScannerReading(barcode, scannerReceivedAtEpochMs = Date.now()) {
+    return this.servicoLeiturasOperacionais.registerScannerReading(barcode, scannerReceivedAtEpochMs);
   }
   async loadMonitoring() {
     const result = await this.sincronizacao.monitoramento();
