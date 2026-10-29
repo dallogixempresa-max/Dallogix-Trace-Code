@@ -79,6 +79,11 @@ jobs:
           }
           & ./implantacao/windows/Test-TraceIndustrialConfiguration.ps1
           & ./implantacao/windows/Test-InstallerEnv.ps1
+      - name: Test industrial configuration on Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & ./implantacao/windows/Test-TraceIndustrialConfiguration.ps1
       - name: Build unsigned review installer
         shell: pwsh
         run: |

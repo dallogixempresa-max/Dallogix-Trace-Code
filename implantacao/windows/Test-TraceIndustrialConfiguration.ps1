@@ -42,6 +42,7 @@ $parsedKeyence = ConvertTo-TraceIndustrialSettings $keyence
 $keyenceEnv = ConvertTo-TraceIndustrialEnvValues $parsedKeyence
 Assert-True ($parsedKeyence.scanner_model -eq 'KEYENCE SR-X100W') 'Keyence scanner selection was rejected.'
 Assert-True ($keyenceEnv.KEYENCE_ENABLED -eq '1') 'Keyence selection did not enable the Keyence worker.'
+Assert-True ($keyenceEnv.KEYENCE_ARCHIVE_ONLY -eq '0') 'Keyence selection must enable scanner reading and sensor association.'
 Assert-True ($keyenceEnv.KEYENCE_BIND_ADDRESS -eq '192.168.10.10') 'PC Keyence address was not applied.'
 Assert-True ($keyenceEnv.KEYENCE_TCP_ALLOWED_ADDRESS -eq '192.168.10.20') 'Reader allowlist address was not applied.'
 $invalidKeyenceIp = $keyence.Clone()
