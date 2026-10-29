@@ -100,7 +100,7 @@ function registrarLeituraDaOperacao({
       if (barcodeInput) barcodeInput.disabled = true;
       setFeedback(form, "Registrando leitura…");
       try {
-        const result = await store.registerManualReading(raw.barcode);
+        const result = await store.registerScannerReading(raw.barcode);
         const message = mensagemDaLeitura(result);
         if (result.refreshWarning) {
           logWarning("leitura.atualizacao", new Error(result.refreshWarning));
@@ -114,7 +114,7 @@ function registrarLeituraDaOperacao({
           currentForm.querySelector('[name="barcode"]')?.focus();
         }
       } catch (error) {
-        setFeedback(form, error.message || "Não foi possível registrar a leitura manual.", "error");
+        setFeedback(form, error.message || "Não foi possível registrar o código recebido do Keyence.", "error");
       } finally {
         if (automaticSubmitTimer !== null) {
           globalThis.clearTimeout(automaticSubmitTimer);

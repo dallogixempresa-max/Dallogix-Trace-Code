@@ -1,8 +1,8 @@
 import { apresentacaoConectividadePc, apresentacaoStatusDispositivo, renderStatusDalaBinario, resumoStatusDispositivos } from "../../telas/configuracoes/configuracoes.js?v=202610280001";
-import { focusOperationScanner, operationStructureSignature, renderDalaStatuses } from "./operacao.js?v=202610280002";
+import { focusOperationScanner, operationStructureSignature, renderDalaStatuses } from "./operacao.js?v=202610280005";
 import { numero, relativo, dataHora } from "../funcoes/formato.js?v=202609201000";
 import { el } from "../funcoes/html.js";
-import { refreshCompanyStatusCards } from "../funcoes/view.js?v=202610130001";
+import { refreshCompanyStatusCards } from "../funcoes/view.js?v=202610280005";
 
 /** Mantém as regiões de estado sincronizadas sem recriar formulários ou a tela toda. */
 export function createLiveViewController({
@@ -42,8 +42,8 @@ export function createLiveViewController({
     const detectedBags = Number(store.state.detectedBags) || 0;
     const validReadings = Number(store.state.loaded) || 0;
     const planned = Number(store.state.planned) || 0;
-    const remaining = Math.max(0, planned - validReadings);
-    const percent = planned > 0 ? Math.min(100, Math.round((validReadings / planned) * 100)) : 0;
+    const remaining = Math.max(0, planned - detectedBags);
+    const percent = planned > 0 ? Math.min(100, Math.round((detectedBags / planned) * 100)) : 0;
     const values = {
       planned: numero(planned),
       detected: numero(detectedBags),
@@ -51,8 +51,8 @@ export function createLiveViewController({
       "remaining-label": planned <= 0
         ? "Quantidade prevista não informada"
         : remaining === 0
-          ? "Nenhuma leitura pendente"
-          : `Falta${remaining === 1 ? "" : "m"} ${numero(remaining)} leitura${remaining === 1 ? "" : "s"} válida${remaining === 1 ? "" : "s"}`,
+          ? `Quantidade física atingida · ${numero(validReadings)} códigos válidos`
+          : `Falta${remaining === 1 ? "" : "m"} ${numero(remaining)} saca${remaining === 1 ? "" : "s"} para a quantidade prevista`,
       "progress-percent": `${percent}%`,
     };
     Object.entries(values).forEach(([key, value]) => {
@@ -68,15 +68,15 @@ export function createLiveViewController({
     const endNotice = document.querySelector('[data-live="end-notice"]');
     if (endNotice) {
       const threshold = planned > 0 ? Math.max(1, Math.ceil(planned * 0.1)) : 0;
-      const nearEnd = planned > 0 && validReadings > 0 && remaining > 0 && remaining <= threshold;
-      const complete = planned > 0 && validReadings >= planned;
-      const excess = planned > 0 && validReadings > planned;
+      const nearEnd = planned > 0 && detectedBags > 0 && remaining > 0 && remaining <= threshold;
+      const complete = planned > 0 && detectedBags >= planned;
+      const excess = planned > 0 && detectedBags > planned;
       endNotice.textContent = excess
-        ? `Atenção: ${numero(validReadings - planned)} leituras válidas acima do previsto.`
+        ? `Atenção: ${numero(detectedBags - planned)} sacas passaram do total previsto.`
         : complete
-          ? "Quantidade programada atingida. Confira as leituras finais."
+          ? "Quantidade física prevista atingida. O leitor continua associando os códigos das sacas detectadas."
           : nearEnd
-            ? "Atenção: o romaneio está próximo do fim."
+            ? "Atenção: o carregamento está próximo da quantidade prevista."
             : "";
       endNotice.hidden = !complete && !nearEnd && !excess;
       endNotice.classList.toggle("complete", complete && !excess);

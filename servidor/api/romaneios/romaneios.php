@@ -34,6 +34,9 @@ if ($_SERVER["REQUEST_METHOD"] === "GET") {
                     (SELECT rt.driver_name FROM romaneio_caminhoes rt WHERE rt.romaneio_id = r.id ORDER BY rt.id LIMIT 1) AS driver_name,
                     COALESCE((SELECT SUM(ri.planned_quantity) FROM romaneio_itens ri WHERE ri.romaneio_id = r.id), 0) AS planned_quantity,
                     COALESCE((SELECT COUNT(*) FROM leituras l JOIN carregamentos c2 ON c2.id = l.carregamento_id WHERE c2.romaneio_id = r.id AND l.result = 'VALIDO'), 0) AS loaded_quantity,
+                    COALESCE((SELECT COUNT(*) FROM eventos_sensor s JOIN carregamentos c4 ON c4.id = s.carregamento_id WHERE c4.romaneio_id = r.id AND c4.company_id = r.company_id), 0) AS detected_quantity,
+                    (SELECT COUNT(*) FROM carregamentos c5 WHERE c5.romaneio_id = r.id AND c5.company_id = r.company_id) AS loading_count,
+                    (SELECT COUNT(*) FROM solicitacoes_imagens_evidencia i JOIN carregamentos c6 ON c6.id = i.carregamento_id WHERE c6.romaneio_id = r.id AND c6.company_id = r.company_id AND i.status IN ('PENDENTE','CAPTURANDO')) AS pending_evidence_count,
                     (SELECT c3.id FROM carregamentos c3 WHERE c3.romaneio_id = r.id AND c3.state <> 'FINALIZADO' AND r.status NOT IN ('FINALIZADO', 'CANCELADO') ORDER BY c3.id DESC LIMIT 1) AS active_loading_id
              FROM romaneios r WHERE r.id = :id AND r.company_id = :company_id LIMIT 1",
         );
@@ -148,17 +151,101 @@ if ($_SERVER["REQUEST_METHOD"] === "GET") {
 
 if ($_SERVER["REQUEST_METHOD"] === "PATCH") {
     exigir_csrf();
-    if (!in_array($usuarioAtor["role"], ["ADMIN_EMPRESA", "SUPERVISOR"], true)) {
-        responder_json(["error" => "Somente administração ou supervisão pode cancelar romaneios."], 403);
-    }
-
     $payload = ler_json_da_requisicao();
     $action = strtolower(trim((string) ($payload["action"] ?? "")));
-    if (!in_array($action, ["cancel", "update"], true)) {
+    if (!in_array($action, ["cancel", "finish", "update"], true)) {
         responder_json(
-            ["error" => "Ação inválida. Use cancel ou update."],
+            ["error" => "Ação inválida. Use cancel, finish ou update."],
             422,
         );
+    }
+    $allowedRoles = $action === "finish"
+        ? ["ADMIN_EMPRESA", "SUPERVISOR", "USUARIO"]
+        : ["ADMIN_EMPRESA", "SUPERVISOR"];
+    if (!in_array($usuarioAtor["role"], $allowedRoles, true)) {
+        responder_json(["error" => "Seu perfil não pode executar esta ação no romaneio."], 403);
+    }
+
+    if ($action === "finish") {
+        $romaneioId = filter_var($payload["romaneio_id"] ?? null, FILTER_VALIDATE_INT);
+        if (!$romaneioId) {
+            responder_json(["error" => "Romaneio obrigatório."], 422);
+        }
+        try {
+            $pdo->beginTransaction();
+            $lock = $pdo->prepare(
+                "SELECT id, number, status FROM romaneios
+                 WHERE id = :id AND company_id = :company_id LIMIT 1 FOR UPDATE",
+            );
+            $lock->execute(["id" => $romaneioId, "company_id" => $companyId]);
+            $current = $lock->fetch();
+            if (!$current) {
+                $pdo->rollBack();
+                responder_json(["error" => "Romaneio não encontrado."], 404);
+            }
+            if ($current["status"] === "FINALIZADO") {
+                $pdo->rollBack();
+                responder_json(["data" => ["id" => (int) $romaneioId, "status" => "FINALIZADO", "duplicate" => true]]);
+            }
+            if ($current["status"] !== "EM_ANDAMENTO") {
+                $pdo->rollBack();
+                responder_json(["error" => "Somente um romaneio em andamento pode ser encerrado."], 409);
+            }
+
+            $loadings = $pdo->prepare(
+                "SELECT id, state FROM carregamentos
+                 WHERE romaneio_id = :romaneio_id AND company_id = :company_id
+                 ORDER BY id FOR UPDATE",
+            );
+            $loadings->execute(["romaneio_id" => $romaneioId, "company_id" => $companyId]);
+            $loadingRows = $loadings->fetchAll();
+            if ($loadingRows === []) {
+                $pdo->rollBack();
+                responder_json(["error" => "O romaneio ainda não possui carregamentos finalizados."], 409);
+            }
+            foreach ($loadingRows as $loadingRow) {
+                if ($loadingRow["state"] !== "FINALIZADO") {
+                    $pdo->rollBack();
+                    responder_json(["error" => "Finalize todos os carregamentos antes de encerrar o romaneio."], 409);
+                }
+            }
+            $pendingEvidence = $pdo->prepare(
+                "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia i
+                 JOIN carregamentos c ON c.id = i.carregamento_id
+                 WHERE c.romaneio_id = :romaneio_id AND c.company_id = :company_id
+                   AND i.status IN ('PENDENTE', 'CAPTURANDO')",
+            );
+            $pendingEvidence->execute(["romaneio_id" => $romaneioId, "company_id" => $companyId]);
+            if ((int) $pendingEvidence->fetchColumn() > 0) {
+                $pdo->rollBack();
+                responder_json(["error" => "Aguarde o recebimento das imagens de falha antes de encerrar o romaneio."], 409);
+            }
+
+            $finish = $pdo->prepare(
+                "UPDATE romaneios SET status = 'FINALIZADO'
+                 WHERE id = :id AND company_id = :company_id AND status = 'EM_ANDAMENTO'",
+            );
+            $finish->execute(["id" => $romaneioId, "company_id" => $companyId]);
+            if ($finish->rowCount() !== 1) {
+                throw new RuntimeException("O romaneio mudou de estado durante o encerramento.");
+            }
+            record_operational_event(
+                $pdo,
+                $usuarioAtor,
+                "ROMANEIO_FINALIZADO",
+                "romaneio",
+                (int) $romaneioId,
+                ["loading_count" => count($loadingRows), "number" => (string) $current["number"]],
+            );
+            $pdo->commit();
+            responder_json(["data" => ["id" => (int) $romaneioId, "status" => "FINALIZADO"]]);
+        } catch (Throwable $exception) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            error_log("Manifest finish failed: " . $exception->getMessage());
+            responder_json(["error" => "Não foi possível encerrar o romaneio."], 500);
+        }
     }
 
     if ($action === "cancel") {

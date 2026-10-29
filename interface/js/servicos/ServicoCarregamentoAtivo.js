@@ -97,13 +97,14 @@ export class ServicoCarregamentoAtivo {
       headers: this.jsonHeaders(),
       body: JSON.stringify({ carregamento_id: loadingId, justification }),
     });
-    await this.jsonResponse(response, "Não foi possível finalizar o carregamento.");
+    const result = await this.jsonResponse(response, "Não foi possível finalizar o carregamento.");
     this.state.operationalState = "FINALIZADO";
     this.state.running = false;
     await Promise.all([
       this.loadSummaryMonitoring(),
       this.loadEquipments({ force: true }),
     ]);
+    return result.data;
   }
 
   load(

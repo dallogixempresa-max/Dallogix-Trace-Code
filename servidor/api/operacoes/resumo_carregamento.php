@@ -20,6 +20,8 @@ $pdo = db();
 $loading = $pdo->prepare(
     "SELECT c.id, c.state, c.started_at, c.finished_at,
             COALESCE(c.leituras_validas, 0) AS leituras_validas,
+            (SELECT COUNT(*) FROM eventos_sensor s
+             WHERE s.carregamento_id = c.id AND s.equipment_id = c.equipment_id) AS sacas_detectadas,
             r.number AS romaneio_number, rt.plate, e.equipment_code,
             (SELECT JSON_UNQUOTE(JSON_EXTRACT(la.metadata, '$.message'))
              FROM logs_auditoria la
@@ -47,6 +49,7 @@ $count = static function (PDO $pdo, string $sql, array $params): int {
     return (int) $statement->fetchColumn();
 };
 $data["leituras_validas"] = (int) ($data["leituras_validas"] ?? 0);
+$data["sacas_detectadas"] = (int) ($data["sacas_detectadas"] ?? 0);
 $data["sem_leitura"] = $count(
     $pdo,
     "SELECT COUNT(*) FROM leituras WHERE carregamento_id = :id AND result = 'SEM_LEITURA'",

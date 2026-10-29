@@ -29,7 +29,9 @@ register_shutdown_function(static function () use ($pdo): void {
     }
 });
 $statement = $pdo->prepare(
-    "SELECT id, state, romaneio_id, truck_id FROM carregamentos WHERE id = :id AND company_id = :company_id LIMIT 1 FOR UPDATE",
+    "SELECT c.id, c.state, c.romaneio_id, c.truck_id, r.number AS romaneio_number
+     FROM carregamentos c JOIN romaneios r ON r.id = c.romaneio_id
+     WHERE c.id = :id AND c.company_id = :company_id LIMIT 1 FOR UPDATE",
 );
 $statement->execute(["id" => $loadingId, "company_id" => $user["company_id"]]);
 $loading = $statement->fetch();
@@ -151,32 +153,34 @@ try {
         );
     }
     $remaining = $pdo->prepare(
-        "SELECT COUNT(*) FROM carregamentos WHERE romaneio_id = :romaneio_id AND id <> :id AND state <> 'FINALIZADO'",
+        "SELECT COUNT(*) FROM carregamentos
+         WHERE romaneio_id = :romaneio_id AND company_id = :company_id
+           AND state <> 'FINALIZADO'",
     );
     $remaining->execute([
         "romaneio_id" => $loading["romaneio_id"],
-        "id" => $loadingId,
+        "company_id" => $user["company_id"],
     ]);
-    $romaneioFinalizado = (int) $remaining->fetchColumn() === 0;
-    if ($romaneioFinalizado) {
-        $pdo->prepare(
-            "UPDATE romaneios SET status = 'FINALIZADO' WHERE id = :id AND company_id = :company_id",
-        )->execute(["id" => $loading["romaneio_id"], "company_id" => $user["company_id"]]);
-    }
+    $romaneioProntoParaEncerrar = (int) $remaining->fetchColumn() === 0;
     record_operational_event(
         $pdo,
         $user,
         "CARREGAMENTO_FINALIZADO",
         "carregamento",
         (int) $loadingId,
-        ["romaneio_finalizado" => $romaneioFinalizado],
+        [
+            "romaneio_id" => (int) $loading["romaneio_id"],
+            "romaneio_pronto_para_encerrar" => $romaneioProntoParaEncerrar,
+        ],
     );
     $pdo->commit();
     json_response([
         "data" => [
             "id" => (int) $loadingId,
             "state" => "FINALIZADO",
-            "romaneio_finalizado" => $romaneioFinalizado,
+            "romaneio_id" => (int) $loading["romaneio_id"],
+            "romaneio_number" => (string) $loading["romaneio_number"],
+            "romaneio_pronto_para_encerrar" => $romaneioProntoParaEncerrar,
         ],
     ]);
 } catch (Throwable $exception) {

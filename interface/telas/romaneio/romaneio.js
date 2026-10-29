@@ -7,7 +7,7 @@ import {
   manifestsTable,
   emergencyPanel,
   statuses,
-} from "../../js/funcoes/view.js?v=202610061745";
+} from "../../js/funcoes/view.js?v=202610280005";
 
 export function manifestView(store) {
   const manifest = store.state.manifestDetail;
@@ -18,6 +18,9 @@ export function manifestView(store) {
   const activeLoadingId = Number(manifest.active_loading_id) || null;
   const canManage = ["ADMIN_EMPRESA", "SUPERVISOR"].includes(store.state.userRole);
   const canPrepare = canManage && !activeLoadingId && ["IMPORTADO", "AGUARDANDO"].includes(status);
+  const loadingCount = Number(manifest.loading_count) || 0;
+  const pendingEvidenceCount = Number(manifest.pending_evidence_count) || 0;
+  const canFinishManifest = ["ADMIN_EMPRESA", "SUPERVISOR", "USUARIO"].includes(store.state.userRole) && status === "EM_ANDAMENTO" && !activeLoadingId && loadingCount > 0;
   const canAccessLoading = Boolean(activeLoadingId) && !["FINALIZADO", "CANCELADO"].includes(status);
   const statusTone = {
     IMPORTADO: "blue",
@@ -44,8 +47,13 @@ export function manifestView(store) {
   const cancelLoadingAction = canCancelInProgress
     ? `<button class="button danger" data-action="cancel-manifest-progress" data-id="${Number(manifest.id)}" type="button"${store.state.manifestActionPending ? " disabled aria-busy=\"true\"" : ""}>${store.state.manifestActionPending ? "Cancelando operação…" : "Cancelar operação"}</button>`
     : "";
+  const finishManifestPanel = canFinishManifest
+    ? `<section class="panel manifest-finish-panel" aria-labelledby="manifest-finish-title"><div><span class="kicker">Carregamentos concluídos</span><h3 id="manifest-finish-title">Encerrar romaneio</h3><p>${pendingEvidenceCount > 0
+      ? `Aguarde o leitor enviar ${numero(pendingEvidenceCount)} imagem(ns) de falha para liberar o encerramento.`
+      : "Todos os carregamentos terminaram. Encerre o romaneio para fechar a operação e liberar o relatório final."}</p></div><button class="button primary" data-action="finish-manifest" data-id="${Number(manifest.id)}" type="button"${pendingEvidenceCount > 0 || store.state.manifestActionPending ? " disabled" : ""}>${store.state.manifestActionPending ? "Encerrando…" : "Encerrar romaneio"}</button></section>`
+    : "";
   const returnButton = `<button class="button secondary" data-action="goto-manifests" type="button">← Voltar</button>`;
-  const quantitySummary = `<div class="manifest-detail-quantity"><span><small>Programado</small><strong>${numero(manifest.planned_quantity)}</strong></span><span><small>Carregado</small><strong>${numero(manifest.loaded_quantity)}</strong></span></div>`;
+  const quantitySummary = `<div class="manifest-detail-quantity"><span><small>Programado</small><strong>${numero(manifest.planned_quantity)}</strong></span><span><small>Sacas detectadas</small><strong>${numero(manifest.detected_quantity)}</strong></span><span><small>Códigos válidos</small><strong>${numero(manifest.loaded_quantity)}</strong></span></div>`;
   return `<div class="manifest-detail-screen" data-status-region="manifest-detail">
 <header class="manifest-detail-header"><h2>Romaneio ${esc(manifest.number)}</h2><div class="manifest-detail-actions">${auditReport}${prepareAction}${accessAction}${cancelLoadingAction}${returnButton}</div></header>${actionFeedbackHtml}
 <div class="manifest-detail-grid">
@@ -58,5 +66,5 @@ export function manifestView(store) {
 </div>
 <section class="panel manifest-items-panel"><h3>Itens do Romaneio</h3><div class="table-wrap"><table class="mobile-card-table manifest-items-table"><thead><tr><th>Produto</th><th>Código de Barras</th><th>Qtd. Prevista</th></tr></thead><tbody>
 ${items.length ? items.map((item) => `<tr><td data-label="Produto"><strong>${esc(item.name)}</strong></td><td data-label="Código"><code>${esc(item.code || "—")}</code></td><td data-label="Quantidade">${numero(item.planned_quantity)}</td></tr>`).join("") : '<tr><td colspan="3" class="empty-cell">Nenhum item cadastrado.</td></tr>'}
-</tbody></table></div></section>${canCancel ? `<section class="panel manifest-cancel-panel"><div><strong>Cancelamento do romaneio</strong><p>Use somente se o carregamento ainda não tiver começado.</p></div>${button("Cancelar romaneio", "cancel-manifest", "danger")}</section>` : ""}</div>`;
+</tbody></table></div></section>${finishManifestPanel}${canCancel ? `<section class="panel manifest-cancel-panel"><div><strong>Cancelamento do romaneio</strong><p>Use somente se o carregamento ainda não tiver começado.</p></div>${button("Cancelar romaneio", "cancel-manifest", "danger")}</section>` : ""}</div>`;
 }

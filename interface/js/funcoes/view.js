@@ -78,11 +78,11 @@ export function emergencyPanel({
   </section>`;
 }
 export function progress(store) {
-  const loaded = Number(store.state.loaded) || 0;
+  const detected = Number(store.state.detectedBags ?? store.state.loaded) || 0;
   const planned = Number(store.state.planned) || 0;
   const pct =
-    planned > 0 ? Math.min(100, Math.round((loaded / planned) * 100)) : 0;
-  return `<div class="progress"><i data-live="progress-bar" style="width:${pct}%"></i></div><div class="progress-label"><span data-live="progress-percent">${pct}% concluído</span><span data-live="progress-count">${numero(loaded)} / ${numero(planned)} sacas</span></div>`;
+    planned > 0 ? Math.min(100, Math.round((detected / planned) * 100)) : 0;
+  return `<div class="progress"><i data-live="progress-bar" style="width:${pct}%"></i></div><div class="progress-label"><span data-live="progress-percent">${pct}% concluído</span><span data-live="progress-count">${numero(detected)} / ${numero(planned)} sacas detectadas pelo sensor</span></div>`;
 }
 export function badge(status) {
   const label = rotuloStatusRomaneio(status);

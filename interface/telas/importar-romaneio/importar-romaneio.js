@@ -7,7 +7,7 @@ import {
   manifestsTable,
   emergencyPanel,
   statuses,
-} from "../../js/funcoes/view.js?v=202610061745";
+} from "../../js/funcoes/view.js?v=202610280005";
 
 import { itemRow, industrialPcDate } from "../../js/funcoes/romaneio.js?v=202610190001";
 export function importScreen(store) {

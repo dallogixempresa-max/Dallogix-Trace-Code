@@ -2,7 +2,7 @@ import { button, esc } from "../../js/funcoes/html.js";
 import { numero } from "../../js/funcoes/formato.js?v=202609201000";
 import { rotuloComando, rotuloEstado } from "../../js/funcoes/rotulos.js?v=202609240001";
 import { resolverComandoAtual } from "../../js/funcoes/estado-comando.js?v=202610130003";
-import { pageHeader } from "../../js/funcoes/view.js?v=202610061745";
+import { pageHeader } from "../../js/funcoes/view.js?v=202610280005";
 
 function equipmentLabel(store) {
   if (store.state.equipmentCode && store.state.equipmentCode !== "—") {
@@ -188,9 +188,9 @@ function workControls(store) {
   const detectedBags = Number(store.state.detectedBags) || 0;
   const plannedTotal = Number(store.state.planned) || 0;
   const validReadings = Number(store.state.loaded) || 0;
-  const remainingTotal = Math.max(0, plannedTotal - validReadings);
+  const remainingTotal = Math.max(0, plannedTotal - detectedBags);
   const totalPercent = plannedTotal > 0
-    ? Math.min(100, Math.round((validReadings / plannedTotal) * 100))
+    ? Math.min(100, Math.round((detectedBags / plannedTotal) * 100))
     : 0;
   const clpAvailable = typeof store.clpDisponivel === "function"
     ? store.clpDisponivel()
@@ -256,17 +256,17 @@ function workControls(store) {
   const loadingPicker = `<div class="work-header-actions"><button class="button secondary small work-back-button" data-action="goto-manifests" type="button">← Romaneios</button>${(store.state.activeLoadings || []).length > 1 ? `<button class="button secondary small work-back-button" data-action="change-loading" type="button">Trocar Dala</button>` : ""}</div>`;
   const pausePending = pendingCommand === "PAUSAR_CARREGAMENTO" && ["PENDENTE", "PROCESSANDO"].includes(pendingStatus);
   const offlineOperations = Math.max(0, Number(store.state.offlineQueueSize) || 0);
-  const manualReadingUnavailable = store.state.operationalState !== "CARREGANDO";
-  const manualReadingDisabled = pausePending || offlineOperations > 0 || manualReadingUnavailable;
-  const manualReadingPlaceholder = offlineOperations > 0
+  const scannerUnavailable = !["CARREGANDO", "FINALIZANDO"].includes(store.state.operationalState);
+  const scannerInputDisabled = pausePending || offlineOperations > 0 || scannerUnavailable;
+  const scannerInputPlaceholder = offlineOperations > 0
     ? "Aguardando envio de operações locais…"
     : pausePending
       ? "Aguardando confirmação da parada pelo gateway…"
-      : manualReadingUnavailable
+      : scannerUnavailable
       ? "Aguardando início da esteira…"
       : "Aguardando leitura…";
   const manualOperationReading = store.state.loadingId
-    ? `<div class="work-manual-reading"><div class="work-manual-reading-heading"><span class="kicker">Leitura automática</span></div>${offlineOperations > 0 ? `<p class="form-feedback is-error" role="alert">${numero(offlineOperations)} operação${offlineOperations === 1 ? "" : "ões"} aguardando envio. Não faça novas leituras até confirmar a sincronização.</p>` : ""}<form class="manual-operation-reading-form"><label for="manual-operation-barcode">Código de barras<input id="manual-operation-barcode" name="barcode" type="text" required maxlength="128" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="none" placeholder="${manualReadingPlaceholder}"${manualReadingDisabled ? " disabled" : " autofocus"} /></label><p class="form-feedback" data-form-feedback role="status" aria-live="polite" hidden></p></form></div>`
+    ? `<div class="work-manual-reading"><div class="work-manual-reading-heading"><span class="kicker">Leitura automática do Keyence</span><small>O código recebido é enviado automaticamente ao Trace.</small></div>${offlineOperations > 0 ? `<p class="form-feedback is-error" role="alert">${numero(offlineOperations)} operação${offlineOperations === 1 ? "" : "ões"} aguardando envio. Não faça novas leituras até confirmar a sincronização.</p>` : ""}<form class="manual-operation-reading-form"><label for="automatic-scanner-barcode">Código de barras<input id="automatic-scanner-barcode" name="barcode" type="text" required maxlength="128" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="none" placeholder="${scannerInputPlaceholder}"${scannerInputDisabled ? " disabled" : " autofocus"} /></label><p class="form-feedback" data-form-feedback role="status" aria-live="polite" hidden></p></form></div>`
     : "";
   const controls = `<div class="work-controls"><div class="work-routine-controls">${button("Ligar esteira", "run", "primary", bloqueio(commandLocks.run))}${button("Desligar esteira", "stop", "ghost", atributosPararEsteira)}${button("Ligar reversão", "reverse-on", "secondary", atributosLigarReversao)}${button("Desligar reversão", "reverse-off", "secondary", atributosDesligarReversao)}</div><div class="work-emergency-zone">${button("EMERGÊNCIA", "emergency", "danger", bloqueioEmergencia)}</div></div>`;
   const summaryReady = ["FINALIZANDO", "FINALIZADO"].includes(
@@ -316,23 +316,23 @@ function workControls(store) {
     ? `Romaneio #${store.state.romaneio}`
     : "Operação";
   const nearEndThreshold = plannedTotal > 0 ? Math.max(1, Math.ceil(plannedTotal * 0.1)) : 0;
-  const nearEnd = plannedTotal > 0 && validReadings > 0 && remainingTotal > 0 && remainingTotal <= nearEndThreshold;
-  const complete = plannedTotal > 0 && validReadings >= plannedTotal;
-  const excess = plannedTotal > 0 && validReadings > plannedTotal;
+  const nearEnd = plannedTotal > 0 && detectedBags > 0 && remainingTotal > 0 && remainingTotal <= nearEndThreshold;
+  const complete = plannedTotal > 0 && detectedBags >= plannedTotal;
+  const excess = plannedTotal > 0 && detectedBags > plannedTotal;
   const endNotice = excess
-    ? `Atenção: ${numero(validReadings - plannedTotal)} leituras válidas acima do previsto.`
+    ? `Atenção: ${numero(detectedBags - plannedTotal)} sacas passaram do total previsto.`
     : complete
-      ? "Quantidade programada atingida. Confira as leituras finais."
+      ? "Quantidade física prevista atingida. O leitor continua associando os códigos das sacas detectadas."
       : nearEnd
-        ? "Atenção: o romaneio está próximo do fim."
+        ? "Atenção: o carregamento está próximo da quantidade prevista."
         : "";
   const endNoticeTone = excess ? "excess" : complete ? "complete" : "near-end";
   const remainingLabel = plannedTotal <= 0
     ? "Quantidade prevista não informada"
     : remainingTotal === 0
-      ? "Nenhuma leitura pendente"
-      : `Falta${remainingTotal === 1 ? "" : "m"} ${numero(remainingTotal)} leitura${remainingTotal === 1 ? "" : "s"} válida${remainingTotal === 1 ? "" : "s"}`;
-  const totalSummary = `<section class="work-live-summary" aria-label="Contagem e progresso do carregamento"><div class="work-live-summary-heading"><strong>Sacas detectadas</strong><span><b data-live="detected">${numero(detectedBags)}</b> detectadas · <b data-live="loaded">${numero(validReadings)}</b> válidas / <b data-live="planned">${numero(plannedTotal)}</b> previstas · <span data-live="progress-percent">${totalPercent}%</span></span></div><div class="progress work-live-progress" role="progressbar" aria-label="Progresso de leituras válidas" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${totalPercent}"><i data-live="progress-bar" style="width:${totalPercent}%"></i></div><div class="work-live-summary-foot"><span data-live="remaining-label">${remainingLabel}</span></div><p class="work-completion-notice ${endNoticeTone}" data-live="end-notice"${endNotice ? "" : " hidden"}>${endNotice}</p>${manualOperationReading}</section>`;
+      ? `Quantidade física atingida · ${numero(validReadings)} códigos válidos`
+      : `Falta${remainingTotal === 1 ? "" : "m"} ${numero(remainingTotal)} saca${remainingTotal === 1 ? "" : "s"} para a quantidade prevista`;
+  const totalSummary = `<section class="work-live-summary" aria-label="Contagem e progresso do carregamento"><div class="work-live-summary-heading"><strong>Sacas detectadas pelo sensor</strong><span><b data-live="detected">${numero(detectedBags)}</b> / <b data-live="planned">${numero(plannedTotal)}</b> previstas · <span data-live="progress-percent">${totalPercent}%</span> · <b data-live="loaded">${numero(validReadings)}</b> códigos válidos</span></div><div class="progress work-live-progress" role="progressbar" aria-label="Progresso de sacas detectadas pelo sensor M2052" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${totalPercent}"><i data-live="progress-bar" style="width:${totalPercent}%"></i></div><div class="work-live-summary-foot"><span data-live="remaining-label">${remainingLabel}</span></div><p class="work-completion-notice ${endNoticeTone}" data-live="end-notice"${endNotice ? "" : " hidden"}>${endNotice}</p>${manualOperationReading}</section>`;
   const machinePanel = `<section class="panel work-machine-panel"><div class="panel-heading"><div><span class="kicker">Comandos da máquina</span><h3>Operar Dala</h3></div>${summaryAction ? `<div class="work-machine-heading-actions">${summaryAction}</div>` : ""}</div><div class="work-machine-controls">${stopConfirmation}${controls}</div></section>`;
   const statusColumn = `<section class="work-status-column">${totalSummary}${itemProgress}</section>`;
   const workHeader = `<header class="work-screen-header">${loadingPicker}<div class="work-screen-heading"><h2>${esc(workTitle)}</h2><p>Dala ${esc(equipmentLabel(store))} · Caminhão ${esc(store.state.truck || "—")} <span class="work-header-state">${badge}</span></p></div></header>`;

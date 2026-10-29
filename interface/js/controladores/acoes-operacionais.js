@@ -111,6 +111,30 @@ export function criarTratadorAcoesOperacionais({
     }
   }
 
+  async function encerrarRomaneio(node) {
+    const manifestId = Number(node.dataset.id || store.state.manifestDetail?.id) || 0;
+    if (!manifestId) return;
+    if (!await confirmarAcao("Todos os carregamentos deste romaneio foram finalizados. Encerrar agora e liberar o relatório de auditoria?")) return;
+    store.state.manifestActionPending = true;
+    store.state.manifestActionFeedback = { type: "status", message: "Encerrando romaneio…" };
+    render();
+    try {
+      await store.finishManifest(manifestId);
+      store.state.manifestActionFeedback = {
+        type: "success",
+        message: "Romaneio encerrado. O relatório de auditoria já está disponível.",
+      };
+    } catch (error) {
+      store.state.manifestActionFeedback = {
+        type: "error",
+        message: error.message || "Não foi possível encerrar o romaneio.",
+      };
+    } finally {
+      store.state.manifestActionPending = false;
+      render();
+    }
+  }
+
   async function selecionarCarregamento(node) {
     try {
       store.state.commandFeedback = "";
@@ -149,14 +173,33 @@ export function criarTratadorAcoesOperacionais({
 
   async function finalizarCarregamento() {
     try {
-      const justification = store.state.loaded < store.state.planned
+      const hasItemDivergence = (store.state.loadingItems || []).some((item) =>
+        Number(item.loaded_quantity || 0) !== Number(item.planned_quantity || 0),
+      );
+      const canAuthorizeDivergence = ["ADMIN_EMPRESA", "SUPERVISOR"].includes(
+        String(store.state.userRole || "").toUpperCase(),
+      );
+      if (hasItemDivergence && !canAuthorizeDivergence) {
+        notificarForaDaOperacao(
+          "Há produto sem identificação ou com quantidade divergente. Um supervisor ou administrador precisa encerrar o carregamento com justificativa.",
+          "aviso",
+        );
+        return;
+      }
+      const justification = hasItemDivergence
         ? await solicitarTexto(
           "Justificativa obrigatória para finalizar com divergência:",
           { obrigatorio: true, multilinha: true },
         ) || ""
         : "";
-      if (store.state.loaded < store.state.planned && !justification.trim()) return;
-      await store.finishLoading(justification.trim());
+      if (hasItemDivergence && !justification.trim()) return;
+      const result = await store.finishLoading(justification.trim());
+      if (result?.romaneio_pronto_para_encerrar && result.romaneio_id) {
+        await store.loadManifest(result.romaneio_id);
+        await navegar("manifest", `?id=${encodeURIComponent(result.romaneio_id)}`);
+      } else {
+        notificar("Carregamento finalizado. Ainda há outros carregamentos neste romaneio.");
+      }
       render();
     } catch (error) {
       notificarForaDaOperacao(error.message, "erro");
@@ -171,6 +214,8 @@ export function criarTratadorAcoesOperacionais({
         return cancelarRomaneio(node);
       case "cancel-manifest-progress":
         return cancelarOperacao(node);
+      case "finish-manifest":
+        return encerrarRomaneio(node);
       case "select-loading":
         return selecionarCarregamento(node);
       case "change-loading":

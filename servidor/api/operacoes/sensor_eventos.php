@@ -27,7 +27,8 @@ if ($action === "FINALIZE_EXPIRED") {
         // a associação do código e o timeout, evitando dois resultados no saco.
         $loadingStatement = $pdo->prepare(
             "SELECT id FROM carregamentos
-             WHERE equipment_id = :equipment_id AND company_id = :company_id AND state = 'CARREGANDO'
+             WHERE equipment_id = :equipment_id AND company_id = :company_id
+               AND state IN ('CARREGANDO', 'FINALIZANDO')
              ORDER BY id DESC LIMIT 1 FOR UPDATE",
         );
         $loadingStatement->execute([
@@ -214,7 +215,7 @@ try {
     // debounce window. Quando o dispositivo informa o horário, a janela usa
     // esse horário e continua correta após uma reconexão offline.
     $loadingStatement = $pdo->prepare(
-        'SELECT c.id, c.state, c.started_at, c.finished_at FROM carregamentos c
+        'SELECT c.id, c.state, c.romaneio_id, c.truck_id, c.started_at, c.finished_at FROM carregamentos c
          JOIN equipamentos e ON e.id = c.equipment_id AND e.id = :equipment_id
          WHERE c.id = :loading_id AND c.company_id = :company_id LIMIT 1 FOR UPDATE',
     );
@@ -236,7 +237,7 @@ try {
     }
     if (
         !$loading ||
-        ($loading["state"] !== "CARREGANDO" && !$historicalEventWithinLoading)
+        (!in_array($loading["state"], ["CARREGANDO", "FINALIZANDO"], true) && !$historicalEventWithinLoading)
     ) {
         $pdo->rollBack();
         json_response(
@@ -323,6 +324,94 @@ try {
             "scanner_correlated_reading_id" => $earlyReadingId === false ? null : (int) $earlyReadingId,
         ],
     );
+    $planned = $pdo->prepare(
+        "SELECT COALESCE(SUM(ri.planned_quantity), 0)
+         FROM romaneio_itens ri
+         WHERE ri.romaneio_id = :romaneio_id
+           AND (ri.truck_id = :truck_id OR ri.truck_id IS NULL)",
+    );
+    $planned->execute([
+        "romaneio_id" => $loading["romaneio_id"],
+        "truck_id" => $loading["truck_id"],
+    ]);
+    $plannedQuantity = (int) $planned->fetchColumn();
+    $detected = $pdo->prepare(
+        "SELECT COUNT(*) FROM eventos_sensor
+         WHERE carregamento_id = :loading_id AND equipment_id = :equipment_id",
+    );
+    $detected->execute([
+        "loading_id" => $loadingId,
+        "equipment_id" => $equipmentId,
+    ]);
+    $detectedBags = (int) $detected->fetchColumn();
+    $becameFinalizing = false;
+    if ($loading["state"] === "CARREGANDO" && $plannedQuantity > 0 && $detectedBags >= $plannedQuantity) {
+        $transition = $pdo->prepare(
+            "UPDATE carregamentos SET state = 'FINALIZANDO'
+             WHERE id = :id AND company_id = :company_id AND state = 'CARREGANDO'",
+        );
+        $transition->execute([
+            "id" => $loadingId,
+            "company_id" => $device["company_id"],
+        ]);
+        $becameFinalizing = $transition->rowCount() === 1;
+        if ($becameFinalizing) {
+            $trigger = $pdo->prepare(
+                "SELECT a.id, a.comando, a.rotulo
+                 FROM gatilhos_dala g
+                 JOIN acoes_dala a ON a.id = g.acao_id AND a.visivel = 1
+                   AND a.company_id = g.company_id AND a.equipment_id = g.equipment_id
+                 WHERE g.company_id = :company_id AND g.equipment_id = :equipment_id
+                   AND g.evento = 'QUANTIDADE_PLANEJADA_ATINGIDA' AND g.ativo = 1
+                 ORDER BY g.id LIMIT 1",
+            );
+            $trigger->execute([
+                "company_id" => $device["company_id"],
+                "equipment_id" => $equipmentId,
+            ]);
+            $configuredAction = $trigger->fetch();
+            if ($configuredAction) {
+                $queue = $pdo->prepare(
+                    "INSERT INTO solicitacoes_comandos_clp
+                     (company_id, equipment_id, carregamento_id, command, requested_by)
+                     VALUES (:company_id, :equipment_id, :carregamento_id, :command, NULL)",
+                );
+                $queue->execute([
+                    "company_id" => $device["company_id"],
+                    "equipment_id" => $equipmentId,
+                    "carregamento_id" => $loadingId,
+                    "command" => $configuredAction["comando"],
+                ]);
+                record_operational_event(
+                    $pdo,
+                    ["id" => null, "company_id" => $device["company_id"]],
+                    "GATILHO_DALA_DISPARADO",
+                    "solicitacao_comando_clp",
+                    (int) $pdo->lastInsertId(),
+                    [
+                        "carregamento_id" => (int) $loadingId,
+                        "evento" => "QUANTIDADE_PLANEJADA_ATINGIDA",
+                        "acao" => $configuredAction["comando"],
+                        "rotulo" => $configuredAction["rotulo"],
+                        "gateway_clp_required" => true,
+                    ],
+                );
+            }
+            record_operational_event(
+                $pdo,
+                ["id" => null, "company_id" => $device["company_id"]],
+                "QUANTIDADE_PLANEJADA_ATINGIDA",
+                "carregamento",
+                (int) $loadingId,
+                [
+                    "planned_quantity" => $plannedQuantity,
+                    "detected_bags" => $detectedBags,
+                    "valid_readings" => null,
+                    "gatilho_configurado" => $configuredAction["comando"] ?? null,
+                ],
+            );
+        }
+    }
     $pdo->commit();
     // O sensor apenas correlaciona o saco à leitura. A imagem só é solicitada
     // quando o Trace confirma uma falha de leitura.
@@ -331,6 +420,10 @@ try {
             "data" => [
                 "id" => $eventId,
                 "duplicate" => false,
+                "detected_bags" => $detectedBags,
+                "planned_quantity" => $plannedQuantity,
+                "load_status" => ($loading["state"] === "FINALIZANDO" || $becameFinalizing)
+                    ? "COMPLETO" : "EM_ANDAMENTO",
                 "image_action" => "AGUARDANDO_RESULTADO_LEITURA",
                 "scanner_correlated" => $earlyReadingId !== false,
             ],
