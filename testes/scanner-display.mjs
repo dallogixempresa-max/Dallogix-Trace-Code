@@ -76,7 +76,8 @@ test("fila durável do M2052 é reprocessada após reinício e fechamento aguard
   assert.match(replay, /outbox\.list\(\)/);
   assert.match(retry, /outbox\.acknowledge\(eventUuid\)/);
   assert.doesNotMatch(retry, /attempt >= 3/);
-  assert.match(heartbeat, /sensor_event_outbox_pending = count/);
+  assert.match(heartbeat, /sensor_event_outbox_pending = pending/);
+  assert.match(heartbeat, /sensor_event_outbox_rejected = rejected/);
   assert.match(finishLoadingApi, /NOT EXISTS \(SELECT 1 FROM leituras l WHERE l\.sensor_event_id = s\.id\)/);
   assert.match(finishLoadingApi, /sensor_event_outbox_pending/);
   assert.match(loadingSummaryApi, /leituras_pendentes_sensor/);

@@ -11,12 +11,12 @@ function normalizeEvent(value) {
     }
     const event = {
         equipment_id: Number(value.equipment_id),
-        carregamento_id: Number(value.carregamento_id),
+        carregamento_id: value.carregamento_id == null ? null : Number(value.carregamento_id),
         event_uuid: String(value.event_uuid || "").trim(),
         detected_at_epoch_ms: Number(value.detected_at_epoch_ms),
     };
     if (!Number.isSafeInteger(event.equipment_id) || event.equipment_id < 1
-        || !Number.isSafeInteger(event.carregamento_id) || event.carregamento_id < 1
+        || (event.carregamento_id !== null && (!Number.isSafeInteger(event.carregamento_id) || event.carregamento_id < 1))
         || !EVENT_UUID.test(event.event_uuid)
         || !Number.isSafeInteger(event.detected_at_epoch_ms) || event.detected_at_epoch_ms < 1) {
         throw new TypeError("Evento do sensor sem identificador ou dados válidos.");
@@ -25,6 +25,7 @@ function normalizeEvent(value) {
 }
 
 function createSensorEventOutbox({ directory = process.env.TRACE_SENSOR_EVENT_OUTBOX_DIR || "/data/trace-sensor-outbox" } = {}) {
+    const rejectedDirectory = path.join(directory, "rejected");
     let operationQueue = Promise.resolve();
 
     const serialize = (operation) => {
@@ -33,8 +34,8 @@ function createSensorEventOutbox({ directory = process.env.TRACE_SENSOR_EVENT_OU
         return result;
     };
 
-    async function syncDirectory() {
-        const handle = await fs.open(directory, "r");
+    async function syncDirectory(targetDirectory = directory) {
+        const handle = await fs.open(targetDirectory, "r");
         try {
             await handle.sync();
         } finally {
@@ -123,6 +124,72 @@ function createSensorEventOutbox({ directory = process.env.TRACE_SENSOR_EVENT_OU
                     if (error?.code === "ENOENT") return false;
                     throw error;
                 }
+            });
+        },
+        reject(eventUuid, status, reason) {
+            const id = String(eventUuid || "").trim();
+            if (!EVENT_UUID.test(id)) throw new TypeError("UUID inválido para rejeitar passagem do sensor.");
+            const httpStatus = Number(status);
+            if (![409, 422].includes(httpStatus)) throw new TypeError("Somente rejeições definitivas podem sair da fila.");
+            const safeReason = String(reason || "rejeitado pelo servidor").slice(0, 500);
+            return serialize(async () => {
+                const pending = path.join(directory, `${id}.json`);
+                const archived = path.join(rejectedDirectory, `${id}.json`);
+                let event;
+                try {
+                    const record = JSON.parse(await fs.readFile(pending, "utf8"));
+                    event = normalizeEvent(record.event);
+                    if (event.event_uuid !== id || record.version !== 1) throw new Error("Evento pendente inválido.");
+                } catch (error) {
+                    if (error?.code !== "ENOENT") throw error;
+                    if (await fs.stat(archived).catch(() => null)) return false;
+                    throw error;
+                }
+                await fs.mkdir(rejectedDirectory, { recursive: true, mode: 0o700 });
+                const previousArchive = await fs.readFile(archived, "utf8").catch((error) => {
+                    if (error?.code === "ENOENT") return null;
+                    throw error;
+                });
+                if (previousArchive !== null) {
+                    const previous = JSON.parse(previousArchive);
+                    if (JSON.stringify(normalizeEvent(previous.event)) !== JSON.stringify(event)) {
+                        throw new Error(`Arquivo de rejeição conflitante para ${id}.`);
+                    }
+                    await fs.unlink(pending);
+                    await syncDirectory();
+                    return true;
+                }
+                const audit = { version: 1, event, rejected_at: new Date().toISOString(), http_status: httpStatus, reason: safeReason };
+                const temporary = path.join(rejectedDirectory, `.${id}.${process.pid}.${Date.now()}.tmp`);
+                const handle = await fs.open(temporary, "wx", 0o600);
+                try {
+                    await handle.writeFile(`${JSON.stringify(audit)}\n`, "utf8");
+                    await handle.sync();
+                } catch (error) {
+                    await handle.close().catch(() => {});
+                    await fs.unlink(temporary).catch(() => {});
+                    throw error;
+                }
+                await handle.close();
+                try {
+                    await fs.rename(temporary, archived);
+                    await syncDirectory(rejectedDirectory);
+                    await fs.unlink(pending);
+                    await syncDirectory();
+                } catch (error) {
+                    await fs.unlink(temporary).catch(() => {});
+                    throw error;
+                }
+                return true;
+            });
+        },
+        rejectedCount() {
+            return serialize(async () => {
+                const names = await fs.readdir(rejectedDirectory).catch((error) => {
+                    if (error?.code === "ENOENT") return [];
+                    throw error;
+                });
+                return names.filter((name) => name.toLowerCase().endsWith(".json")).length;
             });
         },
     };

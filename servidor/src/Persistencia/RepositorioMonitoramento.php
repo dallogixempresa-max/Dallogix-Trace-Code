@@ -152,7 +152,9 @@ final class RepositorioMonitoramento
                    c.id AS carregamento_id, c.state AS carregamento_state,
                    r.id AS romaneio_id, r.number AS romaneio_number, rt.plate,
                    COALESCE(qe.planned_quantity, 0) + COALESCE(qg.planned_quantity, 0) AS planned_quantity,
-                   COALESCE(c.leituras_validas, 0) AS valid_readings
+                   GREATEST(0, COALESCE(c.leituras_validas, 0)
+                     - COALESCE((SELECT SUM(ret.quantity) FROM retornos ret
+                                 WHERE ret.carregamento_id = c.id), 0)) AS valid_readings
             FROM equipamentos e
             LEFT JOIN status_dispositivos d
               ON d.equipment_id = e.id AND d.device_type = 'CLP'
@@ -210,6 +212,7 @@ final class RepositorioMonitoramento
                 FROM leituras l
                 JOIN carregamentos_ativos ca
                   ON ca.id = l.carregamento_id AND ca.company_id = l.company_id
+                WHERE l.result <> 'RETORNO'
             ), alertas_fim_carga AS (
                 SELECT la.entity_id AS carregamento_id,
                        JSON_UNQUOTE(JSON_EXTRACT(la.metadata, '$.message')) AS end_product_alert,
@@ -223,7 +226,9 @@ final class RepositorioMonitoramento
             SELECT ca.id, ca.state, ca.equipment_id, ca.started_at, ca.finished_at,
                    r.number AS romaneio_number, rt.plate, e.equipment_code,
                    COALESCE(qr.planned_quantity, 0) AS planned_quantity,
-                   COALESCE(ca.leituras_validas, 0) AS valid_readings,
+                   GREATEST(0, COALESCE(ca.leituras_validas, 0)
+                     - COALESCE((SELECT SUM(ret.quantity) FROM retornos ret
+                                 WHERE ret.carregamento_id = ca.id), 0)) AS valid_readings,
                    COALESCE(ed.detected_bags, 0) AS detected_bags,
                    lr.barcode AS last_scanner_barcode,
                    lr.result AS last_scanner_result,

@@ -11,6 +11,7 @@ export function summary(store) {
   const loading = data.carregamento || {};
   const isFinalized = store.state.operationalState === "FINALIZADO";
   const sensorOutboxPending = loading.sensor_outbox_pendentes;
+  const sensorOutboxRejected = Number(loading.sensor_outbox_rejeitados) || 0;
   const sensorReadingsPending = Number(loading.leituras_pendentes_sensor) || 0;
   const imagesPending = Number(loading.imagens_pendentes) || 0;
   const canFinish = store.state.operationalState === "PAUSADO"
@@ -38,5 +39,8 @@ export function summary(store) {
   const waitingForEvidence = store.state.operationalState === "PAUSADO" && !canFinish && !store.state.stopReason
     ? `<p role="status">${esc(pendingNotice || "Aguardando confirmação dos dispositivos antes de encerrar.")}</p>`
     : "";
-  return `<div class="title-row with-actions has-back"><button class="button secondary page-back" data-action="back-work" type="button">← Voltar</button><div><span class="kicker">Acompanhamento / encerramento</span><h2>Resumo final</h2><p>${message}</p></div><div class="actions">${button("Exportar CSV", "export")}</div></div><section class="panel" data-status-region="loading-summary"><h3>Conferência da carga</h3><p>Romaneio #${esc(store.state.romaneio)} • caminhão ${esc(store.state.truck)}</p>${progress(store)}${waitingForEvidence}<div class="grid four"><div class="metric"><small>Leituras líquidas</small><strong>${numero(data.leituras_liquidas ?? data.leituras.VALIDO)}</strong><small>${numero(data.leituras.VALIDO)} válidas · ${numero(data.sacas_retornadas || 0)} retornadas</small></div><div class="metric"><small>Sem leitura</small><strong>${numero(data.leituras.SEM_LEITURA)}</strong></div><div class="metric"><small>Ocorrências</small><strong>${numero(data.ocorrencias.length)}</strong></div><div class="metric"><small>Envio ao servidor</small><strong>${numero(data.sync_pendente)}</strong></div></div>${canFinish ? button("Finalizar carregamento", "finish", "primary") : ""}</section>`;
+  const rejectedNotice = sensorOutboxRejected > 0
+    ? `<p role="alert">O PC mantém ${numero(sensorOutboxRejected)} passagem(ns) rejeitada(s) no histórico do sensor. Confira o registro local antes de encerrar.</p>`
+    : "";
+  return `<div class="title-row with-actions has-back"><button class="button secondary page-back" data-action="back-work" type="button">← Voltar</button><div><span class="kicker">Acompanhamento / encerramento</span><h2>Resumo final</h2><p>${message}</p></div><div class="actions">${button("Exportar CSV", "export")}</div></div><section class="panel" data-status-region="loading-summary"><h3>Conferência da carga</h3><p>Romaneio #${esc(store.state.romaneio)} • caminhão ${esc(store.state.truck)}</p>${progress(store)}${waitingForEvidence}${rejectedNotice}<div class="grid four"><div class="metric"><small>Leituras líquidas</small><strong>${numero(data.leituras_liquidas ?? data.leituras.VALIDO)}</strong><small>${numero(data.leituras.VALIDO)} válidas · ${numero(data.sacas_retornadas || 0)} retornadas</small></div><div class="metric"><small>Sem leitura</small><strong>${numero(data.leituras.SEM_LEITURA)}</strong></div><div class="metric"><small>Ocorrências</small><strong>${numero(data.ocorrencias.length)}</strong></div><div class="metric"><small>Envio ao servidor</small><strong>${numero(data.sync_pendente)}</strong></div></div>${canFinish ? button("Finalizar carregamento", "finish", "primary") : ""}</section>`;
 }

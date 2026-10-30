@@ -159,10 +159,7 @@ if ($action !== "REGISTER_EVENT") {
     json_response(["error" => "Ação de evento do sensor inválida."], 422);
 }
 
-$loadingId = filter_var(
-    $payload["carregamento_id"] ?? null,
-    FILTER_VALIDATE_INT,
-);
+$loadingId = filter_var($payload["carregamento_id"] ?? null, FILTER_VALIDATE_INT) ?: null;
 $equipmentId = filter_var(
     $payload["equipment_id"] ?? ($payload["esteira_id"] ?? null),
     FILTER_VALIDATE_INT,
@@ -170,9 +167,9 @@ $equipmentId = filter_var(
 $eventUuid = trim((string) ($payload["event_uuid"] ?? ""));
 $detectedAt = trim((string) ($payload["detected_at"] ?? ""));
 $detectedAtEpochMs = $payload["detected_at_epoch_ms"] ?? null;
-if (!$loadingId || !$equipmentId || !preg_match('/^[a-f0-9-]{36}$/i', $eventUuid)) {
+if (!$equipmentId || !preg_match('/^[a-f0-9-]{36}$/i', $eventUuid)) {
     json_response(
-        ["error" => "Carregamento, esteira e event_uuid válido são obrigatórios."],
+        ["error" => "Esteira e event_uuid válido são obrigatórios."],
         422,
     );
 }
@@ -225,17 +222,36 @@ try {
     // Lock the loading so simultaneous sensor events use one authoritative
     // debounce window. Quando o dispositivo informa o horário, a janela usa
     // esse horário e continua correta após uma reconexão offline.
+    // O ID enviado pelo gateway é apenas uma pista: o heartbeat pode estar
+    // defasado. A hora da borda, registrada no próprio PC, decide a carga.
     $loadingStatement = $pdo->prepare(
-        'SELECT c.id, c.state, c.romaneio_id, c.truck_id, c.started_at, c.finished_at FROM carregamentos c
-         JOIN equipamentos e ON e.id = c.equipment_id AND e.id = :equipment_id
-         WHERE c.id = :loading_id AND c.company_id = :company_id LIMIT 1 FOR UPDATE',
+        'SELECT c.id, c.state, c.romaneio_id, c.truck_id, c.started_at, c.finished_at
+         FROM carregamentos c
+         WHERE c.equipment_id = :equipment_id AND c.company_id = :company_id
+           AND c.started_at <= :detected_at
+           AND (c.finished_at IS NULL OR DATE_ADD(c.finished_at, INTERVAL 1 SECOND) > :detected_at)
+         ORDER BY c.started_at DESC, c.id DESC LIMIT 1 FOR UPDATE',
     );
-    $loadingStatement->execute([
-        "equipment_id" => $equipmentId,
-        "loading_id" => $loadingId,
-        "company_id" => $device["company_id"],
-    ]);
-    $loading = $loadingStatement->fetch();
+    $loading = null;
+    if ($deviceDetectedAt !== null) {
+        $loadingStatement->execute([
+            "equipment_id" => $equipmentId,
+            "company_id" => $device["company_id"],
+            "detected_at" => $deviceDetectedAt,
+        ]);
+        $loading = $loadingStatement->fetch();
+    }
+    if (!$loading && $loadingId !== null && $deviceDetectedAt === null) {
+        // Compatibilidade com gateways antigos sem horário confiável.
+        $legacy = $pdo->prepare(
+            'SELECT id, state, romaneio_id, truck_id, started_at, finished_at
+             FROM carregamentos WHERE id = :id AND equipment_id = :equipment_id
+               AND company_id = :company_id LIMIT 1 FOR UPDATE',
+        );
+        $legacy->execute(["id" => $loadingId, "equipment_id" => $equipmentId, "company_id" => $device["company_id"]]);
+        $loading = $legacy->fetch();
+    }
+    $loadingId = $loading ? (int) $loading["id"] : null;
     $historicalEventWithinLoading = false;
     if (
         $loading && $deviceDetectedAt !== null &&
@@ -244,7 +260,8 @@ try {
         $eventTime = new DateTimeImmutable($deviceDetectedAt);
         $loadingStart = new DateTimeImmutable((string) $loading["started_at"]);
         $loadingFinish = new DateTimeImmutable((string) $loading["finished_at"]);
-        $historicalEventWithinLoading = $eventTime >= $loadingStart && $eventTime <= $loadingFinish;
+        $historicalEventWithinLoading = $eventTime >= $loadingStart
+            && $eventTime < $loadingFinish->modify("+1 second");
     }
     if (
         !$loading ||
@@ -252,9 +269,43 @@ try {
     ) {
         $pdo->rollBack();
         json_response(
-            ["error" => "O evento só pode ser registrado durante o carregamento informado."],
+            ["error" => "Nenhum carregamento aceita esta passagem no horário detectado.", "code" => "loading_not_ready"],
             422,
         );
+    }
+    if ($deviceDetectedAt !== null) {
+        // O mesmo sensor vê o saco voltar durante a reversão. Use o último
+        // comando confirmado no horário da borda, não o estado atual do PC.
+        $reversal = $pdo->prepare(
+            "SELECT command FROM solicitacoes_comandos_clp
+             WHERE equipment_id = :equipment_id AND company_id = :company_id
+               AND command IN ('REVERSAO_ATIVAR', 'REVERSAO_DESATIVAR')
+               AND ((status = 'APLICADO' AND completed_at <= :applied_at)
+                 OR (command = 'REVERSAO_ATIVAR' AND status IN ('PENDENTE','PROCESSANDO')
+                     AND requested_at <= :requested_at))
+             ORDER BY id DESC LIMIT 1",
+        );
+        $reversal->execute([
+            "equipment_id" => $equipmentId,
+            "company_id" => $device["company_id"],
+            "applied_at" => $deviceDetectedAt,
+            "requested_at" => $deviceDetectedAt,
+        ]);
+        if ($reversal->fetchColumn() === "REVERSAO_ATIVAR") {
+            $pdo->rollBack();
+            json_response(["error" => "Passagem detectada durante a reversão da esteira; contagem bloqueada.", "code" => "reversal_active"], 422);
+        }
+    }
+    $previousDebounce = $pdo->prepare(
+        "SELECT entity_id FROM logs_auditoria
+         WHERE company_id = :company_id AND event_uuid = :event_uuid
+           AND action = 'SENSOR_EVENTO_DESCARTADO_DEBOUNCE' LIMIT 1",
+    );
+    $previousDebounce->execute(["company_id" => $device["company_id"], "event_uuid" => $eventUuid]);
+    $alreadyDebounced = $previousDebounce->fetchColumn();
+    if ($alreadyDebounced !== false) {
+        $pdo->rollBack();
+        json_response(["data" => ["id" => (int) $alreadyDebounced, "duplicate" => true, "debounced" => true]], 200);
     }
 
     $debounceReferenceMs = $deviceDetectedAt !== null
@@ -283,7 +334,17 @@ try {
     ]);
     $debouncedId = $debounce->fetchColumn();
     if ($debouncedId !== false) {
-        $pdo->rollBack();
+        record_operational_event(
+            $pdo,
+            ["id" => null, "company_id" => $device["company_id"]],
+            "SENSOR_EVENTO_DESCARTADO_DEBOUNCE",
+            "sensor_event",
+            (int) $debouncedId,
+            ["event_uuid" => $eventUuid, "carregamento_id" => $loadingId,
+             "equipment_id" => $equipmentId, "detected_at" => $deviceDetectedAt,
+             "matched_sensor_event_id" => (int) $debouncedId],
+        );
+        $pdo->commit();
         json_response([
             "data" => [
                 "id" => (int) $debouncedId,
@@ -376,17 +437,17 @@ try {
         }
     }
     $becameFinalizing = false;
-    if ($loading["state"] === "CARREGANDO" && $plannedQuantity > 0 && $detectedBags >= $plannedQuantity) {
-        $transition = $pdo->prepare(
-            "UPDATE carregamentos SET state = 'FINALIZANDO'
-             WHERE id = :id AND company_id = :company_id AND state = 'CARREGANDO'",
-        );
-        $transition->execute([
-            "id" => $loadingId,
-            "company_id" => $device["company_id"],
-        ]);
-        $becameFinalizing = $transition->rowCount() === 1;
-        if ($becameFinalizing) {
+    if (in_array($loading["state"], ["CARREGANDO", "PAUSADO"], true)
+        && $plannedQuantity > 0 && $detectedBags >= $plannedQuantity) {
+        if ($loading["state"] === "CARREGANDO") {
+            $transition = $pdo->prepare(
+                "UPDATE carregamentos SET state = 'FINALIZANDO'
+                 WHERE id = :id AND company_id = :company_id AND state = 'CARREGANDO'",
+            );
+            $transition->execute(["id" => $loadingId, "company_id" => $device["company_id"]]);
+            $becameFinalizing = $transition->rowCount() === 1;
+        }
+        if ($becameFinalizing || $loading["state"] === "PAUSADO") {
             $targetAlreadyRecorded = $pdo->prepare(
                 "SELECT 1 FROM logs_auditoria
                  WHERE company_id = :company_id AND action = 'QUANTIDADE_PLANEJADA_ATINGIDA'
@@ -408,7 +469,8 @@ try {
                         "detected_bags" => $detectedBags,
                         "valid_readings" => null,
                         "automatic_stop" => false,
-                        "operator_action" => "PARAR_ESTEIRA_MANUALMENTE",
+                        "operator_action" => $loading["state"] === "PAUSADO"
+                            ? "CONFERIR_CARGA" : "PARAR_ESTEIRA_MANUALMENTE",
                     ],
                 );
             }
