@@ -20,11 +20,11 @@ final class RepositorioProdutosRemotos
     public function sincronizar(int $companyId, array $products): int
     {
         $findByRemoteId = $this->connection->prepare(
-            "SELECT id FROM produtos
+            "SELECT id, remote_product_id, code, name, category, active FROM produtos
              WHERE company_id = :company_id AND remote_product_id = :remote_product_id LIMIT 1",
         );
         $findUnlinkedByCode = $this->connection->prepare(
-            "SELECT id FROM produtos
+            "SELECT id, remote_product_id, code, name, category, active FROM produtos
              WHERE company_id = :company_id AND code = :code
                AND remote_product_id IS NULL LIMIT 1",
         );
@@ -56,6 +56,10 @@ final class RepositorioProdutosRemotos
             "INSERT INTO codigos_produtos (company_id, product_id, barcode)
              VALUES (:company_id, :product_id, :barcode)",
         );
+        $findProductBarcodes = $this->connection->prepare(
+            "SELECT barcode FROM codigos_produtos
+             WHERE company_id = :company_id AND product_id = :product_id ORDER BY barcode",
+        );
         $remoteIds = [];
         $updated = 0;
 
@@ -80,10 +84,12 @@ final class RepositorioProdutosRemotos
                 "company_id" => $companyId,
                 "remote_product_id" => $remoteId,
             ]);
-            $localId = (int) ($findByRemoteId->fetchColumn() ?: 0);
+            $localProduct = $findByRemoteId->fetch(PDO::FETCH_ASSOC) ?: null;
+            $localId = (int) ($localProduct["id"] ?? 0);
             if (!$localId) {
                 $findUnlinkedByCode->execute(["company_id" => $companyId, "code" => $code]);
-                $localId = (int) ($findUnlinkedByCode->fetchColumn() ?: 0);
+                $localProduct = $findUnlinkedByCode->fetch(PDO::FETCH_ASSOC) ?: null;
+                $localId = (int) ($localProduct["id"] ?? 0);
             }
             $params = [
                 "company_id" => $companyId,
@@ -97,33 +103,50 @@ final class RepositorioProdutosRemotos
                 if ($this->fila->possuiEventoPendente($companyId, "produto", $localId)) {
                     // Vincule a identidade remota, mas preserve as edições e
                     // códigos locais até a entrega dos eventos pendentes.
-                    $this->connection->prepare(
-                        "UPDATE produtos SET remote_product_id = :remote_id
-                         WHERE id = :id AND company_id = :company_id",
-                    )->execute(["remote_id" => $remoteId, "id" => $localId, "company_id" => $companyId]);
+                    if ((int) ($localProduct["remote_product_id"] ?? 0) !== $remoteId) {
+                        $this->connection->prepare(
+                            "UPDATE produtos SET remote_product_id = :remote_id
+                             WHERE id = :id AND company_id = :company_id",
+                        )->execute(["remote_id" => $remoteId, "id" => $localId, "company_id" => $companyId]);
+                    }
                     $remoteIds[] = $remoteId;
                     continue;
                 }
-                $update->execute([...$params, "id" => $localId]);
+                $metadataChanged = (int) ($localProduct["remote_product_id"] ?? 0) !== $remoteId
+                    || (string) $localProduct["code"] !== $code
+                    || (string) $localProduct["name"] !== $name
+                    || $localProduct["category"] !== $params["category"]
+                    || (int) $localProduct["active"] !== $active;
+                $findProductBarcodes->execute(["company_id" => $companyId, "product_id" => $localId]);
+                $localBarcodes = $findProductBarcodes->fetchAll(PDO::FETCH_COLUMN);
+                sort($localBarcodes, SORT_STRING);
+                $snapshotBarcodes = $barcodes;
+                sort($snapshotBarcodes, SORT_STRING);
+                $barcodesChanged = $localBarcodes !== $snapshotBarcodes;
+                if ($metadataChanged) {
+                    $update->execute([...$params, "id" => $localId]);
+                }
             } else {
                 $insert->execute($params);
                 $localId = (int) $this->connection->lastInsertId();
-}
-            // A lista recebida é a fonte de verdade: remove e recria todos
-            // os códigos para refletir inclusões, edições e remoções remotas.
-            $deleteProductBarcodes->execute(["company_id" => $companyId, "product_id" => $localId]);
-            foreach ($barcodes as $barcode) {
-                $deleteBarcodeOwner->execute(["company_id" => $companyId, "barcode" => $barcode]);
-                $findBarcodeOwner->execute(["company_id" => $companyId, "barcode" => $barcode]);
-                if ($findBarcodeOwner->fetchColumn() !== false) {
-                    // Uma edição local ainda não sincronizada tem precedência.
-                    continue;
+                $barcodesChanged = true;
+            }
+            if ($barcodesChanged) {
+                // A lista recebida é a fonte de verdade; preserve linhas idênticas.
+                $deleteProductBarcodes->execute(["company_id" => $companyId, "product_id" => $localId]);
+                foreach ($barcodes as $barcode) {
+                    $deleteBarcodeOwner->execute(["company_id" => $companyId, "barcode" => $barcode]);
+                    $findBarcodeOwner->execute(["company_id" => $companyId, "barcode" => $barcode]);
+                    if ($findBarcodeOwner->fetchColumn() !== false) {
+                        // Uma edição local ainda não sincronizada tem precedência.
+                        continue;
+                    }
+                    $insertBarcode->execute([
+                        "company_id" => $companyId,
+                        "product_id" => $localId,
+                        "barcode" => $barcode,
+                    ]);
                 }
-                $insertBarcode->execute([
-                    "company_id" => $companyId,
-                    "product_id" => $localId,
-                    "barcode" => $barcode,
-                ]);
             }
             $remoteIds[] = $remoteId;
             $updated++;
@@ -131,6 +154,7 @@ final class RepositorioProdutosRemotos
 
         $staleSql = "UPDATE produtos SET active = 0
                      WHERE company_id = :company_id AND remote_product_id IS NOT NULL
+                       AND active <> 0
                        AND NOT EXISTS (SELECT 1 FROM fila_sincronizacao q
                            WHERE q.company_id = produtos.company_id
                              AND q.aggregate_type = 'produto'
