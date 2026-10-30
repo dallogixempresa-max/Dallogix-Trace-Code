@@ -147,6 +147,30 @@ test("HID envia automaticamente após silêncio quando o Wedge não acrescenta E
   assert.deepEqual(readings, [{ barcode: "7898538751531", capturedAtEpochMs: 2005 }]);
 });
 
+test("HID separa dois sacos consecutivos com o mesmo código de produto", () => {
+  let timestamp = 3000;
+  const readings = [];
+  const capture = createHidScannerCapture({
+    isEnabled: () => true,
+    now: () => timestamp,
+    setTimer: () => 1,
+    clearTimer: () => {},
+    onBarcode: (barcode, capturedAtEpochMs) => readings.push({ barcode, capturedAtEpochMs }),
+  });
+  for (let bag = 0; bag < 2; bag++) {
+    for (const character of "7898538751531") {
+      timestamp += 5;
+      capture.handleKeyDown(keyboardEvent(character));
+    }
+    capture.handleKeyDown(keyboardEvent("Enter"));
+    timestamp += 350;
+  }
+  assert.deepEqual(readings, [
+    { barcode: "7898538751531", capturedAtEpochMs: 3005 },
+    { barcode: "7898538751531", capturedAtEpochMs: 3420 },
+  ]);
+});
+
 test("marcador ERROR do AutoID é tratado como falha, não como código de produto", () => {
   assert.equal(isScannerNoReadMarker("ERROR"), true);
   assert.equal(isScannerNoReadMarker("ERROR7898538751531"), true);
@@ -264,6 +288,34 @@ test("conflito temporário do banco repete a leitura com o mesmo identificador o
   assert.deepEqual(refreshedLoadings, [11]);
 });
 
+test("segundo saco repete o conflito sem reutilizar a identidade do primeiro", async () => {
+  const requests = [];
+  let nextId = 48;
+  const service = new ServicoLeiturasOperacionais({
+    api: {
+      fetch: async (_url, options) => {
+        requests.push(options);
+        if (requests.length === 2) {
+          return { status: 503, clone: () => ({ json: async () => ({ retryable: true }) }) };
+        }
+        return { status: 201, json: async () => ({ data: { id: requests.length === 1 ? 1 : 2, result: "VALIDO" } }) };
+      },
+    },
+    state: { loadingId: 11, operationalState: "CARREGANDO" },
+    jsonHeaders: () => ({ "Content-Type": "application/json" }),
+    jsonResponse: async (response) => response.json(),
+    loadActiveLoading: async () => {},
+    createEventId: () => `d4a00000-0000-4000-8000-${String(++nextId).padStart(12, "0")}`,
+  });
+
+  assert.equal((await service.registerScannerReading("7898538751531", 1793387000000)).id, 1);
+  assert.equal((await service.registerScannerReading("7898538751531", 1793387000500)).id, 2);
+  assert.equal(requests.length, 3);
+  assert.notEqual(requests[0].headers["X-Trace-Offline-ID"], requests[1].headers["X-Trace-Offline-ID"]);
+  assert.equal(requests[1].headers["X-Trace-Offline-ID"], requests[2].headers["X-Trace-Offline-ID"]);
+  assert.equal(requests[1].body, requests[2].body);
+});
+
 test("leitura para após duas novas tentativas de conflito temporário", async () => {
   const requests = [];
   const service = new ServicoLeiturasOperacionais({
@@ -291,12 +343,13 @@ test("leitura para após duas novas tentativas de conflito temporário", async (
 });
 
 test("endpoint de leitura devolve conflito temporário repetível para deadlock e timeout de lock", () => {
-  assert.match(readingsEndpoint, /\$exception->getCode\(\) === "40001"/);
-  assert.match(readingsEndpoint, /in_array\(\$driverErrorCode, \[1205, 1213\], true\)/);
+  assert.match(readingsEndpoint, /\$exception->getCode\(\) !== "40001"/);
+  assert.match(readingsEndpoint, /!in_array\(\$driverErrorCode, \[1205, 1213\], true\)/);
   assert.match(readingsEndpoint, /if \(\$pdo->inTransaction\(\)\) \{\s*\$pdo->rollBack\(\);/);
   assert.match(readingsEndpoint, /header\("Retry-After: 0"\)/);
   assert.match(readingsEndpoint, /"retryable"\s*=>\s*true/);
   assert.match(readingsEndpoint, /registrar_log_erro\(\$exception, "conflito_transitorio_leitura"\)/);
+  assert.match(readingsEndpoint, /if \(\(string\) \(\$reading\["barcode"\] \?\? ""\) !== \$barcode\)/);
 });
 
 test("leitura já vinculada ao M2052 ainda é registrada após ACK de parada", async () => {

@@ -73,6 +73,7 @@ register_shutdown_function(static function () use ($pdo): void {
         $pdo->rollBack();
     }
 });
+try {
 $loadingStatement = $pdo->prepare(
     'SELECT c.id, c.state, c.romaneio_id, c.truck_id, c.equipment_id, c.leituras_validas
      FROM carregamentos c
@@ -274,33 +275,30 @@ try {
         "result" => $result,
     ]);
 } catch (PDOException $exception) {
-    $driverErrorCode = (int) ($exception->errorInfo[1] ?? 0);
-    if ($exception->getCode() === "40001" || in_array($driverErrorCode, [1205, 1213], true)) {
-        if ($pdo->inTransaction()) {
-            $pdo->rollBack();
-        }
-        registrar_log_erro($exception, "conflito_transitorio_leitura");
-        header("Retry-After: 0");
-        responder_json(
-            [
-                "error" => "Conflito temporário ao registrar a leitura. Tentando novamente.",
-                "retryable" => true,
-            ],
-            503,
-        );
-    }
     if (
         $sensorEventId &&
         isset($exception->errorInfo[1]) &&
         (int) $exception->errorInfo[1] === 1062
     ) {
         $existing = $pdo->prepare(
-            "SELECT id, result FROM leituras WHERE sensor_event_id = :sensor_event_id LIMIT 1",
+            "SELECT id, result, barcode FROM leituras
+             WHERE sensor_event_id = :sensor_event_id AND company_id = :company_id
+               AND carregamento_id = :carregamento_id LIMIT 1",
         );
-        $existing->execute(["sensor_event_id" => $sensorEventId]);
+        $existing->execute([
+            "sensor_event_id" => $sensorEventId,
+            "company_id" => $usuarioAtor["company_id"],
+            "carregamento_id" => $loadingId,
+        ]);
         $reading = $existing->fetch();
+        if (!$reading) {
+            throw $exception;
+        }
         if ($pdo->inTransaction()) {
             $pdo->rollBack();
+        }
+        if ((string) ($reading["barcode"] ?? "") !== $barcode) {
+            responder_json(["error" => "Esta passagem já possui outro código de barras."], 409);
         }
         responder_json(
             [
@@ -452,3 +450,21 @@ responder_json(
     ],
     201,
 );
+} catch (PDOException $exception) {
+    $driverErrorCode = (int) ($exception->errorInfo[1] ?? 0);
+    if ($exception->getCode() !== "40001" && !in_array($driverErrorCode, [1205, 1213], true)) {
+        throw $exception;
+    }
+    if ($pdo->inTransaction()) {
+        $pdo->rollBack();
+    }
+    registrar_log_erro($exception, "conflito_transitorio_leitura");
+    header("Retry-After: 0");
+    responder_json(
+        [
+            "error" => "Conflito temporário ao registrar a leitura. Confirme o saco antes de prosseguir se a falha persistir.",
+            "retryable" => true,
+        ],
+        503,
+    );
+}
