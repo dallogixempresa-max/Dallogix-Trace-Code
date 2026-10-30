@@ -1,4 +1,4 @@
-import { apresentacaoConectividadePc, apresentacaoStatusDispositivo, renderStatusDalaBinario, resumoStatusDispositivos } from "../../telas/configuracoes/configuracoes.js?v=202610280001";
+import { apresentacaoConectividadePc, apresentacaoStatusDispositivo, renderStatusDalaBinario, resumoStatusDispositivos } from "../../telas/configuracoes/configuracoes.js?v=202610300002";
 import { operationStructureSignature, renderDalaStatuses } from "./operacao.js?v=202610290001";
 import { numero, relativo, dataHora } from "../funcoes/formato.js?v=202609201000";
 import { el } from "../funcoes/html.js";
@@ -108,7 +108,7 @@ export function createLiveViewController({
       const value = type === "SERVER"
         ? (store.state.serverStatus || "DESCONHECIDO")
         : (device?.status || "NAO_REGISTRADO");
-      const presentation = apresentacaoStatusDispositivo(value, type);
+      const presentation = apresentacaoStatusDispositivo(value, type, device);
       presentations.push(presentation);
       card.className = `settings-device-status-card ${presentation.tone}`;
       const status = card.querySelector("[data-live-status]");
