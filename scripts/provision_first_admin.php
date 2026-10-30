@@ -8,6 +8,34 @@ if (PHP_SAPI !== "cli" || !stream_isatty(STDIN)) {
 
 require_once __DIR__ . "/../servidor/configuracao/bootstrap.php";
 
+/** @return array{status:int,stdout:string,stderr:string} */
+function executarStty(array $arguments): array
+{
+    $process = proc_open(
+        ["stty", ...$arguments],
+        [
+            0 => ["file", "/dev/tty", "r"],
+            1 => ["pipe", "w"],
+            2 => ["pipe", "w"],
+        ],
+        $pipes,
+    );
+    if (!is_resource($process)) {
+        return ["status" => 1, "stdout" => "", "stderr" => "Não foi possível iniciar stty."];
+    }
+
+    $stdout = stream_get_contents($pipes[1]);
+    $stderr = stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+
+    return [
+        "status" => proc_close($process),
+        "stdout" => is_string($stdout) ? $stdout : "",
+        "stderr" => is_string($stderr) ? $stderr : "",
+    ];
+}
+
 function prompt(string $label): string
 {
     fwrite(STDOUT, $label);
@@ -17,20 +45,23 @@ function prompt(string $label): string
 
 function promptSecret(string $label): string
 {
-    $modes = [];
-    exec("stty -g < /dev/tty", $modes, $status);
-    if ($status !== 0 || !isset($modes[0])) {
+    $modeResult = executarStty(["-g"]);
+    $mode = trim($modeResult["stdout"]);
+    if ($modeResult["status"] !== 0 || preg_match('/\A[A-Za-z0-9:]+\z/', $mode) !== 1) {
         throw new RuntimeException("Não foi possível configurar a entrada segura do terminal.");
     }
     fwrite(STDOUT, $label);
-    exec("stty -echo < /dev/tty", $output, $status);
-    if ($status !== 0) {
+    $echoResult = executarStty(["-echo"]);
+    if ($echoResult["status"] !== 0) {
         throw new RuntimeException("Não foi possível ocultar a senha digitada.");
     }
     try {
         $value = fgets(STDIN);
     } finally {
-        exec("stty " . escapeshellarg(trim($modes[0])) . " < /dev/tty");
+        $restoreResult = executarStty([$mode]);
+        if ($restoreResult["status"] !== 0) {
+            fwrite(STDERR, "AVISO: não foi possível restaurar o modo de entrada do terminal.\n");
+        }
         fwrite(STDOUT, "\n");
     }
     return rtrim((string) $value, "\r\n");

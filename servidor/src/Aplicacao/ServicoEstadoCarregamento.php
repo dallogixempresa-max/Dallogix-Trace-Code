@@ -3,12 +3,9 @@ declare(strict_types=1);
 
 namespace App\Aplicacao;
 
-use App\Persistencia\RepositorioDisponibilidadeClp;
 use PDO;
 use RuntimeException;
 use Throwable;
-
-require_once __DIR__ . "/../Persistencia/RepositorioDisponibilidadeClp.php";
 
 final class ExcecaoEstadoCarregamento extends RuntimeException
 {
@@ -92,21 +89,24 @@ final class ServicoEstadoCarregamento
                     "changed" => false,
                 ];
             }
+            if (in_array($target, ["CARREGANDO", "PAUSADO"], true)) {
+                throw new ExcecaoEstadoCarregamento(
+                    "O estado operacional só muda após confirmação do gateway CLP; solicite o comando de início ou parada.",
+                    409,
+                );
+            }
+            if ($target === "FINALIZANDO") {
+                throw new ExcecaoEstadoCarregamento(
+                    "Use o encerramento do carregamento para validar quantidade, leituras e passagens pendentes.",
+                    409,
+                );
+            }
             if (!in_array($target, self::TRANSICOES_DE_ESTADO[$current["state"]], true)) {
                 throw new ExcecaoEstadoCarregamento(
                     "Transição inválida: {$current["state"]} para {$target}.",
                     409,
                 );
             }
-            if (in_array($target, ["CARREGANDO", "PAUSADO"], true)) {
-                (new ServicoDisponibilidadeClp(
-                    new RepositorioDisponibilidadeClp($this->connection),
-                ))->validarComando(
-                    (int) $user["company_id"],
-                    (int) $current["equipment_id"],
-                );
-            }
-
             $update = $this->connection->prepare(
                 "UPDATE carregamentos SET state = :state
                  WHERE id = :id AND company_id = :company_id AND state = :previous_state",

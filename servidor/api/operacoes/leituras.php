@@ -379,8 +379,6 @@ if ($result === "EXCESSO") {
         ["carregamento_id" => (int) $loadingId, "product_id" => $productId],
     );
 }
-if ($result === "PRODUTO_INCORRETO") {
-}
 if (
     $result === "SEM_LEITURA" &&
     $sensorEventId

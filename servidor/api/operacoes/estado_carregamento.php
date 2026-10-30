@@ -34,9 +34,16 @@ if ($target === "CARREGANDO" && $user["company_id"] !== null) {
 }
 
 try {
-    $data = $target === "EMERGENCIA"
-        ? (new ServicoComandoClp(db()))->solicitarEmergencia($user, (int) $loadingId)
-        : (new ServicoEstadoCarregamento(db()))->alterarEstado($user, (int) $loadingId, $target);
+    $commands = new ServicoComandoClp(db());
+    if ($target === "EMERGENCIA") {
+        $data = $commands->solicitarEmergencia($user, (int) $loadingId);
+    } elseif ($target === "CARREGANDO") {
+        $data = $commands->solicitarOperacao($user, (int) $loadingId, "INICIAR_CARREGAMENTO");
+    } elseif ($target === "PAUSADO") {
+        $data = $commands->solicitarOperacao($user, (int) $loadingId, "PAUSAR_CARREGAMENTO");
+    } else {
+        $data = (new ServicoEstadoCarregamento(db()))->alterarEstado($user, (int) $loadingId, $target);
+    }
     json_response(["data" => $data]);
 } catch (ExcecaoEstadoCarregamento $exception) {
     json_response(
