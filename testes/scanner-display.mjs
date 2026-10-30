@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { ServicoLeiturasOperacionais } from "../interface/js/servicos/ServicoLeiturasOperacionais.js";
+import { createHidScannerCapture, isScannerNoReadMarker } from "../interface/js/controladores/captura-leitor-hid.js";
 
 const operation = await readFile(new URL("../interface/telas/operacao/operacao.js", import.meta.url), "utf8");
 const liveView = await readFile(new URL("../interface/js/controladores/estado-visualizacao.js", import.meta.url), "utf8");
@@ -84,18 +85,105 @@ test("fila durável do M2052 é reprocessada após reinício e fechamento aguard
   assert.match(summaryPage, /sensorOutboxPending === 0/);
 });
 
-test("AutoID Clipboard entrega cada atualização ao Trace e registra pelo sensor M2052", () => {
-  assert.match(desktopHost, /GetClipboardSequenceNumber/);
-  assert.match(desktopHost, /AutoID Keyboard Wedge/);
-  assert.match(desktopHost, /type = "trace-scanner-clipboard"/);
-  assert.match(application, /installScannerClipboardReceiver/);
-  assert.match(application, /store\.registerScannerReading\(barcode,\s*Number\(message\.capturedAtEpochMs\)\s*\|\|\s*Date\.now\(\)\)/);
+test("AutoID HID entrega sequências de teclado ao Trace sem tornar o visor editável", () => {
+  assert.doesNotMatch(desktopHost, /GetClipboardSequenceNumber|ForwardScannerClipboardUpdate|trace-scanner-clipboard/);
+  assert.match(application, /createHidScannerCapture/);
+  assert.match(application, /document\.addEventListener\("keydown", capture\.handleKeyDown, \{ capture: true \}\)/);
+  assert.match(application, /store\.registerScannerReading\(barcode, capturedAtEpochMs\)/);
   assert.match(application, /\["CARREGANDO", "FINALIZANDO", "PAUSADO"\]\.includes\(store\.state\.operationalState\)/);
   assert.match(operationalReadingService, /\["CARREGANDO", "FINALIZANDO", "PAUSADO"\]\.includes\(this\.state\.operationalState\)/);
   assert.match(operationalReadingService, /X-Trace-Offline-ID/);
   assert.match(operationalReadingService, /Leitura aguardando o evento de passagem do sensor M2052\./);
   assert.doesNotMatch(operation, /<input[^>]+id="automatic-scanner-barcode"/);
 });
+
+test("HID registra o código no Enter automático sem acionar um botão da tela", () => {
+  let timestamp = 1000;
+  const readings = [];
+  const timers = new Map();
+  let timerId = 0;
+  const capture = createHidScannerCapture({
+    isEnabled: () => true,
+    now: () => timestamp,
+    setTimer: (callback) => { const id = ++timerId; timers.set(id, callback); return id; },
+    clearTimer: (id) => timers.delete(id),
+    onBarcode: (barcode, capturedAtEpochMs) => readings.push({ barcode, capturedAtEpochMs }),
+  });
+
+  for (const character of "7898538751531") {
+    timestamp += 5;
+    const event = keyboardEvent(character);
+    assert.equal(capture.handleKeyDown(event), true);
+    assert.equal(event.defaultPrevented, true);
+  }
+  timestamp += 5;
+  const enter = keyboardEvent("Enter");
+  assert.equal(capture.handleKeyDown(enter), true);
+  assert.equal(enter.defaultPrevented, true);
+  assert.equal(enter.stopped, true);
+  assert.deepEqual(readings, [{ barcode: "7898538751531", capturedAtEpochMs: 1005 }]);
+  assert.equal(timers.size, 0);
+});
+
+test("HID envia automaticamente após silêncio quando o Wedge não acrescenta Enter", () => {
+  let timestamp = 2000;
+  const readings = [];
+  const timers = new Map();
+  let timerId = 0;
+  const capture = createHidScannerCapture({
+    isEnabled: () => true,
+    now: () => timestamp,
+    setTimer: (callback) => { const id = ++timerId; timers.set(id, callback); return id; },
+    clearTimer: (id) => timers.delete(id),
+    onBarcode: (barcode, capturedAtEpochMs) => readings.push({ barcode, capturedAtEpochMs }),
+  });
+  for (const character of "7898538751531") {
+    timestamp += 5;
+    capture.handleKeyDown(keyboardEvent(character));
+  }
+
+  const idleCallback = [...timers.values()].at(-1);
+  idleCallback();
+  assert.deepEqual(readings, [{ barcode: "7898538751531", capturedAtEpochMs: 2005 }]);
+});
+
+test("marcador ERROR do AutoID é tratado como falha, não como código de produto", () => {
+  assert.equal(isScannerNoReadMarker("ERROR"), true);
+  assert.equal(isScannerNoReadMarker("ERROR7898538751531"), true);
+  assert.equal(isScannerNoReadMarker("7898538751531"), false);
+  assert.equal(isScannerNoReadMarker("ERRORABC"), false);
+  assert.match(application, /isScannerNoReadMarker\(barcode\)/);
+  assert.match(application, /value: "Falha na leitura \(sem código\)"/);
+});
+
+test("HID ignora teclas fora da operação e não captura campos editáveis", () => {
+  let enabled = false;
+  const readings = [];
+  const capture = createHidScannerCapture({ isEnabled: () => enabled, onBarcode: (barcode) => readings.push(barcode) });
+  const inactive = keyboardEvent("7");
+  assert.equal(capture.handleKeyDown(inactive), false);
+  assert.equal(inactive.defaultPrevented, false);
+
+  enabled = true;
+  const editable = keyboardEvent("7", { target: { closest: () => ({}) } });
+  assert.equal(capture.handleKeyDown(editable), false);
+  assert.equal(editable.defaultPrevented, false);
+  assert.deepEqual(readings, []);
+});
+
+function keyboardEvent(key, { target = null } = {}) {
+  return {
+    key,
+    target,
+    ctrlKey: false,
+    altKey: false,
+    metaKey: false,
+    defaultPrevented: false,
+    stopped: false,
+    preventDefault() { this.defaultPrevented = true; },
+    stopImmediatePropagation() { this.stopped = true; },
+  };
+}
 
 test("leitura automática aguarda o pulso M2052 e atualiza o carregamento", async () => {
   const requests = [];

@@ -115,7 +115,7 @@ foreach ($key in $keyenceSecretValues.Keys) { $environmentValues[$key] = $keyenc
 Set-TraceEnvValues -Path $envFile -Values $environmentValues
 if ($industrialSettings.scanner_model -eq 'KEYENCE SR-X100W') {
     $firewallRuleName = 'DallogixTraceKeyenceScanner'
-    $readerPorts = @('19000', '2121', '21100-21109')
+    $readerPorts = @('9004', '19000', '2121', '21100-21109')
     $firewallRule = Get-NetFirewallRule -Name $firewallRuleName -ErrorAction SilentlyContinue
     if ($firewallRule) {
         $firewallRule | Set-NetFirewallRule -Enabled True -Direction Inbound -Action Allow -Profile Any
