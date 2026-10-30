@@ -56,14 +56,25 @@ final class ServicoMonitoramento
                 $device["reader_probe_port"] = $probePort !== false && $probePort >= 1 && $probePort <= 65535
                     ? $probePort
                     : null;
+                $probeMethod = strtoupper((string) ($details["reader_probe_method"] ?? ""));
+                $device["reader_probe_method"] = in_array($probeMethod, ["ICMP_PING", "TCP_CONNECT"], true)
+                    ? $probeMethod
+                    : ($device["reader_probe_port"] !== null ? "TCP_CONNECT" : null);
+                $readerIp = filter_var($details["reader_ip"] ?? null, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4);
+                $device["reader_ip"] = $readerIp !== false ? $readerIp : null;
+                $probeCheckedAt = $details["reader_probe_checked_at"] ?? null;
+                $probeCheckedTimestamp = is_string($probeCheckedAt) ? strtotime($probeCheckedAt) : false;
+                $device["reader_probe_checked_at"] = $probeCheckedTimestamp !== false ? $probeCheckedAt : null;
+                $now = time();
+                $probeIsRecent = $probeCheckedTimestamp !== false
+                    && $probeCheckedTimestamp >= $now - 15
+                    && $probeCheckedTimestamp <= $now + 30;
                 $lastReadAt = $details["reader_last_read_at"] ?? null;
                 $lastReadTimestamp = is_string($lastReadAt) ? strtotime($lastReadAt) : false;
-                $lastReadAgeMs = filter_var($details["reader_last_read_age_ms"] ?? null, FILTER_VALIDATE_INT);
-                $recentRead = $lastReadAgeMs !== false && $lastReadAgeMs >= 0
-                    && $lastReadAgeMs <= $scannerSignalLimit * 1000;
-                $device["reader_online_source"] = $device["reader_network_status"] === "ONLINE"
+                $device["reader_online_source"] = $probeIsRecent && $device["reader_network_status"] === "ONLINE"
                     ? "REDE"
-                    : ($recentRead ? "LEITURA" : null);
+                    : null;
+                $device["reader_probe_is_recent"] = $probeIsRecent;
                 $device["scanner_service_status"] = (string) $device["status"];
                 $device["reader_last_read_at"] = $lastReadTimestamp !== false ? $lastReadAt : null;
             }
@@ -79,12 +90,14 @@ final class ServicoMonitoramento
                 // Um heartbeat vencido indica que não há dado recente do agente,
                 // não que o scanner foi fisicamente desconectado.
                 $device["status"] = "DESCONHECIDO";
-            } elseif ($reportedStatus === "ERRO") {
-                $device["status"] = "ERRO";
             } elseif ($deviceType === "SCANNER") {
                 $device["status"] = $device["reader_online_source"] !== null
                     ? "ONLINE"
-                    : ($device["reader_network_status"] === "OFFLINE" ? "OFFLINE" : "DESCONHECIDO");
+                    : ($device["reader_probe_is_recent"] && $device["reader_network_status"] === "OFFLINE"
+                        ? "OFFLINE"
+                        : ($reportedStatus === "ERRO" ? "ERRO" : "DESCONHECIDO"));
+            } elseif ($reportedStatus === "ERRO") {
+                $device["status"] = "ERRO";
             } elseif ($reportedStatus === "DESCONHECIDO") {
                 $device["status"] = "DESCONHECIDO";
             } else {

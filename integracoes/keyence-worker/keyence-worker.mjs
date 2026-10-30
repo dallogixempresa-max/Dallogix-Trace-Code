@@ -1,7 +1,9 @@
 import { createServer as createHttpServer } from "node:http";
-import { createConnection as createTcpConnection, createServer as createTcpServer, isIP } from "node:net";
+import { execFile as execFileCallback } from "node:child_process";
+import { createServer as createTcpServer, isIP } from "node:net";
 import { mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import { createFtpReceiver } from "./ftp-receiver.mjs";
 import { groupImageFrames, isAllowedSourceAddress, isKeyenceNoReadFrame, matchPendingImage, nextUnreservedSensorEventId, parseBarcodeFrame, parseLinuxDefaultGateway, scanEventId, sha256 } from "./keyence-core.mjs";
 import { importArchivedImages } from "./image-archive.mjs";
@@ -15,8 +17,7 @@ const ENABLED = process.env.KEYENCE_ENABLED === "1";
 const API_BASE = (process.env.TRACE_API_URL || "http://nginx").replace(/\/+$/, "");
 const DEVICE_TOKEN = process.env.KEYENCE_DEVICE_TOKEN || "";
 const TCP_PORT = boundedInteger(process.env.KEYENCE_TCP_PORT, 19000, 1, 65535);
-const READER_PROBE_PORT = boundedInteger(process.env.KEYENCE_READER_PROBE_PORT, 80, 1, 65535);
-const READER_PROBE_INTERVAL_MS = 10000;
+const READER_PROBE_INTERVAL_MS = 5000;
 const FTP_CONTROL_PORT = boundedInteger(process.env.KEYENCE_FTP_PORT, 2121, 1, 65535);
 const FTP_PASSIVE_START = boundedInteger(process.env.KEYENCE_FTP_PASSIVE_START, 21100, 1024, 65535);
 const FTP_PASSIVE_END = boundedInteger(process.env.KEYENCE_FTP_PASSIVE_END, 21109, FTP_PASSIVE_START, 65535);
@@ -42,11 +43,13 @@ const HEARTBEAT_MS = boundedInteger(process.env.KEYENCE_HEARTBEAT_MS, 5000, 1000
 const SCANNER_NO_READ_TIMEOUT_MS = boundedInteger(process.env.TRACE_SCANNER_NO_READ_TIMEOUT_MS, 1500, 500, 10000);
 const SCAN_ASSOCIATION_WAIT_MS = Math.max(100, SCANNER_NO_READ_TIMEOUT_MS - 250);
 const MAX_SCAN_BYTES = 2048;
+const execFile = promisify(execFileCallback);
 
 let shuttingDown = false;
 let tcpReachable = false;
 let ftpReachable = false;
 let readerNetworkStatus = "DESCONHECIDO";
+let readerProbeError = "";
 let readerProbeCheckedAt = null;
 let readerProbeAttemptedAt = 0;
 let readerProbeFailures = 0;
@@ -477,7 +480,7 @@ async function processImageQueue() {
 
 async function publishHeartbeat() {
   const archiveUnavailable = Boolean(IMAGE_ARCHIVE_DIR) && imageArchiveAvailable === false;
-  const status = lastError || archiveUnavailable ? "ERRO" : "ONLINE";
+  const status = lastError || readerProbeError || archiveUnavailable ? "ERRO" : "ONLINE";
   await apiRequest("/api/device_heartbeat.php", {
     jsonBody: {
       device_type: "SCANNER",
@@ -488,7 +491,8 @@ async function publishHeartbeat() {
         tcp_output_listening: tcpReachable,
         ftp_image_receiver_listening: ftpReachable,
         reader_network_status: readerNetworkStatus,
-        reader_probe_port: READER_PROBE_PORT,
+        reader_probe_method: "ICMP_PING",
+        reader_ip: TCP_ALLOWED_ADDRESS,
         reader_probe_checked_at: readerProbeCheckedAt,
         reader_last_read_at: readerLastReadAt,
         reader_last_read_age_ms: readerLastReadAtMs === null ? null : Math.max(0, Date.now() - readerLastReadAtMs),
@@ -496,42 +500,38 @@ async function publishHeartbeat() {
         unmatched_image_count: unmatchedImageCount,
         image_archive_directory_available: IMAGE_ARCHIVE_DIR ? imageArchiveAvailable : null,
         ...(archiveUnavailable ? { reason_code: "keyence_image_archive_unavailable" } : {}),
+        ...(readerProbeError ? { reason_code: "keyence_reader_ping_failed" } : {}),
         ...(lastError ? { reason_code: "keyence_worker_error", error: lastError } : {}),
       },
     },
   });
 }
 
-function probeReaderNetwork() {
-  return new Promise((resolve) => {
-    let settled = false;
-    let socket = null;
-    const finish = (reachable) => {
-      if (settled) return;
-      settled = true;
-      readerProbeCheckedAt = new Date().toISOString();
-      if (reachable) {
-        readerNetworkStatus = "ONLINE";
-        readerProbeFailures = 0;
-      } else {
-        readerProbeFailures += 1;
-        if (readerProbeFailures >= 2) readerNetworkStatus = "OFFLINE";
-      }
-      socket?.destroy();
-      resolve(readerNetworkStatus);
-    };
-
-    try {
-      socket = createTcpConnection({ host: TCP_ALLOWED_ADDRESS, port: READER_PROBE_PORT });
-      socket.setTimeout(1500);
-      socket.once("connect", () => finish(true));
-      socket.once("timeout", () => finish(false));
-      socket.once("error", () => finish(false));
-      socket.once("close", () => { if (!settled) finish(false); });
-    } catch {
-      finish(false);
+async function probeReaderNetwork() {
+  let reachable = false;
+  try {
+    await execFile("ping", ["-n", "-c", "1", "-W", "1", TCP_ALLOWED_ADDRESS], {
+      timeout: 2000,
+      maxBuffer: 1024,
+    });
+    reachable = true;
+    readerProbeError = "";
+  } catch (error) {
+    if (error?.code !== 1) {
+      readerProbeError = String(error?.message || error).slice(0, 180);
+      throw new Error("A verificação ICMP do Keyence falhou ao executar o ping.", { cause: error });
     }
-  });
+  }
+
+  readerProbeCheckedAt = new Date().toISOString();
+  if (reachable) {
+    readerNetworkStatus = "ONLINE";
+    readerProbeFailures = 0;
+  } else {
+    readerProbeFailures += 1;
+    readerNetworkStatus = readerProbeFailures >= 2 ? "OFFLINE" : "DESCONHECIDO";
+  }
+  return readerNetworkStatus;
 }
 
 async function refreshReaderNetworkStatus() {
@@ -597,7 +597,8 @@ async function start() {
       tcp_output_listening: tcpReachable,
       ftp_image_receiver_listening: ftpReachable,
       reader_network_status: readerNetworkStatus,
-      reader_probe_port: READER_PROBE_PORT,
+      reader_probe_method: "ICMP_PING",
+      reader_ip: TCP_ALLOWED_ADDRESS,
       reader_probe_checked_at: readerProbeCheckedAt,
       reader_last_read_at: readerLastReadAt,
       reader_last_read_age_ms: readerLastReadAtMs === null ? null : Math.max(0, Date.now() - readerLastReadAtMs),
@@ -654,7 +655,8 @@ async function start() {
   ftpReachable = true;
   log("info", "Entrada TCP e recepção FTP do Keyence ativas.", {
     tcp_port: TCP_PORT,
-    reader_probe_port: READER_PROBE_PORT,
+    reader_probe_method: "ICMP_PING",
+    reader_ip: TCP_ALLOWED_ADDRESS,
     ftp_port: FTP_CONTROL_PORT,
     passive_ports: [FTP_PASSIVE_START, FTP_PASSIVE_END],
     ftp_source_allowlist: FTP_ALLOWED_ADDRESS || "não configurada",

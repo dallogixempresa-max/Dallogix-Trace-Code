@@ -2,7 +2,7 @@ import { button, esc } from "../../js/funcoes/html.js";
 
 const DEVICE_TYPES = [
   ["SENSOR", "Sensor", "Sinal de passagem no CLP"],
-  ["SCANNER", "Leitor KEYENCE", "SR-X100W · Ethernet/TCP"],
+  ["SCANNER", "Leitor", "Leitura automática por HID"],
   ["CLP", "CLP", "Controle da esteira"],
   ["SERVER", "Servidor", "API desta instalação"],
 ];
@@ -44,20 +44,25 @@ export function apresentacaoStatusDispositivo(value, type = "", device = {}) {
         online: false,
         tone: "unknown",
         label: "SEM VÍNCULO",
-        detail: "O leitor KEYENCE ainda não está vinculado a uma Dala.",
+        detail: "O leitor ainda não está vinculado a uma Dala.",
       };
     }
     const probePort = Number(device?.reader_probe_port) || 80;
-    const onlineSource = String(device?.reader_online_source || "").toUpperCase();
+    const probeMethod = String(device?.reader_probe_method || (device?.reader_probe_port ? "TCP_CONNECT" : "")).toUpperCase();
+    const readerIp = String(device?.reader_ip || "");
+    const checkedAt = device?.reader_probe_checked_at ? new Date(device.reader_probe_checked_at) : null;
+    const checkedTime = checkedAt && !Number.isNaN(checkedAt.getTime())
+      ? checkedAt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+      : "";
     if (normalized === "ONLINE") {
       return {
         monitored: true,
         online: true,
         tone: "online",
         label: "ONLINE",
-        detail: onlineSource === "LEITURA"
-          ? "Código recebido recentemente do Keyence; comunicação real confirmada."
-          : `Keyence respondeu na porta ${probePort}; a leitura óptica é confirmada por um código recebido.`,
+        detail: probeMethod === "ICMP_PING"
+          ? `Ping respondeu em ${readerIp || "IP configurado"}${checkedTime ? ` às ${checkedTime}` : ""}. A leitura do código é confirmada no visor da operação.`
+          : `Leitor respondeu na porta ${probePort}; a leitura do código é confirmada no visor da operação.`,
       };
     }
     if (normalized === "OFFLINE") {
@@ -66,7 +71,9 @@ export function apresentacaoStatusDispositivo(value, type = "", device = {}) {
         online: false,
         tone: "offline",
         label: "SEM RESPOSTA",
-        detail: `O Keyence não respondeu na porta ${probePort}; confira endereço, porta e rede.`,
+        detail: probeMethod === "ICMP_PING"
+          ? `Sem resposta ao ping de ${readerIp || "IP configurado"}${checkedTime ? ` às ${checkedTime}` : ""}. Confira leitor, endereço e rede.`
+          : `Leitor sem resposta na porta ${probePort}; confira endereço e rede.`,
       };
     }
     if (normalized === "ERRO") {
@@ -83,7 +90,7 @@ export function apresentacaoStatusDispositivo(value, type = "", device = {}) {
       online: false,
       tone: "unknown",
       label: "NÃO CONFIRMADO",
-      detail: "Aguardando uma checagem recente do endereço de rede do Keyence.",
+      detail: "Aguardando a primeira resposta ao ping do leitor.",
     };
   }
   const online = ["ONLINE", "LOCAL", "OK"].includes(normalized);
@@ -169,7 +176,7 @@ function deviceStatusPanel(store) {
     <div class="settings-device-status-heading"><div><span class="kicker">Status da máquina</span><h3>Dispositivos e serviços</h3><p>Atualização automática enquanto esta tela estiver aberta.</p></div></div>
     <div class="settings-device-status-summary"><div><strong data-device-summary="online-count">${onlineCount}</strong><span>online</span></div><div><strong data-device-summary="attention-count">${attentionCount}</strong><span data-device-summary="attention-label">sem sinal ou com falha</span></div><div><strong data-device-summary="unmonitored-count">${unmonitoredCount}</strong><span>não confirmado</span></div></div>
     <div class="settings-device-status-grid">${cards}</div>
-    <p class="settings-device-status-note">Sensor: leitura Modbus de M2052 e evento de passagem são estados distintos; M2052 em zero não indica defeito físico. Leitor: o Trace verifica a porta de rede do KEYENCE SR-X100W no PC industrial; receber um código confirma também o fluxo de leitura. O serviço do PC, sozinho, não marca o leitor como online.</p>
+    <p class="settings-device-status-note">Sensor: leitura Modbus de M2052 e evento de passagem são estados distintos; M2052 em zero não indica defeito físico. Leitor: o ping confirma resposta na rede; a leitura do código é confirmada no visor da operação, pelo fluxo HID.</p>
   </section><br>`;
 }
 
