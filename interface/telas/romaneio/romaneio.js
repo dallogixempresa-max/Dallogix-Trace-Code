@@ -53,7 +53,7 @@ export function manifestView(store) {
       : "Todos os carregamentos terminaram. Encerre o romaneio para fechar a operação e liberar o relatório final."}</p></div><button class="button primary" data-action="finish-manifest" data-id="${Number(manifest.id)}" type="button"${pendingEvidenceCount > 0 || store.state.manifestActionPending ? " disabled" : ""}>${store.state.manifestActionPending ? "Encerrando…" : "Encerrar romaneio"}</button></section>`
     : "";
   const returnButton = `<button class="button secondary" data-action="goto-manifests" type="button">← Voltar</button>`;
-  const quantitySummary = `<div class="manifest-detail-quantity"><span><small>Programado</small><strong>${numero(manifest.planned_quantity)}</strong></span><span><small>Sacas detectadas</small><strong>${numero(manifest.detected_quantity)}</strong></span><span><small>Códigos válidos</small><strong>${numero(manifest.loaded_quantity)}</strong></span></div>`;
+  const quantitySummary = `<div class="manifest-detail-quantity"><span><small>Programado</small><strong>${numero(manifest.planned_quantity)}</strong></span><span><small>Sacas detectadas</small><strong>${numero(manifest.detected_quantity)}</strong></span><span><small>Itens válidos após retornos</small><strong>${numero(manifest.loaded_quantity)}</strong></span><span><small>Sacas retornadas</small><strong>${numero(manifest.returned_quantity || 0)}</strong></span></div>`;
   return `<div class="manifest-detail-screen" data-status-region="manifest-detail">
 <header class="manifest-detail-header"><h2>Romaneio ${esc(manifest.number)}</h2><div class="manifest-detail-actions">${auditReport}${prepareAction}${accessAction}${cancelLoadingAction}${returnButton}</div></header>${actionFeedbackHtml}
 <div class="manifest-detail-grid">

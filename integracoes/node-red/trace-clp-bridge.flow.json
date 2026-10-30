@@ -167,10 +167,10 @@
         "heartbeat-post"
       ],
       [
-        "sensor-heartbeat-http"
+        "sensor-heartbeat-outbox"
       ],
       [
-        "sensor-event-http"
+        "sensor-event-outbox-enqueue"
       ]
     ]
   },
@@ -655,6 +655,26 @@
     ]
   },
   {
+    "id": "sensor-heartbeat-outbox",
+    "type": "function",
+    "z": "trace-clp-bridge",
+    "name": "Publicar fila local de passagens",
+    "func": "const outbox = global.get('traceSensorEventOutbox');\nif (!outbox || !msg.payload?.details || msg.payload.status !== 'ONLINE') {\n    node.error('Não foi possível confirmar o estado da fila local de passagens.');\n    return null;\n}\noutbox.count().then(count => {\n    msg.payload.details.sensor_event_outbox_pending = count;\n    node.send(msg);\n}).catch(error => node.error(`Não foi possível consultar a fila local do sensor: ${error.message}`, msg));\nreturn null;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 825,
+    "y": 540,
+    "wires": [
+      [
+        "sensor-heartbeat-http"
+      ]
+    ]
+  },
+  {
     "id": "sensor-heartbeat-http",
     "type": "http request",
     "z": "trace-clp-bridge",
@@ -690,6 +710,71 @@
     "x": 1320,
     "y": 540,
     "wires": []
+  },
+  {
+    "id": "sensor-event-outbox-startup",
+    "type": "inject",
+    "z": "trace-clp-bridge",
+    "name": "Reenviar passagens pendentes após iniciar",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": true,
+    "onceDelay": "3",
+    "topic": "",
+    "payload": "",
+    "payloadType": "date",
+    "x": 250,
+    "y": 720,
+    "wires": [
+      [
+        "sensor-event-outbox-replay"
+      ]
+    ]
+  },
+  {
+    "id": "sensor-event-outbox-replay",
+    "type": "function",
+    "z": "trace-clp-bridge",
+    "name": "Recuperar fila durável de passagens",
+    "func": "const outbox = global.get('traceSensorEventOutbox');\nconst baseUrl = String(env.get('TRACE_API_URL') || '').replace(/\\/$/, '');\nconst traceToken = String(env.get('TRACE_DEVICE_TOKEN') || '').trim();\nif (!outbox || !baseUrl || !traceToken || /[,;\\n]/.test(traceToken)) {\n    node.error('Não foi possível iniciar a recuperação da fila de passagens do sensor.');\n    return null;\n}\noutbox.list().then(events => {\n    const messages = events.map(event => ({\n        url: `${baseUrl}/api/sensor_eventos.php`, method: 'POST',\n        headers: { 'X-Device-Token': traceToken, 'Content-Type': 'application/json' },\n        payload: event, sensorEventPayload: event, sensorEventAttempts: 0,\n        traceToken, equipmentId: event.equipment_id,\n    }));\n    if (messages.length) node.warn(`Recuperando ${messages.length} passagem(ns) do sensor que aguardam confirmação.`);\n    if (messages.length) node.send(messages);\n}).catch(error => node.error(`Falha ao ler a fila durável do sensor: ${error.message}`));\nreturn null;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 530,
+    "y": 720,
+    "wires": [
+      [
+        "sensor-event-http"
+      ]
+    ]
+  },
+  {
+    "id": "sensor-event-outbox-enqueue",
+    "type": "function",
+    "z": "trace-clp-bridge",
+    "name": "Persistir passagem antes do envio",
+    "func": "const outbox = global.get('traceSensorEventOutbox');\nconst event = msg.sensorEventPayload || msg.payload;\nif (!outbox || !event) {\n    node.error('Passagem do sensor sem fila durável ou payload.');\n    return null;\n}\noutbox.enqueue(event).then(() => {\n    msg.payload = event;\n    msg.sensorEventPayload = event;\n    msg.sensorEventAttempts = 0;\n    node.send(msg);\n}).catch(error => node.error(`Não foi possível persistir a passagem ${event.event_uuid || 'desconhecida'}: ${error.message}`, msg));\nreturn null;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 845,
+    "y": 600,
+    "wires": [
+      [
+        "sensor-event-http"
+      ]
+    ]
   },
   {
     "id": "sensor-event-http",
@@ -770,7 +855,7 @@
     "type": "function",
     "z": "trace-clp-bridge",
     "name": "Repetir POST da passagem com segurança",
-    "func": "const status = Number(msg.statusCode || 0);\nconst attempt = Math.max(0, Number(msg.sensorEventAttempts) || 0);\nconst retryable = Boolean(msg.error) || status === 0 || status === 408 || status === 429 || status >= 500;\nif (!retryable) return [msg, null];\nif (attempt >= 3) {\n    const eventUuid = String(msg.sensorEventPayload?.event_uuid || 'desconhecido');\n    const totalAttempts = attempt + 1;\n    node.error(`Falha ao registrar passagem ${eventUuid} após ${totalAttempts} tentativas; HTTP ${status || 'sem resposta'}.`);\n    msg.payload = { delivery_status: 'ERRO', event_uuid: eventUuid, attempts: totalAttempts, status_code: status || null };\n    return [msg, null];\n}\nconst retryMessage = { ...msg, payload: msg.sensorEventPayload || msg.payload, sensorEventAttempts: attempt + 1 };\ndelete retryMessage.error;\ndelete retryMessage.statusCode;\nconst delayMs = [150, 350, 700][attempt];\nsetTimeout(() => node.send([null, retryMessage]), delayMs);\nreturn [null, null];",
+    "func": "const status = Number(msg.statusCode || 0);\nconst event = msg.sensorEventPayload || msg.payload;\nconst eventUuid = String(event?.event_uuid || '');\nconst attempt = Math.max(0, Number(msg.sensorEventAttempts) || 0);\nconst accepted = !msg.error && status >= 200 && status < 300;\nconst scheduleRetry = (source, reason) => {\n    const nextAttempt = attempt + 1;\n    if (attempt === 0 || (attempt & (attempt - 1)) === 0) {\n        node.warn(`Passagem ${eventUuid || 'sem UUID'} segue preservada na fila local; tentativa ${nextAttempt}, HTTP ${status || 'sem resposta'}${reason ? ` (${reason})` : ''}.`);\n    }\n    const retryMessage = { ...source, payload: event, sensorEventPayload: event, sensorEventAttempts: nextAttempt };\n    delete retryMessage.error;\n    delete retryMessage.statusCode;\n    delete retryMessage.responseUrl;\n    const delayMs = Math.min(60000, 1000 * (2 ** Math.min(attempt, 6)));\n    setTimeout(() => node.send([null, retryMessage]), delayMs);\n};\nif (accepted) {\n    if (!eventUuid) {\n        node.error('Resposta positiva do servidor sem UUID para confirmar na fila local.');\n        return [msg, null];\n    }\n    const outbox = global.get('traceSensorEventOutbox');\n    if (!outbox) {\n        scheduleRetry(msg, 'fila local indisponível para confirmação');\n        return [null, null];\n    }\n    outbox.acknowledge(eventUuid).then(() => node.send([msg, null])).catch(error => {\n        msg.statusCode = 0;\n        scheduleRetry(msg, error.message);\n    });\n    return [null, null];\n}\nscheduleRetry(msg, msg.error?.message || (status ? `resposta HTTP ${status}` : 'sem resposta'));\nreturn [null, null];",
     "outputs": 2,
     "timeout": 0,
     "noerr": 0,

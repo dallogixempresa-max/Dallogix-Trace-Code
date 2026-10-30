@@ -110,9 +110,9 @@ final class RepositorioLeituras
 
     /**
      * Soma itens da empresa, do romaneio e do caminhão, incluindo itens globais.
-     * A contagem por produto considera somente leituras válidas deste carregamento.
+     * Quantidades líquidas descontam os retornos já associados às leituras válidas.
      *
-     * @return array{loading_planned_quantity:int,product_planned_quantity:int,product_valid_count:int}
+     * @return array{loading_planned_quantity:int,loading_valid_count:int,product_planned_quantity:int,product_valid_count:int}
      */
     public function obterQuantidadesParaClassificar(
         int $companyId,
@@ -123,7 +123,15 @@ final class RepositorioLeituras
     ): array {
         if ($productId === null) {
             $statement = $this->connection->prepare(
-                "SELECT COALESCE(SUM(ri.planned_quantity), 0) AS loading_planned_quantity
+                "SELECT COALESCE(SUM(ri.planned_quantity), 0) AS loading_planned_quantity,
+                        GREATEST(0,
+                            (SELECT COUNT(*) FROM leituras l
+                             WHERE l.company_id = :reading_company_id
+                               AND l.carregamento_id = :loading_id
+                               AND l.result = 'VALIDO')
+                            - (SELECT COALESCE(SUM(r.quantity), 0) FROM retornos r
+                               WHERE r.carregamento_id = :return_loading_id)
+                        ) AS loading_valid_count
                  FROM romaneio_itens ri
                  WHERE ri.company_id = :company_id
                    AND ri.romaneio_id = :manifest_id
@@ -133,11 +141,15 @@ final class RepositorioLeituras
                 "company_id" => $companyId,
                 "manifest_id" => $manifestId,
                 "truck_id" => $truckId,
+                "reading_company_id" => $companyId,
+                "loading_id" => $loadingId,
+                "return_loading_id" => $loadingId,
             ]);
-            $plannedQuantity = (int) ($statement->fetchColumn() ?: 0);
+            $row = $statement->fetch(PDO::FETCH_ASSOC) ?: [];
 
             return [
-                "loading_planned_quantity" => $plannedQuantity,
+                "loading_planned_quantity" => (int) ($row["loading_planned_quantity"] ?? 0),
+                "loading_valid_count" => (int) ($row["loading_valid_count"] ?? 0),
                 "product_planned_quantity" => 0,
                 "product_valid_count" => 0,
             ];
@@ -147,14 +159,31 @@ final class RepositorioLeituras
             "SELECT COALESCE(SUM(ri.planned_quantity), 0) AS loading_planned_quantity,
                     COALESCE(SUM(CASE WHEN ri.product_id = :planned_product_id
                                       THEN ri.planned_quantity ELSE 0 END), 0) AS product_planned_quantity,
-                    COALESCE((
+                    GREATEST(0,
+                        (SELECT COUNT(*)
+                         FROM leituras l
+                         WHERE l.company_id = :loading_reading_company_id
+                           AND l.carregamento_id = :loading_count_id
+                           AND l.result = 'VALIDO')
+                        - (SELECT COALESCE(SUM(r.quantity), 0)
+                           FROM retornos r
+                           WHERE r.carregamento_id = :loading_return_id)
+                    ) AS loading_valid_count,
+                    GREATEST(0, COALESCE((
                         SELECT COUNT(*)
                         FROM leituras l
                         WHERE l.company_id = :reading_company_id
                           AND l.carregamento_id = :loading_id
                           AND l.product_id = :count_product_id
                           AND l.result = 'VALIDO'
-                    ), 0) AS product_valid_count
+                    ), 0) - COALESCE((
+                        SELECT SUM(r.quantity)
+                        FROM retornos r
+                        JOIN leituras lr ON lr.id = r.leitura_id
+                        WHERE r.carregamento_id = :product_return_loading_id
+                          AND lr.company_id = :return_reading_company_id
+                          AND lr.product_id = :return_product_id
+                    ), 0)) AS product_valid_count
              FROM romaneio_itens ri
              WHERE ri.company_id = :company_id
                AND ri.romaneio_id = :manifest_id
@@ -162,9 +191,15 @@ final class RepositorioLeituras
         );
         $statement->execute([
             "planned_product_id" => $productId,
+            "loading_reading_company_id" => $companyId,
+            "loading_count_id" => $loadingId,
+            "loading_return_id" => $loadingId,
             "reading_company_id" => $companyId,
             "loading_id" => $loadingId,
             "count_product_id" => $productId,
+            "product_return_loading_id" => $loadingId,
+            "return_reading_company_id" => $companyId,
+            "return_product_id" => $productId,
             "company_id" => $companyId,
             "manifest_id" => $manifestId,
             "truck_id" => $truckId,
@@ -173,6 +208,7 @@ final class RepositorioLeituras
 
         return [
             "loading_planned_quantity" => (int) ($row["loading_planned_quantity"] ?? 0),
+            "loading_valid_count" => (int) ($row["loading_valid_count"] ?? 0),
             "product_planned_quantity" => (int) ($row["product_planned_quantity"] ?? 0),
             "product_valid_count" => (int) ($row["product_valid_count"] ?? 0),
         ];

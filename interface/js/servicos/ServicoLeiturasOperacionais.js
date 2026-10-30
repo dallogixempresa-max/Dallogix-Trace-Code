@@ -52,7 +52,7 @@ export class ServicoLeiturasOperacionais {
 
   async registerScannerReading(rawBarcode, scannerReceivedAtEpochMs = Date.now()) {
     const loadingId = Number(this.state.loadingId) || 0;
-    if (!loadingId || !["CARREGANDO", "FINALIZANDO"].includes(this.state.operationalState)) {
+    if (!loadingId || !["CARREGANDO", "FINALIZANDO", "PAUSADO"].includes(this.state.operationalState)) {
       throw new Error("Não há carregamento ativo para associar a leitura do leitor.");
     }
 

@@ -66,6 +66,11 @@ $statement = $pdo->prepare(
             FROM leituras l
             JOIN carregamentos c ON c.id = l.carregamento_id
             GROUP BY c.romaneio_id
+        ), retornos_por_romaneio AS (
+            SELECT c.romaneio_id, SUM(ret.quantity) AS returned_quantity
+            FROM retornos ret
+            JOIN carregamentos c ON c.id = ret.carregamento_id
+            GROUP BY c.romaneio_id
         ), ocorrencias_por_romaneio AS (
             SELECT c.romaneio_id, COUNT(*) AS occurrences
             FROM ocorrencias o
@@ -79,7 +84,8 @@ $statement = $pdo->prepare(
      SELECT r.id, r.number, r.scheduled_date, r.status, r.expedidor,
             MAX(rt.plate) AS plate,
             COALESCE(qp.planned_quantity, 0) AS planned_quantity,
-            COALESCE(lpr.loaded_quantity, 0) AS loaded_quantity,
+            GREATEST(0, COALESCE(lpr.loaded_quantity, 0) - COALESCE(rpr.returned_quantity, 0)) AS loaded_quantity,
+            COALESCE(rpr.returned_quantity, 0) AS returned_quantity,
             COALESCE(lpr.no_readings, 0) AS no_readings,
             COALESCE(lpr.wrong_products, 0) AS wrong_products,
             COALESCE(opr.occurrences, 0) AS occurrences,
@@ -89,13 +95,14 @@ $statement = $pdo->prepare(
      LEFT JOIN romaneio_caminhoes rt ON rt.romaneio_id = r.id
      LEFT JOIN quantidades_planejadas qp ON qp.romaneio_id = r.id
      LEFT JOIN leituras_por_resultado lpr ON lpr.romaneio_id = r.id
+     LEFT JOIN retornos_por_romaneio rpr ON rpr.romaneio_id = r.id
      LEFT JOIN ocorrencias_por_romaneio opr ON opr.romaneio_id = r.id
      LEFT JOIN carregamento_recente c ON c.romaneio_id = r.id AND c.rn = 1
      WHERE " .
         implode(" AND ", $conditions) .
         "
      GROUP BY r.id, c.id, qp.planned_quantity, lpr.loaded_quantity, lpr.no_readings,
-              lpr.wrong_products, opr.occurrences
+              lpr.wrong_products, rpr.returned_quantity, opr.occurrences
      ORDER BY r.scheduled_date DESC, r.id DESC",
 );
 $statement->execute($params);
@@ -105,6 +112,7 @@ $summary = [
     "romaneios" => count($rows),
     "planejado" => 0,
     "carregado" => 0,
+    "retornado" => 0,
     "ocorrencias" => 0,
     "sem_leitura" => 0,
     "produto_incorreto" => 0,
@@ -115,6 +123,7 @@ foreach ($rows as &$row) {
         [
             "planned_quantity",
             "loaded_quantity",
+            "returned_quantity",
             "no_readings",
             "wrong_products",
             "occurrences",
@@ -135,6 +144,7 @@ foreach ($rows as &$row) {
             : 0;
     $summary["planejado"] += $row["planned_quantity"];
     $summary["carregado"] += $row["loaded_quantity"];
+    $summary["retornado"] += $row["returned_quantity"];
     $summary["ocorrencias"] += $row["occurrences"];
     $summary["sem_leitura"] += $row["no_readings"];
     $summary["produto_incorreto"] += $row["wrong_products"];

@@ -24,7 +24,7 @@ if ($action === "FINALIZE_EXPIRED") {
         $loadingStatement = $pdo->prepare(
             "SELECT id FROM carregamentos
              WHERE equipment_id = :equipment_id AND company_id = :company_id
-               AND state IN ('CARREGANDO', 'FINALIZANDO')
+               AND state IN ('CARREGANDO', 'FINALIZANDO', 'PAUSADO')
              ORDER BY id DESC LIMIT 1 FOR UPDATE",
         );
         $loadingStatement->execute([
@@ -248,7 +248,7 @@ try {
     }
     if (
         !$loading ||
-        (!in_array($loading["state"], ["CARREGANDO", "FINALIZANDO"], true) && !$historicalEventWithinLoading)
+        (!in_array($loading["state"], ["CARREGANDO", "FINALIZANDO", "PAUSADO"], true) && !$historicalEventWithinLoading)
     ) {
         $pdo->rollBack();
         json_response(
@@ -339,6 +339,42 @@ try {
         "equipment_id" => $equipmentId,
     ]);
     $detectedBags = (int) $detected->fetchColumn();
+    $nearEndWarning = null;
+    $remainingQuantity = $plannedQuantity - $detectedBags;
+    $warningThreshold = $plannedQuantity > 0
+        ? max(1, (int) ceil($plannedQuantity * 0.1))
+        : 0;
+    if ($remainingQuantity > 0 && $remainingQuantity <= $warningThreshold) {
+        $existingWarning = $pdo->prepare(
+            "SELECT 1 FROM logs_auditoria
+             WHERE company_id = :company_id AND action = 'ALERTA_FIM_CARGA'
+               AND entity_type = 'carregamento' AND entity_id = :loading_id LIMIT 1",
+        );
+        $existingWarning->execute([
+            "company_id" => $device["company_id"],
+            "loading_id" => $loadingId,
+        ]);
+        if (!$existingWarning->fetchColumn()) {
+            $nearEndWarning = sprintf(
+                "A carga está próxima do fim: faltam %d sacas para a quantidade prevista.",
+                $remainingQuantity,
+            );
+            record_operational_event(
+                $pdo,
+                ["id" => null, "company_id" => $device["company_id"]],
+                "ALERTA_FIM_CARGA",
+                "carregamento",
+                (int) $loadingId,
+                [
+                    "planned_quantity" => $plannedQuantity,
+                    "detected_bags" => $detectedBags,
+                    "remaining_quantity" => $remainingQuantity,
+                    "threshold" => $warningThreshold,
+                    "message" => $nearEndWarning,
+                ],
+            );
+        }
+    }
     $becameFinalizing = false;
     if ($loading["state"] === "CARREGANDO" && $plannedQuantity > 0 && $detectedBags >= $plannedQuantity) {
         $transition = $pdo->prepare(
@@ -351,60 +387,31 @@ try {
         ]);
         $becameFinalizing = $transition->rowCount() === 1;
         if ($becameFinalizing) {
-            $trigger = $pdo->prepare(
-                "SELECT a.id, a.comando, a.rotulo
-                 FROM gatilhos_dala g
-                 JOIN acoes_dala a ON a.id = g.acao_id AND a.visivel = 1
-                   AND a.company_id = g.company_id AND a.equipment_id = g.equipment_id
-                 WHERE g.company_id = :company_id AND g.equipment_id = :equipment_id
-                   AND g.evento = 'QUANTIDADE_PLANEJADA_ATINGIDA' AND g.ativo = 1
-                 ORDER BY g.id LIMIT 1",
+            $targetAlreadyRecorded = $pdo->prepare(
+                "SELECT 1 FROM logs_auditoria
+                 WHERE company_id = :company_id AND action = 'QUANTIDADE_PLANEJADA_ATINGIDA'
+                   AND entity_type = 'carregamento' AND entity_id = :loading_id LIMIT 1",
             );
-            $trigger->execute([
+            $targetAlreadyRecorded->execute([
                 "company_id" => $device["company_id"],
-                "equipment_id" => $equipmentId,
+                "loading_id" => $loadingId,
             ]);
-            $configuredAction = $trigger->fetch();
-            if ($configuredAction) {
-                $queue = $pdo->prepare(
-                    "INSERT INTO solicitacoes_comandos_clp
-                     (company_id, equipment_id, carregamento_id, command, requested_by)
-                     VALUES (:company_id, :equipment_id, :carregamento_id, :command, NULL)",
-                );
-                $queue->execute([
-                    "company_id" => $device["company_id"],
-                    "equipment_id" => $equipmentId,
-                    "carregamento_id" => $loadingId,
-                    "command" => $configuredAction["comando"],
-                ]);
+            if (!$targetAlreadyRecorded->fetchColumn()) {
                 record_operational_event(
                     $pdo,
                     ["id" => null, "company_id" => $device["company_id"]],
-                    "GATILHO_DALA_DISPARADO",
-                    "solicitacao_comando_clp",
-                    (int) $pdo->lastInsertId(),
+                    "QUANTIDADE_PLANEJADA_ATINGIDA",
+                    "carregamento",
+                    (int) $loadingId,
                     [
-                        "carregamento_id" => (int) $loadingId,
-                        "evento" => "QUANTIDADE_PLANEJADA_ATINGIDA",
-                        "acao" => $configuredAction["comando"],
-                        "rotulo" => $configuredAction["rotulo"],
-                        "gateway_clp_required" => true,
+                        "planned_quantity" => $plannedQuantity,
+                        "detected_bags" => $detectedBags,
+                        "valid_readings" => null,
+                        "automatic_stop" => false,
+                        "operator_action" => "PARAR_ESTEIRA_MANUALMENTE",
                     ],
                 );
             }
-            record_operational_event(
-                $pdo,
-                ["id" => null, "company_id" => $device["company_id"]],
-                "QUANTIDADE_PLANEJADA_ATINGIDA",
-                "carregamento",
-                (int) $loadingId,
-                [
-                    "planned_quantity" => $plannedQuantity,
-                    "detected_bags" => $detectedBags,
-                    "valid_readings" => null,
-                    "gatilho_configurado" => $configuredAction["comando"] ?? null,
-                ],
-            );
         }
     }
     $pdo->commit();
@@ -417,6 +424,8 @@ try {
                 "duplicate" => false,
                 "detected_bags" => $detectedBags,
                 "planned_quantity" => $plannedQuantity,
+                "operator_warning" => $nearEndWarning,
+                "automatic_stop" => false,
                 "load_status" => ($loading["state"] === "FINALIZANDO" || $becameFinalizing)
                     ? "COMPLETO" : "EM_ANDAMENTO",
                 "image_action" => "AGUARDANDO_RESULTADO_LEITURA",

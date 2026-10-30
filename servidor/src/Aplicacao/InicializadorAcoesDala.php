@@ -39,19 +39,5 @@ final class InicializadorAcoesDala
             ]);
         }
 
-        $stop = $connection->prepare(
-            "SELECT id FROM acoes_dala
-             WHERE equipment_id = :equipment_id AND comando = 'PAUSAR_CARREGAMENTO' LIMIT 1",
-        );
-        $stop->execute(["equipment_id" => $equipmentId]);
-        $trigger = $connection->prepare(
-            "INSERT INTO gatilhos_dala (company_id, equipment_id, evento, acao_id)
-             VALUES (:company_id, :equipment_id, 'QUANTIDADE_PLANEJADA_ATINGIDA', :acao_id)",
-        );
-        $trigger->execute([
-            "company_id" => $companyId,
-            "equipment_id" => $equipmentId,
-            "acao_id" => $stop->fetchColumn() ?: null,
-        ]);
     }
 }

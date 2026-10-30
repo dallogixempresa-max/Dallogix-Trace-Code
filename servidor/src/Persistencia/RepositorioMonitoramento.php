@@ -210,14 +210,14 @@ final class RepositorioMonitoramento
                 FROM leituras l
                 JOIN carregamentos_ativos ca
                   ON ca.id = l.carregamento_id AND ca.company_id = l.company_id
-            ), alertas_fim_produto AS (
+            ), alertas_fim_carga AS (
                 SELECT la.entity_id AS carregamento_id,
                        JSON_UNQUOTE(JSON_EXTRACT(la.metadata, '$.message')) AS end_product_alert,
                        ROW_NUMBER() OVER (PARTITION BY la.entity_id ORDER BY la.id DESC) AS rn
                 FROM logs_auditoria la
                 JOIN carregamentos_ativos ca ON ca.id = la.entity_id
                 WHERE la.company_id = :company_id_alertas
-                  AND la.action = 'ALERTA_FIM_PRODUTO'
+                  AND la.action IN ('ALERTA_FIM_CARGA', 'ALERTA_FIM_PRODUTO')
                   AND la.entity_type = 'carregamento'
             )
             SELECT ca.id, ca.state, ca.equipment_id, ca.started_at, ca.finished_at,
@@ -239,7 +239,7 @@ final class RepositorioMonitoramento
               ON ed.carregamento_id = ca.id AND ed.equipment_id = ca.equipment_id
             LEFT JOIN leituras_recentes lr
               ON lr.carregamento_id = ca.id AND lr.rn = 1
-            LEFT JOIN alertas_fim_produto afp
+            LEFT JOIN alertas_fim_carga afp
               ON afp.carregamento_id = ca.id AND afp.rn = 1
             ORDER BY ca.id DESC",
             [
@@ -267,6 +267,7 @@ final class RepositorioMonitoramento
         )));
         $loadingPlaceholders = [];
         $readingPlaceholders = [];
+        $returnReadingPlaceholders = [];
         $params = [
             "company_id" => $companyId,
             "reading_company_id" => $companyId,
@@ -278,6 +279,9 @@ final class RepositorioMonitoramento
             $readingName = "reading_loading_id_{$index}";
             $readingPlaceholders[] = ":{$readingName}";
             $params[$readingName] = $loadingId;
+            $returnReadingName = "return_reading_loading_id_{$index}";
+            $returnReadingPlaceholders[] = ":{$returnReadingName}";
+            $params[$returnReadingName] = $loadingId;
         }
 
         $items = $this->consultar(
@@ -288,10 +292,16 @@ final class RepositorioMonitoramento
                   AND l.result = 'VALIDO'
                   AND l.carregamento_id IN (" . implode(", ", $readingPlaceholders) . ")
                 GROUP BY l.carregamento_id, l.product_id
+            ), retornos_por_item AS (
+                SELECT r.carregamento_id, l.product_id, SUM(r.quantity) AS returned_quantity
+                FROM retornos r
+                JOIN leituras l ON l.id = r.leitura_id
+                WHERE r.carregamento_id IN (" . implode(", ", $returnReadingPlaceholders) . ")
+                GROUP BY r.carregamento_id, l.product_id
             )
             SELECT c.id AS loading_id, ri.product_id, p.name, p.code,
                    SUM(ri.planned_quantity) AS planned_quantity,
-                   COALESCE(lv.loaded_quantity, 0) AS loaded_quantity
+                   GREATEST(0, COALESCE(lv.loaded_quantity, 0) - COALESCE(ret.returned_quantity, 0)) AS loaded_quantity
             FROM carregamentos c
             JOIN romaneio_itens ri
               ON ri.romaneio_id = c.romaneio_id
@@ -299,9 +309,11 @@ final class RepositorioMonitoramento
             JOIN produtos p ON p.id = ri.product_id
             LEFT JOIN leituras_validas lv
               ON lv.carregamento_id = c.id AND lv.product_id = ri.product_id
+            LEFT JOIN retornos_por_item ret
+              ON ret.carregamento_id = c.id AND ret.product_id = ri.product_id
             WHERE c.company_id = :company_id
               AND c.id IN (" . implode(", ", $loadingPlaceholders) . ")
-            GROUP BY c.id, ri.product_id, p.name, p.code, lv.loaded_quantity
+            GROUP BY c.id, ri.product_id, p.name, p.code, lv.loaded_quantity, ret.returned_quantity
             ORDER BY c.id DESC, ri.product_id",
             $params,
         );

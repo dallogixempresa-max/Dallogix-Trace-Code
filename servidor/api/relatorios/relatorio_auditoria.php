@@ -206,9 +206,12 @@ $firstLoad = $loadRows[0] ?? [];
 $lastLoad = $loadRows !== [] ? $loadRows[array_key_last($loadRows)] : [];
 
 $items = $pdo->prepare("SELECT p.name, COALESCE(MIN(pc.barcode), p.code, '—') AS barcode, SUM(ri.planned_quantity) AS planned_quantity,
-    COALESCE((SELECT COUNT(*) FROM leituras l JOIN carregamentos c ON c.id = l.carregamento_id
+    GREATEST(0, COALESCE((SELECT COUNT(*) FROM leituras l JOIN carregamentos c ON c.id = l.carregamento_id
       WHERE c.romaneio_id = ri.romaneio_id AND l.product_id = ri.product_id
-        AND l.result = 'VALIDO'), 0) AS moved_quantity
+        AND l.result = 'VALIDO'), 0) - COALESCE((SELECT SUM(ret.quantity) FROM retornos ret
+      JOIN carregamentos c ON c.id = ret.carregamento_id
+      JOIN leituras lr ON lr.id = ret.leitura_id
+      WHERE c.romaneio_id = ri.romaneio_id AND lr.product_id = ri.product_id), 0)) AS moved_quantity
     FROM romaneio_itens ri JOIN produtos p ON p.id = ri.product_id
     LEFT JOIN codigos_produtos pc ON pc.product_id = p.id AND pc.company_id = p.company_id
     WHERE ri.romaneio_id = ?
@@ -225,6 +228,7 @@ $loadOrderById = [];
 $operationSummary = [
     "passages" => 0,
     "valid_readings" => 0,
+    "returned_bags" => 0,
     "no_reads" => 0,
     "no_read_images" => 0,
 ];
@@ -268,6 +272,11 @@ if ($loadIds !== []) {
             $operationSummary["valid_readings"] = (int) $readingCount["quantity"];
         }
     }
+    $returnCount = $pdo->prepare(
+        "SELECT COALESCE(SUM(quantity), 0) FROM retornos WHERE carregamento_id IN ({$placeholders})",
+    );
+    $returnCount->execute($loadIds);
+    $operationSummary["returned_bags"] = (int) $returnCount->fetchColumn();
 
     $noReadQuery = $pdo->prepare(
         "SELECT l.id, l.sensor_event_id, l.carregamento_id, l.read_at,
@@ -392,6 +401,7 @@ $report->escreverTitulo("Resumo da operação");
 $report->escreverCartoesResumo([
     "Sacas detectadas pelo sensor M2052" => $operationSummary["passages"],
     "Leituras válidas" => $operationSummary["valid_readings"],
+    "Sacas retornadas" => $operationSummary["returned_bags"],
     "Falhas sem leitura" => $operationSummary["no_reads"],
     "Fotos de falha anexadas" => $operationSummary["no_read_images"],
 ]);

@@ -20,7 +20,7 @@ jobs:
         with:
           node-version: 22
       - name: Test scanner ingestion, operation display, and image association
-        run: node --test testes/keyence-worker.mjs testes/scanner-display.mjs
+        run: node --test testes/keyence-worker.mjs testes/scanner-display.mjs testes/node-red-sensor-outbox.mjs
       - name: Build Keyence worker image
         run: docker build --file integracoes/keyence-worker/Dockerfile --tag trace-keyence-worker:ci integracoes/keyence-worker
       - name: Validate industrial Docker Compose configuration

@@ -29,6 +29,7 @@ const INBOX_DIR = process.env.KEYENCE_INBOX_DIR || "/var/lib/trace/keyence-inbox
 const IMAGE_ARCHIVE_DIR = process.env.KEYENCE_IMAGE_ARCHIVE_DIR || "";
 const SCAN_QUEUE_DIR = join(INBOX_DIR, "scans");
 const FAILED_SCAN_DIR = join(INBOX_DIR, "failed-scans");
+const QUARANTINE_DIR = join(INBOX_DIR, "quarantine");
 const TCP_BIND_ADDRESS = process.env.KEYENCE_SERVICE_BIND || "0.0.0.0";
 const IMAGE_MATCH_WINDOW_MS = boundedInteger(process.env.KEYENCE_IMAGE_MATCH_WINDOW_MS, 3000, 1000, 60000);
 const IMAGE_ARCHIVE_MATCH_WINDOW_MS = boundedInteger(process.env.KEYENCE_IMAGE_ARCHIVE_MATCH_WINDOW_MS, 1500, 500, 10000);
@@ -323,6 +324,35 @@ async function removeImageGroup(group, keepName = "") {
   }
 }
 
+async function quarantineImageGroup(group, reason, details = {}) {
+  await mkdir(QUARANTINE_DIR, { recursive: true, mode: 0o770 });
+  const quarantined = [];
+  for (const frame of group.frames) {
+    const source = join(INBOX_DIR, frame.name);
+    const destination = join(QUARANTINE_DIR, frame.name);
+    try {
+      await rename(source, destination);
+      quarantined.push(frame.name);
+      unmatchedImageCount = Math.max(0, unmatchedImageCount - 1);
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+  }
+  if (quarantined.length > 0) {
+    await writeFile(
+      join(QUARANTINE_DIR, `${quarantined[0]}.json`),
+      JSON.stringify({ quarantined_at: new Date().toISOString(), reason, files: quarantined, ...details }, null, 2),
+      { mode: 0o600 },
+    );
+    log("warn", "Imagem Keyence preservada na quarentena para revisão.", {
+      reason,
+      image_count: quarantined.length,
+      files: quarantined,
+      ...details,
+    });
+  }
+}
+
 async function processImageQueue() {
   if (processingImages || shuttingDown || !ftpReachable || !DEVICE_TOKEN) return;
   processingImages = true;
@@ -351,8 +381,7 @@ async function processImageQueue() {
     for (const name of names) {
       const receivedAt = Number(name.slice(0, 13));
       if (Number.isFinite(receivedAt) && Date.now() - receivedAt > IMAGE_MAX_AGE_MS) {
-        await unlink(join(INBOX_DIR, name));
-        log("warn", "Imagem Keyence sem evento compatível foi removida após o prazo de associação.", {
+        await quarantineImageGroup({ frames: [{ name, receivedAt }] }, "prazo_de_associacao_expirado", {
           sha256: name.slice(15, 79),
         });
       }
@@ -392,12 +421,10 @@ async function processImageQueue() {
             });
           }
         } else if (Date.now() - receivedAt > matchWindowMs + IMAGE_SETTLE_MS) {
-          await removeImageGroup(group);
-          loggedAmbiguousImageGroups.delete(groupKey);
-          log("warn", "Imagem Keyence sem solicitação compatível; o arquivo foi descartado.", {
-            image_count: group.frames.length,
+          await quarantineImageGroup(group, "sem_solicitacao_compativel", {
             sha256: group.representative.name.slice(15, 79),
           });
+          loggedAmbiguousImageGroups.delete(groupKey);
         }
         continue;
       }
@@ -432,8 +459,7 @@ async function processImageQueue() {
         }
         setError(error);
         if (Number(error.status) >= 400 && Number(error.status) < 500 && error.status !== 429) {
-          await removeImageGroup(group);
-          log("error", "Imagem Keyence rejeitada pela API e descartada.", {
+          await quarantineImageGroup(group, "api_rejeitou_imagem", {
             request_id: Number(match.request.id),
             http_status: error.status,
             reason: lastError,

@@ -137,7 +137,7 @@ if ($loading["state"] === "EMERGENCIA") {
         423,
     );
 }
-if (!in_array($loading["state"], ["CARREGANDO", "FINALIZANDO"], true)) {
+if (!in_array($loading["state"], ["CARREGANDO", "FINALIZANDO", "PAUSADO"], true)) {
     $pdo->rollBack();
     responder_json(
         ["error" => "Leitura ignorada: a esteira está em {$loading["state"]}."],
@@ -145,7 +145,7 @@ if (!in_array($loading["state"], ["CARREGANDO", "FINALIZANDO"], true)) {
     );
 }
 
-$loadingValidCount = (int) $loading["leituras_validas"];
+$loadingValidCount = 0;
 $scannerMatch = null;
 if (($barcode !== "" || $noRead) && ($dispositivoScanner !== null || !$sensorEventId)) {
     $scannerMatch = trace_pending_scanner_event_match(
@@ -172,6 +172,13 @@ if (($barcode !== "" || $noRead) && !$sensorEventId) {
     $pdo->rollBack();
     responder_json(
         ["error" => "Leitura aguardando o evento de passagem do sensor M2052."],
+        409,
+    );
+}
+if ($loading["state"] === "PAUSADO" && !$sensorEventId) {
+    $pdo->rollBack();
+    responder_json(
+        ["error" => "A esteira está parada; só é aceita a leitura que corresponde a uma passagem já detectada pelo sensor."],
         409,
     );
 }
@@ -237,6 +244,7 @@ $quantities = $readingRepository->obterQuantidadesParaClassificar(
     $matchedProductId,
 );
 $loadingPlannedQuantity = $quantities["loading_planned_quantity"];
+$loadingValidCount = $quantities["loading_valid_count"];
 $productPlannedQuantity = $quantities["product_planned_quantity"];
 $productValidCount = $quantities["product_valid_count"];
 $classification = (new ClassificadorLeitura())->classificar(
@@ -251,38 +259,6 @@ $result = $classification["result"];
 $productId = $classification["product_id"];
 $productPlannedQuantity = $classification["product_planned_quantity"];
 $productValidCount = $classification["product_valid_count"];
-
-$endProductAlert = null;
-$alertThreshold = limite_alerta_fim_produto_sacas();
-if ($result === "VALIDO" && $productId !== null && $productPlannedQuantity > 0) {
-    $productValidCountAfter = $productValidCount + 1;
-    $productRemainingAfter = max(0, $productPlannedQuantity - $productValidCountAfter);
-    $alertAlreadyRecorded = false;
-    if ($productRemainingAfter > 0 && $productRemainingAfter <= $alertThreshold) {
-        $alertStatement = $pdo->prepare(
-            "SELECT 1
-             FROM logs_auditoria
-             WHERE company_id = :company_id
-               AND action = 'ALERTA_FIM_PRODUTO'
-               AND entity_type = 'carregamento'
-               AND entity_id = :carregamento_id
-               AND JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.product_id')) = :product_id
-             LIMIT 1",
-        );
-        $alertStatement->execute([
-            "company_id" => $usuarioAtor["company_id"],
-            "carregamento_id" => $loadingId,
-            "product_id" => $productId,
-        ]);
-        $alertAlreadyRecorded = (bool) $alertStatement->fetchColumn();
-    }
-    if ($productRemainingAfter > 0 && $productRemainingAfter <= $alertThreshold && !$alertAlreadyRecorded) {
-        $endProductAlert = sprintf(
-            "Faltam %d sacas para finalizar o produto.",
-            $productRemainingAfter,
-        );
-    }
-}
 
 $insert = $pdo->prepare(
     "INSERT INTO leituras (company_id, carregamento_id, sensor_event_id, product_id, barcode, attempt_number, result, read_at) VALUES (:company_id, :carregamento_id, :sensor_event_id, :product_id, :barcode, :attempt_number, :result, NOW(3))",
@@ -332,25 +308,6 @@ if ($result === "VALIDO") {
         "UPDATE carregamentos SET leituras_validas = leituras_validas + 1 WHERE id = :id AND company_id = :company_id",
     );
     $validCounter->execute(["id" => $loadingId, "company_id" => $usuarioAtor["company_id"]]);
-}
-if ($endProductAlert !== null) {
-    record_operational_event(
-        $pdo,
-        $usuarioAtor,
-        "ALERTA_FIM_PRODUTO",
-        "carregamento",
-        (int) $loadingId,
-        [
-            "carregamento_id" => (int) $loadingId,
-            "leitura_id" => $readingId,
-            "product_id" => $productId,
-            "planned_quantity" => $productPlannedQuantity,
-            "valid_readings" => $productValidCount + 1,
-            "remaining_quantity" => max(0, $productPlannedQuantity - ($productValidCount + 1)),
-            "threshold" => $alertThreshold,
-            "message" => $endProductAlert,
-        ],
-    );
 }
 record_operational_event(
     $pdo,
@@ -423,55 +380,6 @@ if ($result === "EXCESSO") {
     );
 }
 if ($result === "PRODUTO_INCORRETO") {
-    $stopReason = "PRODUTO_INCORRETO";
-    $stopAlert = "Produto incorreto detectado. Remova a unidade e confirme para continuar.";
-    $stop = $pdo->prepare(
-        "UPDATE carregamentos SET state = 'PAUSADO', stop_reason = :stop_reason, operator_alert = :operator_alert WHERE id = :id AND company_id = :company_id AND state = 'CARREGANDO'",
-    );
-    $stop->execute([
-        "stop_reason" => $stopReason,
-        "operator_alert" => $stopAlert,
-        "id" => $loadingId,
-        "company_id" => $usuarioAtor["company_id"],
-    ]);
-    $pendingStop = $pdo->prepare(
-        "SELECT id FROM solicitacoes_comandos_clp
-         WHERE carregamento_id = :carregamento_id AND company_id = :company_id
-           AND command = 'PAUSAR_CARREGAMENTO'
-           AND status IN ('PENDENTE', 'PROCESSANDO')
-         ORDER BY id DESC LIMIT 1 FOR UPDATE",
-    );
-    $pendingStop->execute([
-        "carregamento_id" => $loadingId,
-        "company_id" => $usuarioAtor["company_id"],
-    ]);
-    $pauseCommandRequestId = (int) ($pendingStop->fetchColumn() ?: 0);
-    if ($pauseCommandRequestId < 1) {
-        $queueStop = $pdo->prepare(
-            "INSERT INTO solicitacoes_comandos_clp
-             (company_id, equipment_id, carregamento_id, command, requested_by)
-             VALUES (:company_id, :equipment_id, :carregamento_id, 'PAUSAR_CARREGAMENTO', :requested_by)",
-        );
-        $queueStop->execute([
-            "company_id" => $usuarioAtor["company_id"],
-            "equipment_id" => $loading["equipment_id"],
-            "carregamento_id" => $loadingId,
-            "requested_by" => $usuarioAtor["id"],
-        ]);
-        $pauseCommandRequestId = (int) $pdo->lastInsertId();
-    }
-    record_operational_event(
-        $pdo,
-        $usuarioAtor,
-        "ESTEIRA_PAUSADA_AUTOMATICAMENTE",
-        "carregamento",
-        (int) $loadingId,
-        [
-            "reason" => $stopReason,
-            "safe_physical_action" => "gateway_clp_required",
-            "command_request_id" => $pauseCommandRequestId,
-        ],
-    );
 }
 if (
     $result === "SEM_LEITURA" &&
@@ -521,12 +429,12 @@ responder_json(
             "evidence_status" => $evidenceStatus,
             "load_status" => $loadStatus,
             "excesso" => $result === "EXCESSO",
-            "stop_reason" => $result === "PRODUTO_INCORRETO" ? $result : null,
-            "operator_alert" => $result === "EXCESSO"
-                ? "Quantidade prevista para este produto atingida. Confira a leitura excedente."
-                : ($stopAlert ?? $endProductAlert),
-            "pause_command_request_id" => $pauseCommandRequestId ?? null,
-            "end_product_alert" => $endProductAlert,
+            "stop_reason" => null,
+            "operator_alert" => match ($result) {
+                "EXCESSO" => "Quantidade prevista para este produto atingida. Confira a leitura excedente.",
+                "PRODUTO_INCORRETO" => "Código recebido, mas o produto não está previsto no romaneio. A passagem foi contada e a operação continua.",
+                default => null,
+            },
         ],
     ],
     201,

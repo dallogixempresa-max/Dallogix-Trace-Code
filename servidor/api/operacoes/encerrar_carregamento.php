@@ -29,7 +29,7 @@ register_shutdown_function(static function () use ($pdo): void {
     }
 });
 $statement = $pdo->prepare(
-    "SELECT c.id, c.state, c.romaneio_id, c.truck_id, r.number AS romaneio_number
+    "SELECT c.id, c.equipment_id, c.state, c.stop_reason, c.romaneio_id, c.truck_id, r.number AS romaneio_number
      FROM carregamentos c JOIN romaneios r ON r.id = c.romaneio_id
      WHERE c.id = :id AND c.company_id = :company_id LIMIT 1 FOR UPDATE",
 );
@@ -39,14 +39,53 @@ if (!$loading) {
     $pdo->rollBack();
     json_response(["error" => "Carregamento não encontrado."], 404);
 }
-if (!in_array($loading["state"], ["CARREGANDO", "FINALIZANDO"], true)) {
+if ($loading["state"] !== "PAUSADO" || trim((string) ($loading["stop_reason"] ?? "")) !== "") {
     $pdo->rollBack();
     json_response(
         [
-            "error" => "Carregamento em estado {$loading["state"]} não pode ser encerrado.",
+            "error" => "Pare a esteira pelo comando do CLP e resolva qualquer bloqueio antes de encerrar o carregamento.",
         ],
         409,
     );
+}
+$pendingCommand = $pdo->prepare(
+    "SELECT COUNT(*) FROM solicitacoes_comandos_clp
+     WHERE carregamento_id = :loading_id AND company_id = :company_id
+       AND status IN ('PENDENTE', 'PROCESSANDO')",
+);
+$pendingCommand->execute(["loading_id" => $loadingId, "company_id" => $user["company_id"]]);
+if ((int) $pendingCommand->fetchColumn() > 0) {
+    $pdo->rollBack();
+    json_response(["error" => "Aguarde o CLP confirmar o último comando antes de encerrar."], 409);
+}
+
+$pendingSensorEvents = $pdo->prepare(
+    "SELECT COUNT(*) FROM eventos_sensor s
+     WHERE s.carregamento_id = :loading_id
+       AND NOT EXISTS (SELECT 1 FROM leituras l WHERE l.sensor_event_id = s.id)",
+);
+$pendingSensorEvents->execute(["loading_id" => $loadingId]);
+if ((int) $pendingSensorEvents->fetchColumn() > 0) {
+    $pdo->rollBack();
+    json_response(["error" => "Aguarde o leitor concluir ou expirar as passagens detectadas antes de encerrar."], 409);
+}
+$sensorOutbox = $pdo->prepare(
+    "SELECT status,
+            CASE WHEN last_seen_at >= DATE_SUB(NOW(3), INTERVAL 5 SECOND) THEN 1 ELSE 0 END AS heartbeat_fresh,
+            JSON_UNQUOTE(JSON_EXTRACT(details, '$.sensor_event_outbox_pending')) AS pending_events
+     FROM status_dispositivos
+     WHERE equipment_id = :equipment_id AND device_type = 'SENSOR'
+     LIMIT 1 FOR UPDATE",
+);
+$sensorOutbox->execute(["equipment_id" => (int) $loading["equipment_id"]]);
+$sensorOutboxState = $sensorOutbox->fetch(PDO::FETCH_ASSOC);
+$sensorOutboxFresh = $sensorOutboxState
+    && $sensorOutboxState["status"] === "ONLINE"
+    && (int) $sensorOutboxState["heartbeat_fresh"] === 1;
+if (!$sensorOutboxFresh || $sensorOutboxState["pending_events"] === null
+    || (int) $sensorOutboxState["pending_events"] > 0) {
+    $pdo->rollBack();
+    json_response(["error" => "Aguarde o sensor confirmar a fila local de passagens vazia antes de encerrar."], 409);
 }
 
 expirar_solicitacoes_imagem_keyence($pdo, null, [(int) $loadingId]);
@@ -65,12 +104,17 @@ if ((int) $pending->fetchColumn() > 0) {
     );
 }
 $divergences = $pdo->prepare("SELECT ri.product_id, SUM(ri.planned_quantity) AS planned_quantity,
-    COALESCE((SELECT COUNT(*) FROM leituras l WHERE l.carregamento_id = :loading_id AND l.product_id = ri.product_id AND l.result = 'VALIDO'), 0) AS moved_quantity,
+    GREATEST(0,
+      COALESCE((SELECT COUNT(*) FROM leituras l WHERE l.carregamento_id = :loading_id AND l.product_id = ri.product_id AND l.result = 'VALIDO'), 0)
+      - COALESCE((SELECT SUM(ret.quantity) FROM retornos ret JOIN leituras lr ON lr.id = ret.leitura_id
+                  WHERE ret.carregamento_id = :return_loading_id AND lr.product_id = ri.product_id), 0)
+    ) AS moved_quantity,
     p.name FROM romaneio_itens ri JOIN produtos p ON p.id = ri.product_id
     WHERE ri.romaneio_id = :romaneio_id AND (ri.truck_id = :truck_id OR ri.truck_id IS NULL)
     GROUP BY ri.product_id, p.name");
 $divergences->execute([
     "loading_id" => $loadingId,
+    "return_loading_id" => $loadingId,
     "romaneio_id" => $loading["romaneio_id"],
     "truck_id" => $loading["truck_id"],
 ]);

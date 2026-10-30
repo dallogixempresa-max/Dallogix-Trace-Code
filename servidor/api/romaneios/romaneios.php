@@ -33,11 +33,17 @@ if ($_SERVER["REQUEST_METHOD"] === "GET") {
                     (SELECT rt.plate FROM romaneio_caminhoes rt WHERE rt.romaneio_id = r.id ORDER BY rt.id LIMIT 1) AS plate,
                     (SELECT rt.driver_name FROM romaneio_caminhoes rt WHERE rt.romaneio_id = r.id ORDER BY rt.id LIMIT 1) AS driver_name,
                     COALESCE((SELECT SUM(ri.planned_quantity) FROM romaneio_itens ri WHERE ri.romaneio_id = r.id), 0) AS planned_quantity,
-                    COALESCE((SELECT COUNT(*) FROM leituras l JOIN carregamentos c2 ON c2.id = l.carregamento_id WHERE c2.romaneio_id = r.id AND l.result = 'VALIDO'), 0) AS loaded_quantity,
-                    COALESCE((SELECT COUNT(*) FROM eventos_sensor s JOIN carregamentos c4 ON c4.id = s.carregamento_id WHERE c4.romaneio_id = r.id AND c4.company_id = r.company_id), 0) AS detected_quantity,
-                    (SELECT COUNT(*) FROM carregamentos c5 WHERE c5.romaneio_id = r.id AND c5.company_id = r.company_id) AS loading_count,
-                    (SELECT COUNT(*) FROM solicitacoes_imagens_evidencia i JOIN carregamentos c6 ON c6.id = i.carregamento_id WHERE c6.romaneio_id = r.id AND c6.company_id = r.company_id AND i.status IN ('PENDENTE','CAPTURANDO')) AS pending_evidence_count,
-                    (SELECT c3.id FROM carregamentos c3 WHERE c3.romaneio_id = r.id AND c3.state <> 'FINALIZADO' AND r.status NOT IN ('FINALIZADO', 'CANCELADO') ORDER BY c3.id DESC LIMIT 1) AS active_loading_id
+                    COALESCE((SELECT SUM(ret.quantity) FROM retornos ret
+                              JOIN carregamentos c3 ON c3.id = ret.carregamento_id
+                              WHERE c3.romaneio_id = r.id AND c3.company_id = r.company_id), 0) AS returned_quantity,
+                    GREATEST(0,
+                      COALESCE((SELECT COUNT(*) FROM leituras l JOIN carregamentos c2 ON c2.id = l.carregamento_id WHERE c2.romaneio_id = r.id AND l.result = 'VALIDO'), 0)
+                      - COALESCE((SELECT SUM(ret.quantity) FROM retornos ret JOIN carregamentos c4 ON c4.id = ret.carregamento_id WHERE c4.romaneio_id = r.id AND c4.company_id = r.company_id), 0)
+                    ) AS loaded_quantity,
+                    COALESCE((SELECT COUNT(*) FROM eventos_sensor s JOIN carregamentos c5 ON c5.id = s.carregamento_id WHERE c5.romaneio_id = r.id AND c5.company_id = r.company_id), 0) AS detected_quantity,
+                    (SELECT COUNT(*) FROM carregamentos c6 WHERE c6.romaneio_id = r.id AND c6.company_id = r.company_id) AS loading_count,
+                    (SELECT COUNT(*) FROM solicitacoes_imagens_evidencia i JOIN carregamentos c7 ON c7.id = i.carregamento_id WHERE c7.romaneio_id = r.id AND c7.company_id = r.company_id AND i.status IN ('PENDENTE','CAPTURANDO')) AS pending_evidence_count,
+                    (SELECT c8.id FROM carregamentos c8 WHERE c8.romaneio_id = r.id AND c8.company_id = r.company_id AND c8.state <> 'FINALIZADO' AND r.status NOT IN ('FINALIZADO', 'CANCELADO') ORDER BY c8.id DESC LIMIT 1) AS active_loading_id
              FROM romaneios r WHERE r.id = :id AND r.company_id = :company_id LIMIT 1",
         );
         $header->execute(["id" => $detailId, "company_id" => $companyId]);

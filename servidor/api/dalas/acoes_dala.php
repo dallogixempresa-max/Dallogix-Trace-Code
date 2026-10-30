@@ -97,6 +97,16 @@ if ($method === "PATCH") {
         $triggerId = filter_var($payload["trigger_id"] ?? null, FILTER_VALIDATE_INT);
         $actionId = filter_var($payload["acao_id"] ?? null, FILTER_VALIDATE_INT) ?: null;
         if (!$triggerId) json_response(["error" => "Gatilho inválido."], 422);
+        $triggerEvent = $pdo->prepare(
+            "SELECT evento FROM gatilhos_dala
+             WHERE id = :id AND equipment_id = :equipment_id AND company_id = :company_id LIMIT 1",
+        );
+        $triggerEvent->execute(["id" => $triggerId, "equipment_id" => $equipmentId, "company_id" => $companyId]);
+        $event = $triggerEvent->fetchColumn();
+        if ($event === false) json_response(["error" => "Gatilho não encontrado."], 404);
+        if ($event === "QUANTIDADE_PLANEJADA_ATINGIDA" && !empty($payload["ativo"])) {
+            json_response(["error" => "A meta apenas gera um aviso; a esteira deve ser parada pelo operador."], 409);
+        }
         if ($actionId !== null) {
             $ownedAction = $pdo->prepare("SELECT id FROM acoes_dala WHERE id = :id AND equipment_id = :equipment_id AND company_id = :company_id");
             $ownedAction->execute(["id" => $actionId, "equipment_id" => $equipmentId, "company_id" => $companyId]);
