@@ -358,7 +358,7 @@ function Show-TraceIndustrialSettingsDialog {
     & $label "Espera após chegada (ms)" 22 482 155 20
     & $label "Distância M2052–leitor (m)" 185 482 260 20
     & $label "Informe a distância até o início da área de leitura. O Trace calcula o transporte a 0,7 m/s e soma a espera do leitor." 22 538 645 30
-    & $label "No Keyence, configure o TCP para a porta 19000 e FTP passivo para a porta 2121. O FTP usa a senha KEYENCE_FTP_PASSWORD do .env." 22 572 645 42
+    & $label "AutoID Keyboard Wedge: Ethernet na porta 9004 e transferência HID. Mantenha o Trace em primeiro plano. Fotos: FTP passivo na porta 2121." 22 572 645 42
     $keyencePcIpField = & $textbox "keyence_pc_ip" ([string](Get-TraceConfigProperty $CurrentConfig "keyence_pc_ip" "")) 22 640 180
     $keyenceReaderIpField = & $textbox "keyence_reader_ip" ([string](Get-TraceConfigProperty $CurrentConfig "keyence_reader_ip" "")) 250 640 180
     & $label "IPv4 fixo do PC na rede isolada do leitor" 22 618 220 20
@@ -506,8 +506,8 @@ function ConvertTo-TraceIndustrialEnvValues {
         TRACE_SCANNER_NO_READ_TIMEOUT_MS = [string]$Settings.scanner_no_read_timeout_ms
         TRACE_SENSOR_TO_READER_DISTANCE_M = [string]::Format([System.Globalization.CultureInfo]::InvariantCulture, "{0:0.###}", [double]$Settings.sensor_to_reader_distance_m)
         KEYENCE_ENABLED = if ($Settings.scanner_model -eq "KEYENCE SR-X100W") { "1" } else { "0" }
-        # O SR-X100W participa da associação leitura↔passagem; archive-only impede
-        # o provisionamento do scanner e deixa o Trace sem receber os códigos.
+        # O AutoID envia os códigos ao Trace em HID; o worker integrado continua
+        # associando M2052, falhas sem leitura e imagens FTP.
         KEYENCE_ARCHIVE_ONLY = "0"
         KEYENCE_IMAGE_ARCHIVE_HOST_DIR = if ($Settings.scanner_model -eq "KEYENCE SR-X100W") { "C:/Keyence/Falhas" } else { "" }
         KEYENCE_BIND_ADDRESS = [string]$Settings.keyence_pc_ip

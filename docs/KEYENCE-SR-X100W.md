@@ -1,10 +1,10 @@
 # Integração do KEYENCE SR-X100W com o Trace
 
-**Situação:** o Trace pode receber fotos por FTP e importar cópias da pasta local de falhas. A validação física do relógio, latência e vínculo de cada foto ainda depende de um novo evento no PC industrial.
+**Situação:** a rota principal de códigos usa AutoID Keyboard Wedge em HID; as fotos de falha continuam chegando por FTP e podem ser importadas da pasta local. A homologação final depende de confirmar a configuração do Wedge e fazer uma leitura física no PC industrial.
 
 ## Fluxo implementado
 
-O Trace aceita o código do SR-X100W pelo AutoID Keyboard Wedge em modo Clipboard ou pela conexão TCP local ao `keyence-worker`. No modo Clipboard, o aplicativo Windows encaminha a atualização do AutoID ao Trace; no modo TCP, o worker usa credencial `SCANNER`, consulta a Dala ativa e grava uma fila local idempotente para tolerar indisponibilidade curta da API.
+O SR-X100W envia os dados pela rede ao AutoID Keyboard Wedge no PC industrial. O AutoID converte cada código em teclas HID; com o Trace em primeiro plano, a tela de operação captura a sequência rápida, mostra o texto no visor somente leitura e registra a leitura automaticamente. O Trace reconhece Enter quando configurado no Wedge e também envia o código após 180 ms sem novas teclas quando não há terminador. O caminho TCP direto do leitor ao `keyence-worker` permanece como alternativa, mas não participa da contagem quando o Wedge estiver entregando por HID.
 
 O cartão do leitor só mostra **ONLINE** quando o worker, no PC industrial, abre uma conexão TCP de diagnóstico com o IP do SR-X100W na porta `KEYENCE_READER_PROBE_PORT` (padrão `80`), ou recebe um código decodificado nos últimos 15 segundos. Duas sondagens sem resposta marcam **SEM RESPOSTA**; a tela não confunde o heartbeat do worker com a presença do leitor. A sondagem confirma que a interface de rede do endereço configurado responde, não que o leitor está focado ou decodificando corretamente. Um código recebido confirma o fluxo de leitura. O SR-X suporta HTTP e HTTPS; se a porta da interface Web foi alterada, configure a porta correspondente no `.env` do PC.
 
@@ -24,13 +24,13 @@ Uma leitura `SEM_LEITURA` é imutável no fluxo operacional: não se permite con
 
 ## Configuração do PC industrial
 
-1. No modo integrado (código TCP associado à Dala), provisionar um dispositivo `SCANNER` associado ao ID da Dala que o SR-X100W atenderá. O token deste leitor é separado do token do CLP. No modo `KEYENCE_ARCHIVE_ONLY=1`, usado para apenas receber e arquivar imagens por FTP, o Trace não associa leituras do Keyence e não exige nem provisiona o token `SCANNER`; a sincronização da instalação e do CLP continua independente desse modo.
+1. Provisionar o dispositivo `SCANNER` associado à Dala para o worker consultar as passagens M2052, finalizar leituras sem código, solicitar fotos e publicar o estado do leitor. O código HID vindo do AutoID é enviado pelo Trace autenticado na sessão do operador; ele não depende da conexão TCP direta do leitor ao worker. O token `SCANNER` do worker é separado do token do CLP.
 
    ```sh
    php scripts/provision_device.php --equipment-id=ID_DA_DALA --device-type=SCANNER --device-code=KEYENCE-SRX100W --token=TOKEN_FORTE
    ```
 
-2. No `.env` local do Trace, configurar `KEYENCE_ENABLED=1` e uma senha FTP exclusiva com pelo menos 16 caracteres, o IP industrial fixo do PC em `KEYENCE_BIND_ADDRESS` e `KEYENCE_FTP_PASV_ADDRESS`, além do IP fixo do leitor em `KEYENCE_FTP_ALLOWED_ADDRESS` e `KEYENCE_TCP_ALLOWED_ADDRESS`. Usar `KEYENCE_ARCHIVE_ONLY=1` para somente arquivar imagens por FTP; nesse modo, `KEYENCE_DEVICE_TOKEN` não é necessário. Para associar códigos à Dala, usar `KEYENCE_ARCHIVE_ONLY=0` e configurar o token `SCANNER` em `KEYENCE_DEVICE_TOKEN`.
+2. No `.env` local do Trace, configurar `KEYENCE_ENABLED=1`, o token `SCANNER` do worker, uma senha FTP exclusiva com pelo menos 16 caracteres, o IP industrial fixo do PC em `KEYENCE_BIND_ADDRESS` e `KEYENCE_FTP_PASV_ADDRESS`, além do IP fixo do leitor em `KEYENCE_FTP_ALLOWED_ADDRESS` e `KEYENCE_TCP_ALLOWED_ADDRESS`. O worker continua necessário para associar passagens sem leitura e imagens de erro; selecionar HID no AutoID não desativa esse serviço.
 
    `KEYENCE_IMAGE_ARCHIVE_HOST_DIR` define a pasta de origem montada no contêiner em modo somente leitura. No PC industrial Windows, o configurador usa `C:/Keyence/Falhas`; o serviço informa `image_archive_directory_available` no health e no heartbeat, e fica degradado se essa pasta configurada não estiver acessível.
 
@@ -40,11 +40,11 @@ Uma leitura `SEM_LEITURA` é imutável no fluxo operacional: não se permite con
    docker compose --profile industrial up -d --build
    ```
 
-4. Liberar no firewall do PC somente a interface industrial e os IPs necessários: TCP 19000 para os códigos, TCP 2121 para FTP e TCP 21100–21109 para o modo passivo. Não publicar essas portas na rede corporativa ou na Internet. O FTP deste perfil não cifra o tráfego; mantenha o enlace isolado e limite a origem ao IP do leitor.
+4. Liberar no firewall do PC somente a interface industrial e o IP do leitor: porta `9004` para a comunicação Ethernet recebida pelo AutoID Keyboard Wedge; porta `2121` e faixa `21100–21109` para o FTP passivo das imagens. A porta `19000` fica disponível apenas se a alternativa TCP direta for usada. Não publicar essas portas na rede corporativa ou na Internet. O FTP deste perfil não cifra o tráfego; mantenha o enlace isolado e limite a origem ao IP do leitor.
 
-5. No AutoID Network Navigator, em `Timing`, selecionar `Timing Mode = Standard` e um único código por trigger. O trigger deve vir de um pulso do CLP correspondente a cada passagem M2052, usando uma saída eletricamente compatível ou isolada e validada pelo responsável da máquina. Não usar `Continuous` para esta associação: esse modo pode emitir várias leituras durante uma passagem. Em `Communication`, enviar o código decodificado por TCP, com delimitador CR/LF, ao IP industrial do PC na porta 19000. Em `Image`, configurar `Error Image = Send by FTP`, JPEG, FTP passivo e destino no mesmo IP do PC, porta 2121, usuário e senha do `.env`; a faixa passiva deve ser 21100–21109.
+5. No AutoID Keyboard Wedge, selecionar `Ethernet communication`, a interface `192.168.1.20`, porta `9004` e `Transfer Method = HID`. Deixar o Wedge iniciado em segundo plano e o Trace em primeiro plano durante a operação. Não selecionar `Clipboard` para esta rota. Configure o SR-X100W para enviar o resultado ao AutoID nesta porta, sem enviar cópias simultâneas à alternativa TCP `19000`. No AutoID Network Navigator, manter a leitura contínua já homologada para a linha; cada leitura HID é associada ao evento M2052 pela distância e pelo horário, sem exigir um trigger elétrico do CLP. Em `Image`, configurar `Error Image = Send by FTP`, JPEG, FTP passivo e destino no mesmo IP do PC, porta `2121`, usuário e senha do `.env`; a faixa passiva deve ser `21100–21109`.
 
-Cada trigger representa uma passagem e deve produzir no máximo um quadro TCP com o resultado. O Trace consome os eventos M2052 em ordem, serializa os quadros recebidos e reserva um evento para cada leitura; o banco aceita no máximo uma leitura por evento. Se o leitor estiver em `Continuous`, vários quadros de uma saca podem ser associados a eventos de sacas seguintes. O software não consegue distinguir com segurança um quadro repetido de duas sacas consecutivas com o mesmo código; por isso, não habilite a operação até confirmar `Timing Mode = Standard` e um pulso de trigger por passagem em bancada. Códigos iguais em sacas consecutivas continuam válidos. O quadro exato `ERROR` é tratado como falha de leitura (`SEM_LEITURA`), associado à passagem e sem pausar a esteira; não é um código de produto nem incrementa a quantidade válida. Os nomes de arquivo não identificam a saca. Para imagens, a associação segue a solicitação `SEM_LEITURA` e sua janela temporal; se houver ambiguidade, a imagem não é vinculada.
+O Trace aceita um código por passagem M2052 e não conta repetições soltas do leitor como sacas. O sensor é a contagem física; o leitor apenas identifica a passagem. O marcador `ERROR` recebido pelo AutoID é exibido como falha de leitura e não é enviado como código de produto: o worker conclui `SEM_LEITURA` quando vence a janela de transporte e solicita a imagem, sem pausar a esteira. A área de captura usada na imagem de evidência é a área de leitura configurada no SR-X100W. O nome do arquivo não identifica a saca; a associação usa o horário previsto de chegada à área de leitura e recusa vínculos ambíguos. A alternativa TCP direta continua disponível para outra instalação, mas não deve receber as mesmas leituras enquanto HID estiver em uso.
 
 O receptor FTP do PC salva primeiro as imagens em `armazenamento/keyence-inbox` (pasta local do Trace montada no contêiner). Depois de associar uma foto a uma solicitação `SEM_LEITURA`, a API grava a imagem de evidência no armazenamento do Trace; o PDF final incorpora a imagem e permanece como evidência após a limpeza dos arquivos de origem. A pasta de entrada é temporária e não é a fonte do relatório. Para consulta na rede, prefira compartilhar em modo somente leitura a pasta dos relatórios finais e, se necessário, a pasta persistente de evidências `armazenamento/company_<id>/equipment_<id>/`, depois de definir quais usuários podem acessar e por quanto tempo. Não compartilhe a caixa temporária FTP e não exponha as portas FTP fora da rede industrial isolada. O FTP é apenas o protocolo de transferência entre o leitor e o serviço local.
 
@@ -58,7 +58,7 @@ O pacote fornecido inclui o AutoID Network Navigator e o manual da série SR-X. 
 - **Imagens:** os resultados OK, Error, NG, Unstable e Captured têm opções separadas. Para o Trace, usar `Error Image = Send by FTP`, formato JPEG e modo passivo. NG significa divergência de comparação e não equivale a falha de leitura. O SR-X permite escolher a porta remota FTP de 1 a 65535; neste perfil, usar 2121. A faixa de dados passiva do PC fica em 21100–21109.
 - **Manutenção do Navigator:** seleção da placa de rede, idioma e unidades, tempo limite e comportamento ao reconectar, busca/registro automático, opções de terminal, desconexão automática e sincronização de horário quando suportada.
 
-Enquanto o Network Navigator estiver conectado ao SR-X, o leitor não pode usar Ethernet/RS-232 para se comunicar com o CLP ou outro PC. Desconecte e feche o Navigator antes de deixar o leitor operar com o Trace. O AutoID Keyboard Wedge é um utilitário separado que transforma dados seriais/TCP em entrada de teclado; o Trace recebe os códigos diretamente por TCP, então o Wedge não é necessário nesta integração.
+Enquanto o Network Navigator estiver conectado ao SR-X, o leitor não pode usar Ethernet/RS-232 para se comunicar com o CLP ou outro PC. Desconecte e feche o Navigator antes de deixar o leitor operar com o Trace. O AutoID Keyboard Wedge é a ponte entre a rede do SR-X e o teclado HID que o Trace captura; a porta de entrada do Wedge e o destino do HID são etapas diferentes. O campo mostrado na operação continua somente leitura e não aceita digitação manual.
 
 ## Variáveis adicionadas ao `.env`
 
@@ -68,14 +68,14 @@ Enquanto o Network Navigator estiver conectado ao SR-X, o leitor não pode usar 
 | `KEYENCE_ARCHIVE_ONLY` | `0` | Recebe e arquiva imagens por FTP sem associar leituras ao Trace nem exigir token `SCANNER`. |
 | `KEYENCE_DEVICE_TOKEN` | vazio | Token `SCANNER` provisionado para a Dala. |
 | `KEYENCE_BIND_ADDRESS` | `127.0.0.1` | IP da interface do PC onde as portas serão publicadas; trocar pelo IP industrial fixo. |
-| `KEYENCE_TCP_PORT` | `19000` | Porta publicada para saída TCP do leitor. |
+| `KEYENCE_TCP_PORT` | `19000` | Porta da rota alternativa de códigos diretamente ao worker; não usar junto com HID para a mesma leitura. |
 | `KEYENCE_READER_PROBE_PORT` | `80` | Porta TCP da interface Web do SR-X usada para confirmar presença na rede; use `443` se o leitor estiver configurado apenas com HTTPS. |
 | `KEYENCE_FTP_PORT` | `2121` | Porta FTP publicada para o leitor. |
 | `KEYENCE_FTP_PASSIVE_START` / `KEYENCE_FTP_PASSIVE_END` | `21100` / `21109` | Faixa passiva TCP do FTP. |
 | `KEYENCE_FTP_USER` / `KEYENCE_FTP_PASSWORD` | `trace-keyence` / vazio | Conta dedicada às imagens de erro. |
 | `KEYENCE_FTP_PASV_ADDRESS` | vazio | IP industrial anunciado na resposta PASV. |
 | `KEYENCE_FTP_ALLOWED_ADDRESS` | vazio | IP fixo do SR-X100W; obrigatório para iniciar o worker. |
-| `KEYENCE_TCP_ALLOWED_ADDRESS` | vazio | IP fixo do SR-X100W permitido na conexão de códigos; obrigatório para iniciar o worker. |
+| `KEYENCE_TCP_ALLOWED_ADDRESS` | vazio | IP fixo do SR-X100W permitido na rota alternativa de códigos diretamente ao worker; obrigatório para iniciar o worker integrado. |
 | `KEYENCE_IMAGE_MATCH_WINDOW_MS` | `3000` | Janela máxima entre a solicitação do Trace e a chegada da imagem. |
 | `KEYENCE_IMAGE_SETTLE_MS` | `800` | Espera antes de tentar associar uma imagem recém-recebida. |
 | `KEYENCE_IMAGE_ARCHIVE_MATCH_WINDOW_MS` | `1500` | Janela máxima entre o horário previsto de chegada à área do leitor e o horário do JPEG local. Correspondências próximas demais ficam pendentes. |
@@ -98,6 +98,6 @@ Enquanto o Network Navigator estiver conectado ao SR-X, o leitor não pode usar 
 
 ## Homologação necessária
 
-O serviço possui testes locais de enquadramento TCP, parser de código, validação de correspondência temporal, login FTP, transferência de JPEG e integração com a fila `SEM_LEITURA`. Ainda é necessário validar com o equipamento real: formato e delimitador configurados no SR-X100W, modo passivo FTP, resolução/tamanho máximo das imagens, latência da foto, relógios sincronizados, duas falhas próximas, reinício com fila local, perda de API, perda de FTP e geração do PDF final.
+O serviço possui testes locais de enquadramento TCP alternativo, parser de código, validação de correspondência temporal, login FTP, transferência de JPEG e integração com a fila `SEM_LEITURA`. Ainda é necessário validar com o equipamento real: AutoID em HID, entrada Ethernet na porta `9004`, Trace em primeiro plano, leitura automática no visor somente leitura, marcador `ERROR`, modo passivo FTP, resolução/tamanho máximo das imagens, latência da foto, relógios sincronizados, duas falhas próximas, reinício com fila local, perda de API, perda de FTP e geração do PDF final.
 
 O serviço continua desabilitado por padrão. No Windows, marcar `KEYENCE_ENABLED=1` sem preencher os dados obrigatórios interrompe a inicialização com uma mensagem de configuração; com os dados válidos, as portas são publicadas automaticamente no IP industrial indicado. Não considere a integração homologada até os testes físicos passarem. A página da KEYENCE Brasil disponibiliza o [Manual do Usuário da Série SR-X](https://www.keyence.com.br/support/user/barcode/sr-x/manual/) e as [especificações do SR-X100W](https://www.keyence.com/products/barcode/barcode-readers/sr-x/models/sr-x100w/).

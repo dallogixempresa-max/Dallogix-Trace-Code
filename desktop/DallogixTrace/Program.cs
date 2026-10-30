@@ -4,9 +4,7 @@ using Microsoft.Web.WebView2.WinForms;
 using Microsoft.Web.WebView2.Core;
 using System.Diagnostics;
 using System.IO;
-using System.Linq;
 using System.Net.Http;
-using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -28,19 +26,12 @@ internal sealed class TraceForm : Form
 {
     private const string TraceUrl = "http://127.0.0.1:8080";
     private readonly WebView2 web = new() { Dock = DockStyle.Fill };
-    private readonly System.Windows.Forms.Timer scannerClipboardTimer = new() { Interval = 80 };
     private readonly Panel loadingPanel = new();
     private readonly Label loadingStatus = new();
     private readonly ProgressBar loadingProgress = new();
     private bool webRecoveryInProgress;
     private int webRecoveryAttempts;
     private DateTime lastWebRecoveryAttempt = DateTime.MinValue;
-    private uint lastClipboardSequenceNumber;
-    private bool clipboardSequenceInitialized;
-
-    [DllImport("user32.dll", ExactSpelling = true)]
-    private static extern uint GetClipboardSequenceNumber();
-
     public TraceForm()
     {
         Text = "Dallogix Trace";
@@ -52,8 +43,6 @@ internal sealed class TraceForm : Form
         Controls.Add(web);
         Controls.Add(loadingPanel);
         Shown += async (_, _) => await StartAsync();
-        scannerClipboardTimer.Tick += (_, _) => ForwardScannerClipboardUpdate();
-        FormClosed += (_, _) => scannerClipboardTimer.Stop();
     }
 
     private void BuildLoadingPanel()
@@ -202,9 +191,7 @@ internal sealed class TraceForm : Form
             web.Visible = true;
             loadingPanel.Visible = false;
             web.BringToFront();
-            lastClipboardSequenceNumber = GetClipboardSequenceNumber();
-            clipboardSequenceInitialized = true;
-            scannerClipboardTimer.Start();
+            web.Focus();
         }
         catch (Exception error) { ShowFailure($"Não foi possível iniciar o Trace. {error.Message}"); }
     }
@@ -227,56 +214,6 @@ internal sealed class TraceForm : Form
             {
                 web.CoreWebView2.NavigationCompleted -= navigationCompleted;
             }
-        }
-    }
-
-    private void ForwardScannerClipboardUpdate()
-    {
-        var sequenceNumber = GetClipboardSequenceNumber();
-        if (!clipboardSequenceInitialized)
-        {
-            lastClipboardSequenceNumber = sequenceNumber;
-            clipboardSequenceInitialized = true;
-            return;
-        }
-        if (sequenceNumber == lastClipboardSequenceNumber) return;
-
-        var wedgeProcesses = Process.GetProcessesByName("AutoID Keyboard Wedge");
-        var wedgeRunning = wedgeProcesses.Length > 0;
-        foreach (var process in wedgeProcesses) process.Dispose();
-        if (!wedgeRunning)
-        {
-            lastClipboardSequenceNumber = sequenceNumber;
-            return;
-        }
-
-        try
-        {
-            var value = Clipboard.GetText(TextDataFormat.UnicodeText).Trim();
-            if (value.Length > 128 || value.Any(char.IsControl))
-            {
-                lastClipboardSequenceNumber = sequenceNumber;
-                return;
-            }
-            if (value.Length == 0)
-            {
-                lastClipboardSequenceNumber = sequenceNumber;
-                return;
-            }
-
-            web.CoreWebView2?.PostWebMessageAsJson(JsonSerializer.Serialize(new
-            {
-                type = "trace-scanner-clipboard",
-                value,
-                capturedAtEpochMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-            }));
-            lastClipboardSequenceNumber = sequenceNumber;
-        }
-        catch (ExternalException error)
-        {
-            // O Wedge pode manter a área de transferência ocupada por alguns
-            // milissegundos; não avance a sequência para tentar novamente no tick seguinte.
-            Trace.TraceWarning("Não foi possível ler a área de transferência do leitor: {0}", error.Message);
         }
     }
 
@@ -346,6 +283,7 @@ internal sealed class TraceForm : Form
             web.Visible = true;
             loadingPanel.Visible = false;
             web.BringToFront();
+            web.Focus();
         }
         catch (Exception error)
         {

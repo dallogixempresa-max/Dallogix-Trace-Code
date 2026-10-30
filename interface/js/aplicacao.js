@@ -24,6 +24,7 @@ import { criarTratadorAcoesRelatorios } from "./controladores/acoes-relatorios.j
 import { criarDelegacaoAcoes, criarDespachanteAcoes } from "./controladores/despachante-acoes.js?v=202610190059";
 import { criarCarregadorPaginas } from "./controladores/carregador-paginas.js?v=202610280002";
 import { createLiveViewController } from "./controladores/estado-visualizacao.js?v=202610290001";
+import { createHidScannerCapture, isScannerNoReadMarker } from "./controladores/captura-leitor-hid.js?v=202610300001";
 import { createLocalConnectivityController } from "./controladores/conectividade-local.js?v=202610190029";
 import { bindManifestCreationForm, bindManifestEditForm } from "./controladores/formulario-romaneio.js?v=202610190001";
 import { bindProductForm } from "./controladores/formulario-produto.js?v=202610190001";
@@ -516,50 +517,74 @@ function stopWorkPolling() {
 function startWorkPolling() {
   workRealtime.start();
 }
-function installScannerClipboardReceiver() {
-  const webview = window.chrome?.webview;
-  if (!webview?.addEventListener) return;
-
+function installScannerHidReceiver() {
+  if (document.body.dataset.hidScannerReceiverInstalled === "1") return;
+  document.body.dataset.hidScannerReceiverInstalled = "1";
   let queue = Promise.resolve();
-  webview.addEventListener("message", (event) => {
-    const message = event.data;
-    if (message?.type !== "trace-scanner-clipboard") return;
-
-    const barcode = String(message.value || "").trim();
-    if (!barcode || barcode.length > 128 || /[\x00-\x1F\x7F]/.test(barcode)) return;
-
-    queue = queue.then(async () => {
-      if (!store.state.loadingId || !["CARREGANDO", "FINALIZANDO", "PAUSADO"].includes(store.state.operationalState)) return;
-
-      store.state.latestScannerReading = {
-        barcode,
-        result: "RECEBIDO",
-        readAt: new Date(Number(message.capturedAtEpochMs) || Date.now()).toISOString(),
-        value: barcode,
-      };
-      const display = document.querySelector('[data-live="scanner-value"]');
-      if (display) {
-        display.textContent = barcode;
-        display.classList.remove("is-error");
-      }
-
-      try {
-        const reading = await store.registerScannerReading(barcode, Number(message.capturedAtEpochMs) || Date.now());
-        if (reading?.result === "PRODUTO_INCORRETO") {
-          store.state.latestScannerReading = { ...store.state.latestScannerReading, result: reading.result };
-          notificar(
-            reading.operator_alert || "Produto fora do romaneio. A passagem foi contada e a operação continua.",
-            "aviso",
-          );
+  const operationActive = () => currentPage === "work"
+    && Boolean(document.querySelector(".work-operation-screen"))
+    && Boolean(store.state.loadingId)
+    && ["CARREGANDO", "FINALIZANDO", "PAUSADO"].includes(store.state.operationalState)
+    && document.visibilityState === "visible";
+  const displayBarcode = (value, { error = false } = {}) => {
+    const display = document.querySelector('[data-live="scanner-value"]');
+    if (!display) return;
+    display.textContent = value || store.state.latestScannerReading?.value || "Aguardando leitura…";
+    display.classList.toggle(
+      "is-error",
+      error || (!value && store.state.latestScannerReading?.result === "SEM_LEITURA"),
+    );
+  };
+  const capture = createHidScannerCapture({
+    isEnabled: operationActive,
+    onBufferChange: (value) => displayBarcode(value),
+    onBarcode: (barcode, capturedAtEpochMs) => {
+      queue = queue.then(async () => {
+        if (!operationActive()) return;
+        if (isScannerNoReadMarker(barcode)) {
+          store.state.latestScannerReading = {
+            barcode,
+            result: "SEM_LEITURA",
+            readAt: new Date(capturedAtEpochMs).toISOString(),
+            value: "Falha na leitura (sem código)",
+          };
+          displayBarcode("Falha na leitura (sem código)", { error: true });
+          if (currentPage === "work") renderScreen();
+          return;
         }
-        if (currentPage === "work") renderScreen();
-      } catch (error) {
-        logFrontend.aviso("leitor.clipboard.registro", error);
-        notificar(error.message || "Não foi possível associar a leitura ao saco detectado.", "erro");
-      }
-    }).catch((error) => {
-      logFrontend.erro("leitor.clipboard.processamento", error);
-    });
+        store.state.latestScannerReading = {
+          barcode,
+          result: "RECEBIDO",
+          readAt: new Date(capturedAtEpochMs).toISOString(),
+          value: barcode,
+        };
+        displayBarcode(barcode);
+
+        try {
+          const reading = await store.registerScannerReading(barcode, capturedAtEpochMs);
+          if (reading?.result === "PRODUTO_INCORRETO") {
+            store.state.latestScannerReading = { ...store.state.latestScannerReading, result: reading.result };
+            notificar(
+              reading.operator_alert || "Produto fora do romaneio. A passagem foi contada e a operação continua.",
+              "aviso",
+            );
+          }
+          if (currentPage === "work") renderScreen();
+        } catch (error) {
+          logFrontend.aviso("leitor.hid.registro", error);
+          notificar(error.message || "Não foi possível associar a leitura ao saco detectado.", "erro");
+        }
+      }).catch((error) => {
+        logFrontend.erro("leitor.hid.processamento", error);
+      });
+      return queue;
+    },
+    onError: (error) => logFrontend.erro("leitor.hid.captura", error),
+  });
+  document.addEventListener("keydown", capture.handleKeyDown, { capture: true });
+  window.addEventListener("blur", () => capture.reset());
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible") capture.reset();
   });
 }
 function installInteractionGuards() {
@@ -861,7 +886,7 @@ async function bootstrap() {
   store.setUser(authenticatedUser);
   store.setCsrfToken(result.csrf_token);
   configurarTransporteLogs((registro) => store.persistFrontendLog(registro));
-  installScannerClipboardReceiver();
+  installScannerHidReceiver();
   const requestedPage = resolveAuthorizedPage(currentPage, defaultPage());
   if (requestedPage !== currentPage) {
     currentPage = requestedPage;
