@@ -18,7 +18,7 @@ mkdir -p "$(dirname "$lock_file")"
 exec 9>"$lock_file"
 if ! flock -n 9; then
   echo "Outro deploy pelo Git já está em andamento; esta verificação foi adiada."
-  exit 0
+  exit 75
 fi
 
 cd "$root_dir"
@@ -65,7 +65,7 @@ maintenance_file="$root_dir/armazenamento/.maintenance"
 mkdir -p "$root_dir/armazenamento"
 if [[ -e "$maintenance_file" ]] || ! (set -o noclobber; : > "$maintenance_file") 2>/dev/null; then
   echo "O sistema já está em manutenção; deploy pelo Git adiado."
-  exit 0
+  exit 75
 fi
 maintenance_owned=1
 cleanup() {
@@ -99,7 +99,7 @@ active_loads="$(compose exec -T mysql sh -lc \
 }
 if [[ "$active_loads" != "0" ]]; then
   echo "Deploy pelo Git adiado: há carregamento ativo ou em estado de intervenção."
-  exit 0
+  exit 75
 fi
 
 TRACE_COMPOSE_ENV_FILE="$root_dir/.env" TRACE_COMPOSE_PRODUCTION=1 \

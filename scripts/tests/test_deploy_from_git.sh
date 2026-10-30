@@ -75,7 +75,7 @@ if [[ " $* " == *" restart nginx "* ]]; then
   touch "$TRACE_GIT_DEPLOY_ROOT/nginx-restarted.called"
   exit 0
 fi
-printf '0\n'
+printf '%s\n' "${TRACE_ACTIVE_LOADS:-0}"
 EOF
 
 cat > "$bin_root/curl" <<'EOF'
@@ -88,6 +88,7 @@ cat > "$bin_root/flock" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 [[ "$1" == -n ]]
+if [[ "${TRACE_TEST_FLOCK_BUSY:-0}" == "1" ]]; then exit 1; fi
 exit 0
 EOF
 
@@ -120,4 +121,43 @@ TRACE_GIT_DEPLOY_TARGET_COMMIT="$target_commit" TRACE_GIT_DEPLOY_VERSION="$relea
 [[ -f "$app_root/migrate.called" ]]
 [[ ! -e "$app_root/armazenamento/.maintenance" ]]
 [[ "$(cat "$test_root/head")" == "$target_commit" ]]
-printf 'PASS: guarded deploy validates branch-pull and GitHub-tag inputs, .env, backup, migrations, and health.\n'
+
+expect_deferred_deploy() {
+  local reason="$1"
+  shift
+  local status
+  if env "$@" bash "$app_root/scripts/deploy_from_git.sh" > "$test_root/deferred.log" 2>&1; then
+    echo "Expected deploy deferral to return a temporary failure." >&2
+    exit 1
+  else
+    status="$?"
+  fi
+  [[ "$status" == "75" ]] || {
+    cat "$test_root/deferred.log" >&2
+    echo "Expected exit 75 for a deferred deploy; got $status." >&2
+    exit 1
+  }
+  grep -Fq "$reason" "$test_root/deferred.log" || {
+    cat "$test_root/deferred.log" >&2
+    echo "Deferred deploy did not report the expected reason." >&2
+    exit 1
+  }
+}
+
+rm -f "$app_root/backup.called" "$app_root/compose.called" "$app_root/nginx-restarted.called" "$app_root/migrate.called"
+printf '%s\n' "$current_commit" > "$test_root/head"
+expect_deferred_deploy "Outro deploy pelo Git já está em andamento" TRACE_TEST_FLOCK_BUSY=1
+[[ ! -e "$app_root/armazenamento/.maintenance" ]]
+[[ ! -e "$app_root/backup.called" && ! -e "$app_root/compose.called" && ! -e "$app_root/nginx-restarted.called" && ! -e "$app_root/migrate.called" ]]
+
+touch "$app_root/armazenamento/.maintenance"
+expect_deferred_deploy "O sistema já está em manutenção" TRACE_TEST_FLOCK_BUSY=0
+[[ -e "$app_root/armazenamento/.maintenance" ]]
+[[ ! -e "$app_root/backup.called" && ! -e "$app_root/compose.called" && ! -e "$app_root/nginx-restarted.called" && ! -e "$app_root/migrate.called" ]]
+rm -f "$app_root/armazenamento/.maintenance"
+
+expect_deferred_deploy "há carregamento ativo ou em estado de intervenção" TRACE_ACTIVE_LOADS=1
+[[ ! -e "$app_root/armazenamento/.maintenance" ]]
+[[ ! -e "$app_root/backup.called" && ! -e "$app_root/compose.called" && ! -e "$app_root/nginx-restarted.called" && ! -e "$app_root/migrate.called" ]]
+[[ "$(cat "$test_root/head")" == "$current_commit" ]]
+printf 'PASS: guarded deploy validates releases and fails clearly without changing state when deferred.\n'
