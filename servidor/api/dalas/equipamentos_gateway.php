@@ -15,7 +15,7 @@ $statement = db()->prepare(
     "SELECT e.id, e.equipment_code, e.name, e.plc_ip, e.plc_port, e.plc_protocol,
             (SELECT c.id FROM carregamentos c
              WHERE c.equipment_id = e.id AND c.company_id = e.company_id
-               AND c.state = 'CARREGANDO'
+               AND c.state IN ('CARREGANDO', 'FINALIZANDO', 'PAUSADO')
              ORDER BY c.id DESC LIMIT 1) AS active_loading_id,
             CASE WHEN d.status = 'ONLINE'
                        AND d.last_seen_at >= DATE_SUB(NOW(3), INTERVAL {$signalLimit} SECOND)

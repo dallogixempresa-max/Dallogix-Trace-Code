@@ -35,7 +35,7 @@ export function criarCarregadorPaginas({
       store.loadEquipments(),
     ],
     occurrences: () => [store.loadOccurrences(), store.loadActiveLoading()],
-    summary: () => [store.loadSummaryMonitoring(), store.loadActiveLoading()],
+    summary: () => [store.loadActiveLoading().then(() => store.loadSummaryMonitoring())],
     products: () => [store.loadProducts()],
     alerts: () => [store.loadAlertMonitoring(), store.loadSyncStatus()],
     emergency: () => [store.loadActiveLoading(), store.loadDeviceStatuses()],
@@ -62,7 +62,10 @@ export function criarCarregadorPaginas({
     manifests: () => [store.loadManifests()],
     manifest: () => [store.loadManifest(idDaConsulta())],
     occurrences: () => [store.loadOccurrences()],
-    summary: () => [store.loadSummaryMonitoring(), store.loadActiveLoading(store.state.selectedLoadingId)],
+    summary: () => [
+      store.loadActiveLoading(store.state.selectedLoadingId)
+        .then(() => store.loadSummaryMonitoring()),
+    ],
     division: () => [
       store.loadManifest(idDaConsulta()),
       store.loadActiveLoading(),

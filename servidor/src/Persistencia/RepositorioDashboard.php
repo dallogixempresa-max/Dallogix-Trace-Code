@@ -37,6 +37,13 @@ final class RepositorioDashboard
                  AND l.result = 'VALIDO'
                 WHERE c.company_id = :company_id_carregamentos_leituras
                 GROUP BY c.romaneio_id
+            ), retornos_registrados AS (
+                SELECT c.romaneio_id, SUM(ret.quantity) AS total_retornadas
+                FROM romaneios_finalizados rf
+                JOIN carregamentos c ON c.romaneio_id = rf.id
+                JOIN retornos ret ON ret.carregamento_id = c.id
+                WHERE c.company_id = :company_id_carregamentos_retornos
+                GROUP BY c.romaneio_id
             ), ocorrencias_carregamento AS (
                 SELECT c.romaneio_id, COUNT(*) AS total_ocorrencias
                 FROM romaneios_finalizados rf
@@ -51,8 +58,9 @@ final class RepositorioDashboard
             FROM romaneios_finalizados rf
             LEFT JOIN quantidades_planejadas qp ON qp.romaneio_id = rf.id
             LEFT JOIN leituras_validas lv ON lv.romaneio_id = rf.id
+            LEFT JOIN retornos_registrados rr ON rr.romaneio_id = rf.id
             LEFT JOIN ocorrencias_carregamento oc ON oc.romaneio_id = rf.id
-            WHERE COALESCE(qp.total_planejado, 0) <> COALESCE(lv.total_validas, 0)
+            WHERE COALESCE(qp.total_planejado, 0) <> GREATEST(0, COALESCE(lv.total_validas, 0) - COALESCE(rr.total_retornadas, 0))
                OR COALESCE(oc.total_ocorrencias, 0) > 0",
         );
         $statement->execute([
@@ -60,6 +68,7 @@ final class RepositorioDashboard
             "company_id_itens" => $companyId,
             "company_id_leituras" => $companyId,
             "company_id_carregamentos_leituras" => $companyId,
+            "company_id_carregamentos_retornos" => $companyId,
             "company_id_ocorrencias" => $companyId,
             "company_id_carregamentos_ocorrencias" => $companyId,
         ]);

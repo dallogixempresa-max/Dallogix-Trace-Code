@@ -64,6 +64,12 @@ final class RepositorioRomaneiosLista
                 JOIN romaneios_paginados rp ON rp.id = c.romaneio_id
                 WHERE l.result = 'VALIDO'
                 GROUP BY c.romaneio_id
+            ), returned AS (
+                SELECT c.romaneio_id, SUM(r.quantity) AS returned_quantity
+                FROM retornos r
+                JOIN carregamentos c ON c.id = r.carregamento_id
+                JOIN romaneios_paginados rp ON rp.id = c.romaneio_id
+                GROUP BY c.romaneio_id
             ), occurrences AS (
                 SELECT c.romaneio_id, COUNT(*) AS occurrences_count
                 FROM ocorrencias o
@@ -78,7 +84,7 @@ final class RepositorioRomaneiosLista
                     WHERE rt.romaneio_id = rp.id ORDER BY rt.id LIMIT 1) AS driver_name,
                    COUNT(DISTINCT rt.id) AS trucks_count,
                    COALESCE(planned.planned_quantity, 0) AS planned_quantity,
-                   COALESCE(loaded.loaded_quantity, 0) AS loaded_quantity,
+                   GREATEST(0, COALESCE(loaded.loaded_quantity, 0) - COALESCE(returned.returned_quantity, 0)) AS loaded_quantity,
                    COALESCE(occurrences.occurrences_count, 0) AS ocorrencias_count,
                    ca.id AS active_loading_id,
                    ca.state AS active_state,
@@ -87,6 +93,7 @@ final class RepositorioRomaneiosLista
             LEFT JOIN romaneio_caminhoes rt ON rt.romaneio_id = rp.id
             LEFT JOIN planned ON planned.romaneio_id = rp.id
             LEFT JOIN loaded ON loaded.romaneio_id = rp.id
+            LEFT JOIN returned ON returned.romaneio_id = rp.id
             LEFT JOIN occurrences ON occurrences.romaneio_id = rp.id
             LEFT JOIN carregamento_ativo ca
               ON ca.romaneio_id = rp.id AND ca.rn = 1

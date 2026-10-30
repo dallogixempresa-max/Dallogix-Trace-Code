@@ -40,9 +40,21 @@ export class ServicoObservabilidade {
   }
 
   async loadSummaryMonitoring() {
-    const response = await this.api.fetch("/api/monitoramento.php?view=resumo");
+    const loadingId = Number(this.state.loadingId || this.state.selectedLoadingId) || null;
+    const [response, loadingResponse] = await Promise.all([
+      this.api.fetch("/api/monitoramento.php?view=resumo"),
+      loadingId
+        ? this.api.fetch(`/api/resumo_carregamento.php?carregamento_id=${encodeURIComponent(loadingId)}`)
+        : Promise.resolve(null),
+    ]);
     const result = await this.jsonResponse(response, "Não foi possível carregar o resumo final.");
-    this.state.summaryMonitoring = result.data || {};
+    const loadingResult = loadingResponse
+      ? await this.jsonResponse(loadingResponse, "Não foi possível conferir as passagens pendentes.")
+      : null;
+    this.state.summaryMonitoring = {
+      ...(result.data || {}),
+      carregamento: loadingResult?.data || null,
+    };
     this.state.summaryMonitoringUpdatedAt = new Date().toISOString();
     return this.state.summaryMonitoring;
   }

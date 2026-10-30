@@ -14,6 +14,7 @@ if (!validUsername || !validBcryptHash) {
 module.exports = {
     functionGlobalContext: {
         traceCreateTcpSocket: () => new (require("node:net").Socket)(),
+        traceSensorEventOutbox: require("./sensor-event-outbox.cjs"),
     },
     adminAuth: {
         type: "credentials",

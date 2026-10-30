@@ -18,7 +18,7 @@ if (!$loadingId) {
 session_write_close();
 $pdo = db();
 $loading = $pdo->prepare(
-    "SELECT c.id, c.state, c.started_at, c.finished_at,
+    "SELECT c.id, c.equipment_id, c.state, c.started_at, c.finished_at,
             COALESCE(c.leituras_validas, 0) AS leituras_validas,
             (SELECT COUNT(*) FROM eventos_sensor s
              WHERE s.carregamento_id = c.id AND s.equipment_id = c.equipment_id) AS sacas_detectadas,
@@ -26,7 +26,7 @@ $loading = $pdo->prepare(
             (SELECT JSON_UNQUOTE(JSON_EXTRACT(la.metadata, '$.message'))
              FROM logs_auditoria la
              WHERE la.company_id = c.company_id
-               AND la.action = 'ALERTA_FIM_PRODUTO'
+               AND la.action IN ('ALERTA_FIM_CARGA', 'ALERTA_FIM_PRODUTO')
                AND la.entity_type = 'carregamento'
                AND la.entity_id = c.id
              ORDER BY la.id DESC
@@ -50,6 +50,12 @@ $count = static function (PDO $pdo, string $sql, array $params): int {
 };
 $data["leituras_validas"] = (int) ($data["leituras_validas"] ?? 0);
 $data["sacas_detectadas"] = (int) ($data["sacas_detectadas"] ?? 0);
+$data["sacas_retornadas"] = $count(
+    $pdo,
+    "SELECT COALESCE(SUM(quantity), 0) FROM retornos WHERE carregamento_id = :id",
+    ["id" => $loadingId],
+);
+$data["leituras_liquidas"] = max(0, $data["leituras_validas"] - $data["sacas_retornadas"]);
 $data["sem_leitura"] = $count(
     $pdo,
     "SELECT COUNT(*) FROM leituras WHERE carregamento_id = :id AND result = 'SEM_LEITURA'",
@@ -70,6 +76,28 @@ $data["imagens_pendentes"] = $count(
     "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia WHERE carregamento_id = :id AND status IN ('PENDENTE','CAPTURANDO')",
     ["id" => $loadingId],
 );
+$data["leituras_pendentes_sensor"] = $count(
+    $pdo,
+    "SELECT COUNT(*) FROM eventos_sensor s
+     WHERE s.carregamento_id = :id
+       AND NOT EXISTS (SELECT 1 FROM leituras l WHERE l.sensor_event_id = s.id)",
+    ["id" => $loadingId],
+);
+$sensorOutbox = $pdo->prepare(
+    "SELECT CASE
+       WHEN status = 'ONLINE' AND last_seen_at >= DATE_SUB(NOW(3), INTERVAL 5 SECOND)
+       THEN JSON_UNQUOTE(JSON_EXTRACT(details, '$.sensor_event_outbox_pending'))
+       ELSE NULL
+     END
+     FROM status_dispositivos
+     WHERE equipment_id = :equipment_id AND device_type = 'SENSOR'
+     LIMIT 1",
+);
+$sensorOutbox->execute(["equipment_id" => (int) $data["equipment_id"]]);
+$sensorOutboxPending = $sensorOutbox->fetchColumn();
+$data["sensor_outbox_pendentes"] = $sensorOutboxPending === false || $sensorOutboxPending === null
+    ? null
+    : max(0, (int) $sensorOutboxPending);
 $data["imagens_incidentes"] = $count(
     $pdo,
     "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia WHERE carregamento_id = :id AND status = 'CAPTURADA' AND reason <> 'NORMAL'",

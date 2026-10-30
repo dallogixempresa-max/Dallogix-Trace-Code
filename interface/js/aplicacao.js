@@ -529,7 +529,7 @@ function installScannerClipboardReceiver() {
     if (!barcode || barcode.length > 128 || /[\x00-\x1F\x7F]/.test(barcode)) return;
 
     queue = queue.then(async () => {
-      if (!store.state.loadingId || !["CARREGANDO", "FINALIZANDO"].includes(store.state.operationalState)) return;
+      if (!store.state.loadingId || !["CARREGANDO", "FINALIZANDO", "PAUSADO"].includes(store.state.operationalState)) return;
 
       store.state.latestScannerReading = {
         barcode,
@@ -544,7 +544,14 @@ function installScannerClipboardReceiver() {
       }
 
       try {
-        await store.registerScannerReading(barcode, Number(message.capturedAtEpochMs) || Date.now());
+        const reading = await store.registerScannerReading(barcode, Number(message.capturedAtEpochMs) || Date.now());
+        if (reading?.result === "PRODUTO_INCORRETO") {
+          store.state.latestScannerReading = { ...store.state.latestScannerReading, result: reading.result };
+          notificar(
+            reading.operator_alert || "Produto fora do romaneio. A passagem foi contada e a operação continua.",
+            "aviso",
+          );
+        }
         if (currentPage === "work") renderScreen();
       } catch (error) {
         logFrontend.aviso("leitor.clipboard.registro", error);
