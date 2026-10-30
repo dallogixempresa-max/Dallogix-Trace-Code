@@ -274,6 +274,21 @@ try {
         "result" => $result,
     ]);
 } catch (PDOException $exception) {
+    $driverErrorCode = (int) ($exception->errorInfo[1] ?? 0);
+    if ($exception->getCode() === "40001" || in_array($driverErrorCode, [1205, 1213], true)) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        registrar_log_erro($exception, "conflito_transitorio_leitura");
+        header("Retry-After: 0");
+        responder_json(
+            [
+                "error" => "Conflito temporário ao registrar a leitura. Tentando novamente.",
+                "retryable" => true,
+            ],
+            503,
+        );
+    }
     if (
         $sensorEventId &&
         isset($exception->errorInfo[1]) &&

@@ -66,6 +66,7 @@ export class ServicoLeiturasOperacionais {
     }
 
     const associationDeadline = Date.now() + 1500;
+    let transientRetryCount = 0;
     while (true) {
       const response = await this.api.fetch("/api/leituras.php", {
         method: "POST",
@@ -85,6 +86,15 @@ export class ServicoLeiturasOperacionais {
         const waitingForPassage = body.error === "Leitura aguardando o evento de passagem do sensor M2052.";
         if (waitingForPassage && Date.now() < associationDeadline) {
           await new Promise((resolve) => setTimeout(resolve, 100));
+          continue;
+        }
+      }
+
+      if (response.status === 503 && transientRetryCount < 2 && Date.now() < associationDeadline) {
+        const body = await response.clone().json().catch(() => ({}));
+        if (body.retryable === true) {
+          transientRetryCount++;
+          await new Promise((resolve) => setTimeout(resolve, 75 * transientRetryCount));
           continue;
         }
       }

@@ -230,6 +230,75 @@ test("leitura automática aguarda o pulso M2052 e atualiza o carregamento", asyn
   assert.deepEqual(refreshedLoadings, [7]);
 });
 
+test("conflito temporário do banco repete a leitura com o mesmo identificador offline", async () => {
+  const requests = [];
+  const refreshedLoadings = [];
+  const service = new ServicoLeiturasOperacionais({
+    api: {
+      fetch: async (url, options) => {
+        requests.push({ url, options });
+        if (requests.length === 1) {
+          return {
+            status: 503,
+            ok: false,
+            clone: () => ({ json: async () => ({ retryable: true }) }),
+          };
+        }
+        return { status: 201, ok: true, json: async () => ({ data: { id: 49, result: "VALIDO" } }) };
+      },
+    },
+    state: { loadingId: 11, operationalState: "CARREGANDO" },
+    jsonHeaders: () => ({ "Content-Type": "application/json", "X-CSRF-Token": "csrf" }),
+    jsonResponse: async (response) => response.json(),
+    loadActiveLoading: async (loadingId) => { refreshedLoadings.push(loadingId); },
+    createEventId: () => "d4a00000-0000-4000-8000-000000000049",
+  });
+
+  const result = await service.registerScannerReading("7898538751531", 1793387000000);
+
+  assert.equal(result.id, 49);
+  assert.equal(requests.length, 2);
+  assert.equal(requests[0].options.headers["X-Trace-Offline-ID"], "d4a00000-0000-4000-8000-000000000049");
+  assert.equal(requests[1].options.headers["X-Trace-Offline-ID"], requests[0].options.headers["X-Trace-Offline-ID"]);
+  assert.equal(requests[1].options.body, requests[0].options.body);
+  assert.deepEqual(refreshedLoadings, [11]);
+});
+
+test("leitura para após duas novas tentativas de conflito temporário", async () => {
+  const requests = [];
+  const service = new ServicoLeiturasOperacionais({
+    api: {
+      fetch: async (url, options) => {
+        requests.push({ url, options });
+        return {
+          status: 503,
+          ok: false,
+          clone: () => ({ json: async () => ({ retryable: true }) }),
+        };
+      },
+    },
+    state: { loadingId: 11, operationalState: "CARREGANDO" },
+    jsonHeaders: () => ({ "Content-Type": "application/json", "X-CSRF-Token": "csrf" }),
+    jsonResponse: async () => { throw new Error("Conflito temporário não resolvido."); },
+    loadActiveLoading: async () => {},
+    createEventId: () => "d4a00000-0000-4000-8000-000000000050",
+  });
+
+  await assert.rejects(service.registerScannerReading("7898538751531", 1793387000000), /Conflito temporário/);
+  assert.equal(requests.length, 3);
+  assert.equal(new Set(requests.map(({ options }) => options.headers["X-Trace-Offline-ID"])).size, 1);
+  assert.equal(new Set(requests.map(({ options }) => options.body)).size, 1);
+});
+
+test("endpoint de leitura devolve conflito temporário repetível para deadlock e timeout de lock", () => {
+  assert.match(readingsEndpoint, /\$exception->getCode\(\) === "40001"/);
+  assert.match(readingsEndpoint, /in_array\(\$driverErrorCode, \[1205, 1213\], true\)/);
+  assert.match(readingsEndpoint, /if \(\$pdo->inTransaction\(\)\) \{\s*\$pdo->rollBack\(\);/);
+  assert.match(readingsEndpoint, /header\("Retry-After: 0"\)/);
+  assert.match(readingsEndpoint, /"retryable"\s*=>\s*true/);
+  assert.match(readingsEndpoint, /registrar_log_erro\(\$exception, "conflito_transitorio_leitura"\)/);
+});
+
 test("leitura já vinculada ao M2052 ainda é registrada após ACK de parada", async () => {
   const requests = [];
   const service = new ServicoLeiturasOperacionais({
