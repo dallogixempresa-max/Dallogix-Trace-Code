@@ -67,3 +67,29 @@ test("não descarta arquivo de fila inválido nem aceita eventos incompletos", a
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("rejeição definitiva sai da fila após criar registro local sem segredo", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "trace-sensor-outbox-"));
+  const outbox = createSensorEventOutbox({ directory });
+  const event = { equipment_id: 12, carregamento_id: null,
+    event_uuid: "d4a00000-0000-4000-8000-000000000044", detected_at_epoch_ms: 1793314343924,
+    traceToken: "segredo-que-nao-deve-ser-gravado" };
+  try {
+    await outbox.enqueue(event);
+    assert.equal(await outbox.count(), 1);
+    assert.equal(await outbox.reject(event.event_uuid, 422, "Sem carregamento no horário"), true);
+    assert.equal(await outbox.count(), 0);
+    assert.equal(await outbox.rejectedCount(), 1);
+    const audit = JSON.parse(await readFile(join(directory, "rejected", `${event.event_uuid}.json`), "utf8"));
+    assert.equal(audit.http_status, 422);
+    assert.equal(audit.event.carregamento_id, null);
+    assert.doesNotMatch(JSON.stringify(audit), /segredo-que-nao-deve-ser-gravado/);
+    assert.equal(await outbox.reject(event.event_uuid, 422, "Sem carregamento no horário"), false);
+    await outbox.enqueue(event);
+    assert.equal(await outbox.reject(event.event_uuid, 422, "Outra resposta"), true);
+    assert.equal(await outbox.count(), 0);
+    assert.deepEqual(JSON.parse(await readFile(join(directory, "rejected", `${event.event_uuid}.json`), "utf8")), audit);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});

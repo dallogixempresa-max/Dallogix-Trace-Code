@@ -480,7 +480,11 @@ async function processImageQueue() {
 
 async function publishHeartbeat() {
   const archiveUnavailable = Boolean(IMAGE_ARCHIVE_DIR) && imageArchiveAvailable === false;
-  const status = lastError || readerProbeError || archiveUnavailable ? "ERRO" : "ONLINE";
+  const failedScanCount = (await readdir(FAILED_SCAN_DIR).catch((error) => {
+    if (error?.code === "ENOENT") return [];
+    throw error;
+  })).filter((name) => name.endsWith(".json") || name.endsWith(".invalid")).length;
+  const status = lastError || readerProbeError || archiveUnavailable || failedScanCount > 0 ? "ERRO" : "ONLINE";
   await apiRequest("/api/device_heartbeat.php", {
     jsonBody: {
       device_type: "SCANNER",
@@ -490,6 +494,7 @@ async function publishHeartbeat() {
         model: "SR-X100W",
         tcp_output_listening: tcpReachable,
         ftp_image_receiver_listening: ftpReachable,
+        failed_scan_count: failedScanCount,
         reader_network_status: readerNetworkStatus,
         reader_probe_method: "ICMP_PING",
         reader_ip: TCP_ALLOWED_ADDRESS,
@@ -501,7 +506,8 @@ async function publishHeartbeat() {
         image_archive_directory_available: IMAGE_ARCHIVE_DIR ? imageArchiveAvailable : null,
         ...(archiveUnavailable ? { reason_code: "keyence_image_archive_unavailable" } : {}),
         ...(readerProbeError ? { reason_code: "keyence_reader_ping_failed" } : {}),
-        ...(lastError ? { reason_code: "keyence_worker_error", error: lastError } : {}),
+        ...(lastError ? { reason_code: "keyence_worker_error", error: lastError }
+          : failedScanCount > 0 ? { reason_code: "keyence_failed_scans" } : {}),
       },
     },
   });
