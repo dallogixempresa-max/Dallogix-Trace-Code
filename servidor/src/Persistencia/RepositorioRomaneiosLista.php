@@ -58,11 +58,12 @@ final class RepositorioRomaneiosLista
                 JOIN romaneios_paginados rp ON rp.id = ri.romaneio_id
                 GROUP BY ri.romaneio_id
             ), loaded AS (
-                SELECT c.romaneio_id, COUNT(*) AS loaded_quantity
-                FROM leituras l
-                JOIN carregamentos c ON c.id = l.carregamento_id
+                -- carregamentos.leituras_validas é o contador canônico de leituras
+                -- válidas, incrementado na mesma transação do INSERT em leituras.
+                -- Recontar a tabela aqui criava uma segunda fonte para o mesmo número.
+                SELECT c.romaneio_id, SUM(c.leituras_validas) AS loaded_quantity
+                FROM carregamentos c
                 JOIN romaneios_paginados rp ON rp.id = c.romaneio_id
-                WHERE l.result = 'VALIDO'
                 GROUP BY c.romaneio_id
             ), returned AS (
                 SELECT c.romaneio_id, SUM(r.quantity) AS returned_quantity

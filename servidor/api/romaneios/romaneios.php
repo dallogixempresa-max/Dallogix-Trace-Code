@@ -37,7 +37,7 @@ if ($_SERVER["REQUEST_METHOD"] === "GET") {
                               JOIN carregamentos c3 ON c3.id = ret.carregamento_id
                               WHERE c3.romaneio_id = r.id AND c3.company_id = r.company_id), 0) AS returned_quantity,
                     GREATEST(0,
-                      COALESCE((SELECT COUNT(*) FROM leituras l JOIN carregamentos c2 ON c2.id = l.carregamento_id WHERE c2.romaneio_id = r.id AND l.result = 'VALIDO'), 0)
+                      COALESCE((SELECT SUM(c2.leituras_validas) FROM carregamentos c2 WHERE c2.romaneio_id = r.id AND c2.company_id = r.company_id), 0)
                       - COALESCE((SELECT SUM(ret.quantity) FROM retornos ret JOIN carregamentos c4 ON c4.id = ret.carregamento_id WHERE c4.romaneio_id = r.id AND c4.company_id = r.company_id), 0)
                     ) AS loaded_quantity,
                     COALESCE((SELECT COUNT(*) FROM eventos_sensor s JOIN carregamentos c5 ON c5.id = s.carregamento_id WHERE c5.romaneio_id = r.id AND c5.company_id = r.company_id), 0) AS detected_quantity,
