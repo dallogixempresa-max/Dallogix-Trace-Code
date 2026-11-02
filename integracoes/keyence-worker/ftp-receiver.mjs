@@ -200,6 +200,18 @@ class FtpSession {
 export function createFtpReceiver(options) {
   const sessions = new Set();
   const server = createServer((control) => {
+    // A origem precisa ser validada ANTES de qualquer I/O (banner incluso):
+    // antes, essa checagem rodava num listener "connection" separado e
+    // registrado depois deste, então o banner "220 ..." e a sessão já
+    // existiam quando o IP era rejeitado — igual ao receptor TCP, que já
+    // fazia essa validação primeiro.
+    const remote = String(control.remoteAddress || "").replace(/^::ffff:/, "");
+    const allowedAddresses = options.allowedAddresses ?? (options.allowedAddress ? [options.allowedAddress] : []);
+    if (allowedAddresses.length > 0 && !isAllowedSourceAddress(remote, allowedAddresses)) {
+      options.log("warn", "Conexão FTP Keyence rejeitada por endereço de origem.", { remote_address: remote });
+      control.destroy();
+      return;
+    }
     if (sessions.size >= MAX_SESSIONS) {
       control.end("421 Too many sessions.\r\n");
       return;
@@ -207,15 +219,6 @@ export function createFtpReceiver(options) {
     const session = new FtpSession(control, options);
     sessions.add(session);
     control.once("close", () => sessions.delete(session));
-  });
-
-  server.on("connection", (socket) => {
-    const remote = String(socket.remoteAddress || "").replace(/^::ffff:/, "");
-    const allowedAddresses = options.allowedAddresses ?? (options.allowedAddress ? [options.allowedAddress] : []);
-    if (allowedAddresses.length > 0 && !isAllowedSourceAddress(remote, allowedAddresses)) {
-      options.log("warn", "Conexão FTP Keyence rejeitada por endereço de origem.", { remote_address: remote });
-      socket.destroy();
-    }
   });
 
   return {
