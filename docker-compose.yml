@@ -149,6 +149,10 @@ services:
     # Limita buffers de diagnóstico do Performance Schema no PC de 512 MiB.
     # Isso reduz histórico de consultas, sem limitar conexões nem alterar dados SQL.
     command:
+      # Fixa o relógio do banco em UTC. NOW() já gravava em UTC por ausência de TZ,
+      # mas sem a flag isso dependia do padrão da imagem: a auditoria passa a ter
+      # garantia de um único relógio na gravação, e a exibição converte para o fuso local.
+      - --default-time-zone=+00:00
       - --performance-schema-digests-size=1000
       - --performance-schema-events-stages-history-long-size=1000
       - --performance-schema-events-statements-history-long-size=1000

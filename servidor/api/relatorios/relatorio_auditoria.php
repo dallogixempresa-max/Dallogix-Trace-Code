@@ -191,12 +191,21 @@ $formatDate = static function (?string $value): string {
     $timestamp = strtotime($value);
     return $timestamp === false ? $value : date("d/m/Y", $timestamp);
 };
+// Carimbos DATETIME são gravados em UTC (NOW() roda com --default-time-zone=+00:00).
+// A auditoria precisa exibir o relógio da operação, senão início, fim e legendas das
+// fotos de falha aparecem adiantados pelo deslocamento do fuso.
 $formatDateTime = static function (?string $value): string {
     if (!$value) {
         return "—";
     }
-    $timestamp = strtotime($value);
-    return $timestamp === false ? $value : date("d/m/Y H:i", $timestamp);
+    try {
+        $moment = new DateTimeImmutable($value, new DateTimeZone("UTC"));
+    } catch (Exception) {
+        return $value;
+    }
+    return $moment
+        ->setTimezone(new DateTimeZone(date_default_timezone_get()))
+        ->format("d/m/Y H:i");
 };
 $equipmentLabels = array_values(array_unique(array_map(
     static fn(array $row): string => trim((string) ($row["equipment_name"] ?: $row["equipment_code"] ?: "Dala")),

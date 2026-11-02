@@ -78,7 +78,9 @@ final class ServicoPreparacaoCarregamentoSincronizado
             "manifest_id" => (int) $manifest["id"],
             "truck_id" => (int) $truck["id"],
             "state" => $state,
-            "started_at" => (string) ($data["started_at"] ?? date("Y-m-d H:i:s")),
+            // NOW() do MySQL grava em UTC; usar date() aqui misturaria fuso local com UTC
+            // na mesma linha e distorceria a duração no relatório de auditoria.
+            "started_at" => (string) ($data["started_at"] ?? gmdate("Y-m-d H:i:s")),
             "company_id" => $companyId,
         ], $loadingId);
 
