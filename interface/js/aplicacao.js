@@ -221,6 +221,17 @@ async function executarComandoDeOperacao(node, action) {
   const command = action === "reverse-toggle"
     ? (store.state.returnMode ? "REVERSAO_DESATIVAR" : "REVERSAO_ATIVAR")
     : commands[action];
+  // Trava os botões já no clique, antes de o servidor confirmar o PENDENTE:
+  // fecha a janela entre "operador clicou" e "status chegou" em que um
+  // segundo clique (duplicado) ou um clique perdido podiam ocorrer.
+  const commandToken = store.beginCommand ? store.beginCommand() : null;
+  if (!commandToken && store.state.commandInFlight) {
+    // Já existe um comando em voo (clique duplicado antes do re-render
+    // desabilitar o botão): ignora silenciosamente em vez de enfileirar
+    // outro envio ao CLP.
+    return;
+  }
+  if (currentPage === "work") render();
   try {
     await machineCommandQueue.enqueue(loadingId, command, async () => {
       if (command === "INICIAR_CARREGAMENTO") return servicoOperacao.iniciar(loadingId);
@@ -237,10 +248,22 @@ async function executarComandoDeOperacao(node, action) {
         acao: action,
         carregamento_id: loadingId,
       });
-      store.state.commandFeedback = "";
+      // A falha precisa ficar visível na própria tela de operação (quiosque):
+      // antes, o erro era apenas logado e o operador não recebia feedback.
+      store.state.commandFeedback = error?.message
+        || "Não foi possível enviar o comando à máquina. Verifique o equipamento.";
       render();
     } else {
       notificarForaDaOperacao(error.message, "erro");
+    }
+  } finally {
+    // Libera a trava de clique independentemente do resultado: sucesso,
+    // erro, ou mesmo se o comando foi deduplicado pela fila (nesse caso o
+    // commandPending do status PENDENTE/PROCESSANDO assume a trava a partir
+    // daqui, então destravar aqui não reabre a janela de clique perdido).
+    if (store.endCommand && commandToken) {
+      store.endCommand(commandToken);
+      if (currentPage === "work") render();
     }
   }
 }

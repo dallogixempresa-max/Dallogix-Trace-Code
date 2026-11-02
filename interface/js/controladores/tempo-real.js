@@ -83,6 +83,12 @@ export function createOperationalRealtimeController({
         store.loadActiveLoading(store.state.selectedLoadingId),
         store.loadDeviceStatuses(),
       ];
+      // Sem o SSE, este poll é a única via de atualização: sem consultar o
+      // status do comando aqui, um comando PENDENTE nunca chega a um estado
+      // terminal e a tela de operação trava os botões para sempre.
+      if (store.state.loadingId) {
+        requests.push(store.loadPlcCommandStatus(store.state.loadingId));
+      }
       const results = await Promise.allSettled(requests);
       if (!isCurrent(token)) return false;
       const currentPage = getPage();
