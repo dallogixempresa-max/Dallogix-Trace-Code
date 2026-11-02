@@ -224,14 +224,19 @@ async function executarComandoDeOperacao(node, action) {
   // Trava os botões já no clique, antes de o servidor confirmar o PENDENTE:
   // fecha a janela entre "operador clicou" e "status chegou" em que um
   // segundo clique (duplicado) ou um clique perdido podiam ocorrer.
-  const commandToken = store.beginCommand ? store.beginCommand() : null;
-  if (!commandToken && store.state.commandInFlight) {
+  // EMERGÊNCIA é isenta de propósito: por design (ver bloqueioEmergencia em
+  // telas/operacao/operacao.js) ela precisa continuar disponível mesmo com
+  // outro comando em voo — nunca pode ser descartada aqui, só serializada
+  // pela fila como já era antes desta trava.
+  const isEmergency = command === "EMERGENCIA";
+  const commandToken = !isEmergency && store.beginCommand ? store.beginCommand() : null;
+  if (!isEmergency && !commandToken && store.state.commandInFlight) {
     // Já existe um comando em voo (clique duplicado antes do re-render
     // desabilitar o botão): ignora silenciosamente em vez de enfileirar
     // outro envio ao CLP.
     return;
   }
-  if (currentPage === "work") render();
+  if (!isEmergency && currentPage === "work") render();
   try {
     await machineCommandQueue.enqueue(loadingId, command, async () => {
       if (command === "INICIAR_CARREGAMENTO") return servicoOperacao.iniciar(loadingId);
