@@ -22,7 +22,7 @@ export class ServicoCatalogoProdutos {
     if (!force && this.state.productsLoaded && cacheAge < CACHE_PRODUTOS_MS) {
       return this.state.products;
     }
-    if (this.request) return this.request;
+    if (this.request && !force) return this.request;
 
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), 10_000);

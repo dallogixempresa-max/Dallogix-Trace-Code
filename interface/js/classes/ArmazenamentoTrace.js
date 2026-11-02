@@ -301,7 +301,10 @@ export class ArmazenamentoTrace {
       const error = await erroRespostaHttp(response, fallback);
       throw error || new Error(fallback);
     }
-    return response.json().catch(() => ({}));
+    if (response.status === 204) return {};
+    return response.json().catch(() => {
+      throw new Error("O servidor retornou uma resposta inesperada.");
+    });
   }
   async fetchAllPages(path, { signal = undefined, cursorParam = "cursor" } = {}) {
     return buscarTodasPaginas({

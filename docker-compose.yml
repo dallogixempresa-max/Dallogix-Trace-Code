@@ -324,6 +324,7 @@ services:
     environment:
       MODBUS_PORT: 1502
       MODBUS_LOG_LEVEL: ${MODBUS_LOG_LEVEL:-INFO}
+      MODBUS_ALLOWED_ADDRESS: ${MODBUS_ALLOWED_ADDRESS:-}
     logging: *trace-logging
     restart: unless-stopped
     read_only: true

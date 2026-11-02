@@ -117,9 +117,11 @@ if ($method === "PATCH") {
         json_response(["data" => ["updated" => true]]);
     }
     $id = filter_var($payload["id"] ?? null, FILTER_VALIDATE_INT);
+    if (!$id || $id < 1) json_response(["error" => "ID da ação inválido."], 422);
     $data = action_payload($payload);
     $update = $pdo->prepare("UPDATE acoes_dala SET comando = :comando, rotulo = :rotulo, cor = :cor, visivel = :visivel, modo = :modo WHERE id = :id AND equipment_id = :equipment_id AND company_id = :company_id");
     $update->execute([...$data, "id" => $id, "equipment_id" => $equipmentId, "company_id" => $companyId]);
+    if ($update->rowCount() !== 1) json_response(["error" => "Ação não encontrada."], 404);
     json_response(["data" => ["updated" => true]]);
 }
 if ($method === "DELETE") {

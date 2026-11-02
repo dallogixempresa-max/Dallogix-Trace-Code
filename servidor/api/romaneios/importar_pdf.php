@@ -14,6 +14,9 @@ require_once __DIR__ . "/../../configuracao/bootstrap.php";
  */
 function pdf_text_from_content(string $content): string
 {
+    // Defesa em profundidade: limite explícito de backtracking para isolar esta
+    // função de configurações externas, sem depender do valor global padrão do PHP.
+    ini_set('pcre.backtrack_limit', '100000');
     $text = "";
     // Blocos [...] TJ e strings (...) seguidas de Tj / ' / ".
     if (
