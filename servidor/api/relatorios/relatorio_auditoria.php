@@ -203,6 +203,11 @@ $formatDateTime = static function (?string $value): string {
     } catch (Exception) {
         return $value;
     }
+    // A zero-date do MySQL ("0000-00-00 00:00:00") não lança e viraria 29/11/-0001.
+    // Num documento de auditoria é melhor exibir o valor cru do que uma data absurda.
+    if ((int) $moment->format("Y") < 1970) {
+        return $value;
+    }
     return $moment
         ->setTimezone(new DateTimeZone(date_default_timezone_get()))
         ->format("d/m/Y H:i");

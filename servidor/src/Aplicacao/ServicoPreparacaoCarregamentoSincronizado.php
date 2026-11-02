@@ -78,9 +78,13 @@ final class ServicoPreparacaoCarregamentoSincronizado
             "manifest_id" => (int) $manifest["id"],
             "truck_id" => (int) $truck["id"],
             "state" => $state,
-            // NOW() do MySQL grava em UTC; usar date() aqui misturaria fuso local com UTC
-            // na mesma linha e distorceria a duração no relatório de auditoria.
-            "started_at" => (string) ($data["started_at"] ?? gmdate("Y-m-d H:i:s")),
+            // started_at nulo significa carregamento ainda não iniciado e precisa chegar
+            // nulo ao banco: a coluna aceita NULL e desvincularDala() a zera de propósito.
+            // Fabricar "agora" aqui fazia o Início do relatório de auditoria avançar a
+            // cada polling, porque a sincronização reescreve a coluna em todo ciclo.
+            "started_at" => isset($data["started_at"]) && $data["started_at"] !== ""
+                ? (string) $data["started_at"]
+                : null,
             "company_id" => $companyId,
         ], $loadingId);
 

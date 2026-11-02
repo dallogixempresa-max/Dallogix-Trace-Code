@@ -58,12 +58,16 @@ final class RepositorioRomaneiosLista
                 JOIN romaneios_paginados rp ON rp.id = ri.romaneio_id
                 GROUP BY ri.romaneio_id
             ), loaded AS (
-                -- carregamentos.leituras_validas é o contador canônico de leituras
-                -- válidas, incrementado na mesma transação do INSERT em leituras.
-                -- Recontar a tabela aqui criava uma segunda fonte para o mesmo número.
-                SELECT c.romaneio_id, SUM(c.leituras_validas) AS loaded_quantity
-                FROM carregamentos c
+                -- Conta leituras VALIDO em vez de ler carregamentos.leituras_validas:
+                -- o contador é por carregamento, enquanto o relatório de auditoria e o
+                -- encerramento precisam do mesmo número por produto e por resultado.
+                -- Ler o contador aqui faria o total da tela deixar de bater com a soma
+                -- da coluna Movido do PDF, que é o documento de rastreabilidade.
+                SELECT c.romaneio_id, COUNT(*) AS loaded_quantity
+                FROM leituras l
+                JOIN carregamentos c ON c.id = l.carregamento_id
                 JOIN romaneios_paginados rp ON rp.id = c.romaneio_id
+                WHERE l.result = 'VALIDO'
                 GROUP BY c.romaneio_id
             ), returned AS (
                 SELECT c.romaneio_id, SUM(r.quantity) AS returned_quantity

@@ -98,7 +98,9 @@ final class RepositorioCarregamentosEventos
                 "UPDATE carregamentos SET remote_installation_id = :installation_id,
                  remote_carregamento_id = :remote_id, equipment_id = :equipment_id,
                  romaneio_id = :romaneio_id, truck_id = :truck_id, state = :state,
-                 started_at = :started_at
+                 -- A sincronização registra um início quando conhece um, nunca apaga o
+                 -- que já está gravado: quem zera started_at é desvincularDala().
+                 started_at = COALESCE(:started_at, started_at)
                  WHERE id = :id AND company_id = :company_id",
             )->execute([...$values, "id" => $loadingId]);
             return $loadingId;
