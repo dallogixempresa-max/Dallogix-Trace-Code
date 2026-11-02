@@ -4,6 +4,8 @@ function registrarOcorrencia({ root, store, render, notify, onUnauthorized, read
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (form.dataset.submitting) return;
+    form.dataset.submitting = "1";
     try {
       await store.createOccurrence(readForm(form));
       render();
@@ -13,6 +15,8 @@ function registrarOcorrencia({ root, store, render, notify, onUnauthorized, read
         return;
       }
       notify(error.message);
+    } finally {
+      delete form.dataset.submitting;
     }
   });
 }
@@ -23,6 +27,8 @@ function salvarParametrosPdf({ root, store, render, notify, readForm }) {
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (form.dataset.submitting) return;
+    form.dataset.submitting = "1";
     const raw = readForm(form);
     // Campos ausentes do formulário podem conter configurações legadas úteis.
     const pdf_field_mapping = Object.fromEntries(
@@ -42,6 +48,8 @@ function salvarParametrosPdf({ root, store, render, notify, readForm }) {
       render();
     } catch (error) {
       notify(error.message);
+    } finally {
+      delete form.dataset.submitting;
     }
   });
 }

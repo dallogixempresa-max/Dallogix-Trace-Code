@@ -58,9 +58,9 @@ if ($_SERVER["REQUEST_METHOD"] === "GET") {
                               WHERE pc.company_id = p.company_id AND pc.product_id = p.id
                               ORDER BY pc.id LIMIT 1), "") AS barcode
              FROM romaneio_itens ri JOIN produtos p ON p.id = ri.product_id
-             WHERE ri.romaneio_id = :id ORDER BY ri.id',
+             WHERE ri.romaneio_id = :id AND p.company_id = :company_id ORDER BY ri.id',
         );
-        $items->execute(["id" => $detailId]);
+        $items->execute(["id" => $detailId, "company_id" => $companyId]);
         $romaneio["items"] = $items->fetchAll();
 
         $trucks = $pdo->prepare(

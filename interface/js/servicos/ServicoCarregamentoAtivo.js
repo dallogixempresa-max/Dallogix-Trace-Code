@@ -149,8 +149,16 @@ export class ServicoCarregamentoAtivo {
       requestedId &&
       Number(this.state.loadingId) === requestedId &&
       !requestedLoading &&
-      this.hasPendingCommand(),
+      (this.hasPendingCommand() || this.state.emergency === true),
     );
+    // Em EMERGENCIA sem comando pendente, qualquer instabilidade do backend
+    // que faça o carregamento sumir temporariamente da lista (lag, race de
+    // Dala, etc.) zerava emergency/loadingId e fazia o botão "Liberar
+    // emergência" desaparecer da tela, deixando o operador sem controle de
+    // UI para liberar uma emergência real. Um carregamento só sai da lista
+    // de ativos ao ser finalizado, e finalização é bloqueada durante
+    // EMERGENCIA — então, nesse estado, uma ausência na resposta é tratada
+    // como instabilidade transitória, não como "carregamento encerrado".
     if (!preservePendingSelection) {
       this.state.activeLoadings = activeLoadings;
     }

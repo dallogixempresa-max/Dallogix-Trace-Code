@@ -28,7 +28,7 @@ export class ServicoDalas {
 
   async loadAll({ force = false } = {}) {
     if (this.state.equipmentsLoaded && !force) return this.state.equipments;
-    if (this.request) return this.request;
+    if (this.request && !force) return this.request;
 
     this.state.equipmentsLoading = true;
     this.state.equipmentsError = "";
