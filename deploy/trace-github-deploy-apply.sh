@@ -47,10 +47,18 @@ git_repo bundle verify "$bundle"
 tag_ref="refs/tags/$tag"
 if git_repo show-ref --verify --quiet "$tag_ref"; then
   existing_tag_commit="$(git_repo rev-parse "$tag_ref^{commit}")"
-  [[ "$existing_tag_commit" == "$commit" ]] || {
-    echo "A tag $tag já existe localmente e aponta para outro commit." >&2
-    exit 2
-  }
+  if [[ "$existing_tag_commit" != "$commit" ]]; then
+    # Aceitar reposicionamento da tag apenas se o novo commit for descendente do atual
+    # (fast-forward seguro: impede rollback acidental via tag)
+    git_repo fetch --quiet --no-tags "$bundle" "$tag_ref:refs/trace-deploy/incoming-tag-verify"
+    git_repo merge-base --is-ancestor "$existing_tag_commit" "$commit" || {
+      echo "A tag $tag existe localmente e o novo commit não é descendente do atual; deploy cancelado." >&2
+      git_repo update-ref -d refs/trace-deploy/incoming-tag-verify 2>/dev/null || true
+      exit 2
+    }
+    git_repo update-ref "$tag_ref" "$commit"
+    git_repo update-ref -d refs/trace-deploy/incoming-tag-verify 2>/dev/null || true
+  fi
 else
   git_repo fetch --quiet --no-tags "$bundle" "$tag_ref:$tag_ref"
 fi
