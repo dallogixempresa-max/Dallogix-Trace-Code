@@ -408,11 +408,27 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $assets = Join-Path $env:RUNNER_TEMP 'trace-release-assets'
-          gh release create $env:GITHUB_REF_NAME `
-            (Join-Path $assets "trace-$env:GITHUB_REF_NAME.tar.gz") `
-            (Join-Path $assets 'manifest.json') `
-            (Join-Path $assets 'TraceSetup.exe') `
-            (Join-Path $assets 'TraceSetup.sha256.txt') `
-            --verify-tag --title $env:GITHUB_REF_NAME `
-            --notes 'The Windows installer is not Authenticode signed. Verify TraceSetup.sha256.txt before running it; Windows may show an unknown-publisher warning. The updater manifest is RSA-signed. This release was built from the same commit already deployed to trace.dallogix.com.'
-          if ($LASTEXITCODE -ne 0) { throw 'Could not publish the GitHub release.' }
+          $releaseNotes = 'The Windows installer is not Authenticode signed. Verify TraceSetup.sha256.txt before running it; Windows may show an unknown-publisher warning. The updater manifest is RSA-signed. This release was built from the same commit already deployed to trace.dallogix.com.'
+          $existingRelease = gh release view $env:GITHUB_REF_NAME --json id 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            # Release already exists — upload assets and update notes
+            gh release upload $env:GITHUB_REF_NAME `
+              (Join-Path $assets "trace-$env:GITHUB_REF_NAME.tar.gz") `
+              (Join-Path $assets 'manifest.json') `
+              (Join-Path $assets 'TraceSetup.exe') `
+              (Join-Path $assets 'TraceSetup.sha256.txt') `
+              --clobber
+            if ($LASTEXITCODE -ne 0) { throw 'Could not upload assets to existing release.' }
+            gh release edit $env:GITHUB_REF_NAME --notes $releaseNotes
+            if ($LASTEXITCODE -ne 0) { throw 'Could not update existing release notes.' }
+          } else {
+            gh release create $env:GITHUB_REF_NAME `
+              (Join-Path $assets "trace-$env:GITHUB_REF_NAME.tar.gz") `
+              (Join-Path $assets 'manifest.json') `
+              (Join-Path $assets 'TraceSetup.exe') `
+              (Join-Path $assets 'TraceSetup.sha256.txt') `
+              --verify-tag --title $env:GITHUB_REF_NAME `
+              --notes $releaseNotes
+            if ($LASTEXITCODE -ne 0) { throw 'Could not publish the GitHub release.' }
+          }
+
