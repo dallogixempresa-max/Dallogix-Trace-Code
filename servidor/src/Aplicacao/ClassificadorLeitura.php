@@ -17,16 +17,35 @@ final class ClassificadorLeitura
         int $productValidCount,
         int $loadingPlannedQuantity,
         int $loadingValidCount,
+        int $loadingSemLeituraCount = 0,
+        int $productSemLeituraCount = 0,
     ): array {
+        // Total de passagens físicas = válidas + sem leitura (retornos já descontados no válidas)
+        $loadingTotalCount = $loadingValidCount + $loadingSemLeituraCount;
+        $productTotalCount = $productValidCount + $productSemLeituraCount;
+
         $result = $barcodePresent ? "PRODUTO_INCORRETO" : "SEM_LEITURA";
         $productId = null;
 
-        if ($barcodePresent && $matchedProductId !== null && $productPlannedQuantity > 0) {
+        // SEM_LEITURA: sensor detectou mas leitor falhou — conta a passagem, verifica excesso pelo total
+        if (!$barcodePresent) {
+            if ($loadingPlannedQuantity > 0 && $loadingTotalCount >= $loadingPlannedQuantity) {
+                $result = "EXCESSO";
+            }
+            return [
+                "result" => $result,
+                "product_id" => null,
+                "product_planned_quantity" => $productPlannedQuantity,
+                "product_valid_count" => $productValidCount,
+            ];
+        }
+
+        if ($matchedProductId !== null && $productPlannedQuantity > 0) {
             $productId = $matchedProductId;
             $result = "VALIDO";
             if (
-                $productValidCount >= $productPlannedQuantity ||
-                ($loadingPlannedQuantity > 0 && $loadingValidCount >= $loadingPlannedQuantity)
+                $productTotalCount >= $productPlannedQuantity ||
+                ($loadingPlannedQuantity > 0 && $loadingTotalCount >= $loadingPlannedQuantity)
             ) {
                 $result = "EXCESSO";
             }

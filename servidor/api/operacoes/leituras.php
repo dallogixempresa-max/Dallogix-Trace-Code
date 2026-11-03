@@ -282,8 +282,10 @@ $quantities = $readingRepository->obterQuantidadesParaClassificar(
 );
 $loadingPlannedQuantity = $quantities["loading_planned_quantity"];
 $loadingValidCount = $quantities["loading_valid_count"];
+$loadingSemLeituraCount = $quantities["loading_sem_leitura_count"] ?? 0;
 $productPlannedQuantity = $quantities["product_planned_quantity"];
 $productValidCount = $quantities["product_valid_count"];
+$productSemLeituraCount = $quantities["product_sem_leitura_count"] ?? 0;
 $classification = (new ClassificadorLeitura())->classificar(
     $barcode !== "",
     $matchedProductId,
@@ -291,6 +293,8 @@ $classification = (new ClassificadorLeitura())->classificar(
     $productValidCount,
     $loadingPlannedQuantity,
     $loadingValidCount,
+    $loadingSemLeituraCount,
+    $productSemLeituraCount,
 );
 $result = $classification["result"];
 $productId = $classification["product_id"];
