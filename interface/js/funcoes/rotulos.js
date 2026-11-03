@@ -16,6 +16,7 @@ const COMANDOS = {
   REVERSAO_ATIVAR: "Ativar reversão",
   REVERSAO_DESATIVAR: "Desativar reversão",
   EMERGENCIA: "Emergência",
+  DESBLOQUEAR_MAQUINA: "Liberar emergência",
 };
 
 const EVENTOS = {

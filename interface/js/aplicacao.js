@@ -578,6 +578,20 @@ function installScannerHidReceiver() {
           };
           displayBarcode("Falha na leitura (sem código)", { error: true });
           if (currentPage === "work") renderScreen();
+          // Registra a falha de leitura no backend para que o evento de
+          // passagem do sensor seja vinculado a um registro SEM_LEITURA.
+          // Sem esse envio, a saca ficava contada pelo M2052 mas sem
+          // nenhuma leitura associada, gerando o descompasso
+          // "1 / 5 previstas · 0 códigos válidos".
+          // O backend (SolicitacaoLeitura::fromPayload) já detecta o padrão
+          // ERROR e converte para noRead = true automaticamente.
+          try {
+            await store.registerScannerReading(barcode, capturedAtEpochMs);
+            if (currentPage === "work") renderScreen();
+          } catch (error) {
+            // A falha já está visível no visor; não duplicar com notificação.
+            logFrontend.aviso("leitor.hid.sem-leitura", error);
+          }
           return;
         }
         store.state.latestScannerReading = {
