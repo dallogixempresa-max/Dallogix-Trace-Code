@@ -56,6 +56,8 @@ export class ServicoObservabilidade {
       carregamento: loadingResult?.data || null,
     };
     this.state.summaryMonitoringUpdatedAt = new Date().toISOString();
+    const sacas = Number(this.state.summaryMonitoring?.carregamento?.sacas_detectadas);
+    if (!Number.isNaN(sacas)) this.state.detectedBags = sacas;
     return this.state.summaryMonitoring;
   }
 
