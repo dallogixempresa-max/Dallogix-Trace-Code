@@ -6,7 +6,7 @@ import { confirmarAcao, limparNotificacao, notificar, solicitarTexto } from "./c
 import { setFormFeedback } from "./componentes/form-feedback.js?v=202610190001";
 import { ServicoEmergencia } from "./servicos/ServicoEmergencia.js?v=202610060001";
 import { ServicoOperacao } from "./servicos/ServicoOperacao.js?v=202610060001";
-import { ArmazenamentoTrace } from "./classes/ArmazenamentoTrace.js?v=202610290002";
+import { ArmazenamentoTrace } from "./classes/ArmazenamentoTrace.js?v=202611030001";
 import { FORM_ACTIONS } from "./constantes/acoes.js?v=202609140210";
 import { changeOperationLoading, linhaItemRomaneio } from "./controladores/operacao.js?v=202610290001";
 import { createOperationalRealtimeController } from "./controladores/tempo-real.js?v=202610280002";
