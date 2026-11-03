@@ -34,6 +34,13 @@ if (trace_e_instalacao_local()) {
             $leiturasReenfileiradas,
         ));
     }
+    $leiturasRecuperadas = $sincronizacao->reenfileirarLeiturasComMapeamentoRemotoUmaVez();
+    if ($leiturasRecuperadas > 0) {
+        fwrite(STDOUT, sprintf(
+            "sync-worker: leituras recuperadas da fila morta=%d\n",
+            $leiturasRecuperadas,
+        ));
+    }
 }
 $summary = $sincronizacao->processarLote($batchSize);
 $remoteSummary = (new ServicoSincronizacaoRemota($connection))->sincronizarConfiguracaoDaInstalacao();

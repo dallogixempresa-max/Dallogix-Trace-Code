@@ -94,6 +94,84 @@ final class ServicoSincronizacao
         }
     }
 
+    /**
+     * Reprocessa uma vez leituras arquivadas por não encontrarem o carregamento
+     * remoto, desde que o carregamento local já possua esse mapeamento.
+     */
+    public function reenfileirarLeiturasComMapeamentoRemotoUmaVez(): int
+    {
+        if (!function_exists("\\trace_e_instalacao_local") || !\trace_e_instalacao_local()) {
+            return 0;
+        }
+
+        $this->connection->beginTransaction();
+        try {
+            $marker = $this->connection->prepare(
+                "INSERT IGNORE INTO sync_backfill_runs (backfill_key)
+                 VALUES ('replay_dead_letter_read_mapping_202611')",
+            );
+            $marker->execute();
+            if ($marker->rowCount() !== 1) {
+                $this->connection->commit();
+                return 0;
+            }
+
+            $entries = $this->connection->prepare(
+                "SELECT d.id, d.company_id, d.event_uuid, d.event_type, d.aggregate_id, d.payload
+                 FROM sync_dead_letter_queue d
+                 JOIN carregamentos c
+                   ON c.id = CAST(JSON_UNQUOTE(JSON_EXTRACT(d.payload, '$.data.carregamento_id')) AS UNSIGNED)
+                  AND c.company_id = d.company_id
+                 WHERE d.resolved_at IS NULL AND d.company_id IS NOT NULL
+                   AND d.event_type = 'leitura'
+                   AND JSON_UNQUOTE(JSON_EXTRACT(d.payload, '$.action')) = 'LEITURA_REGISTRADA'
+                   AND c.remote_carregamento_id IS NOT NULL
+                   AND d.last_error LIKE 'Endpoint remoto respondeu HTTP 422: Não foi possível localizar o carregamento da leitura sincronizada.%'
+                 ORDER BY d.id ASC FOR UPDATE",
+            );
+            $entries->execute();
+            $rows = $entries->fetchAll(PDO::FETCH_ASSOC);
+            $requeue = $this->connection->prepare(
+                "INSERT INTO fila_sincronizacao
+                    (company_id, event_uuid, aggregate_type, aggregate_id, payload, status, attempts, last_error, available_at)
+                 VALUES (:company_id, :event_uuid, :event_type, :aggregate_id, :payload, 'PENDENTE', 0, NULL, NOW())",
+            );
+            $resolve = $this->connection->prepare(
+                "UPDATE sync_dead_letter_queue
+                 SET resolved_at = NOW(3), resolved_by = NULL,
+                     resolution_note = 'Reenfileirado após corrigir o mapeamento remoto do carregamento.'
+                 WHERE id = :id AND resolved_at IS NULL",
+            );
+            foreach ($rows as $entry) {
+                $requeue->execute([
+                    "company_id" => (int) $entry["company_id"],
+                    "event_uuid" => $entry["event_uuid"],
+                    "event_type" => $entry["event_type"],
+                    "aggregate_id" => (int) $entry["aggregate_id"],
+                    "payload" => $entry["payload"],
+                ]);
+                $resolve->execute(["id" => (int) $entry["id"]]);
+                if ($resolve->rowCount() !== 1) {
+                    throw new \RuntimeException("Evento da fila morta mudou durante o reenvio.");
+                }
+            }
+
+            $saveCount = $this->connection->prepare(
+                "UPDATE sync_backfill_runs SET affected_events = :affected_events
+                 WHERE backfill_key = 'replay_dead_letter_read_mapping_202611'",
+            );
+            $saveCount->execute(["affected_events" => count($rows)]);
+            $this->connection->commit();
+
+            return count($rows);
+        } catch (\Throwable $exception) {
+            if ($this->connection->inTransaction()) {
+                $this->connection->rollBack();
+            }
+            throw $exception;
+        }
+    }
+
     /** @return array{processed:bool,status:string,id:int,reason?:string,error?:string,http_code?:int} */
     public function processarUm(int $queueId, int $companyId): array
     {

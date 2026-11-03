@@ -29,6 +29,18 @@ final class RepositorioPayloadSincronizacao
             return $payload;
         }
 
+        if ($action === "LEITURA_REGISTRADA") {
+            $sourceLoadingId = filter_var($data["carregamento_id"] ?? null, FILTER_VALIDATE_INT);
+            if ($sourceLoadingId !== false && (int) $sourceLoadingId > 0) {
+                $remoteLoadingId = $this->buscarCarregamentoRemoto($companyId, (int) $sourceLoadingId);
+                if ($remoteLoadingId !== null) {
+                    $data["remote_carregamento_id"] = $remoteLoadingId;
+                    $payload["data"] = $data;
+                }
+            }
+            return $payload;
+        }
+
         if (in_array($action, ["DALA_CADASTRADA", "DALA_ATUALIZADA"], true)) {
             // Eventos antigos podem não ter todos os campos; o retry usa o cadastro atual.
             $equipment = $this->buscarEquipamento($companyId, $entityId);
@@ -237,5 +249,19 @@ final class RepositorioPayloadSincronizacao
                 "driver_name" => $loading["driver_name"],
             ],
         ];
+    }
+
+    private function buscarCarregamentoRemoto(int $companyId, int $loadingId): ?int
+    {
+        $statement = $this->connection->prepare(
+            "SELECT remote_carregamento_id FROM carregamentos
+             WHERE id = :id AND company_id = :company_id LIMIT 1",
+        );
+        $statement->execute(["id" => $loadingId, "company_id" => $companyId]);
+        $remoteLoadingId = filter_var($statement->fetchColumn(), FILTER_VALIDATE_INT);
+
+        return $remoteLoadingId !== false && (int) $remoteLoadingId > 0
+            ? (int) $remoteLoadingId
+            : null;
     }
 }
