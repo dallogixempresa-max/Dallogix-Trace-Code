@@ -11,6 +11,7 @@ use Throwable;
 
 require_once __DIR__ . "/../Persistencia/RepositorioComandosClp.php";
 require_once __DIR__ . "/../Persistencia/RepositorioDisponibilidadeClp.php";
+require_once __DIR__ . "/ServicoDisponibilidadeClp.php";
 
 final class ExcecaoComandoClp extends RuntimeException
 {
