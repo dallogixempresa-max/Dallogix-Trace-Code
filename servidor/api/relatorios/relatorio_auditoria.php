@@ -445,7 +445,7 @@ $report->escreverTitulo("Falhas de leitura do código de barras");
 if ($noReadRows === []) {
     $report->escreverParagrafo("Nenhuma falha sem leitura foi registrada nesta operação.");
 } else {
-    $report->escreverParagrafo("Cada falha corresponde a uma passagem de saco registrada pelo sensor. A esteira continua operando; a foto é anexada quando recebida do Keyence. Quando o romaneio contém múltiplos produtos e o código de barras não foi lido, a identidade do produto é registrada como \"Não identificado\" — a passagem está contabilizada no total do sensor mas não em nenhum item específico.");
+    $report->escreverParagrafo("Cada falha corresponde a uma passagem de saco registrada pelo sensor. A foto é anexada quando recebida do Keyence. Quando o romaneio contém múltiplos produtos e o código de barras não foi lido, a identidade do produto é registrada como \"Não identificado\" — a passagem está contabilizada no total do sensor mas não em nenhum item específico.");
     $report->escreverTabela(
         ["Data/hora", "Produto", "Passagem", "Evidência da imagem"],
         array_map(
