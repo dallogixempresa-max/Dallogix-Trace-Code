@@ -24,7 +24,7 @@ import { criarTratadorAcoesRelatorios } from "./controladores/acoes-relatorios.j
 import { criarDelegacaoAcoes, criarDespachanteAcoes } from "./controladores/despachante-acoes.js?v=202610190059";
 import { criarCarregadorPaginas } from "./controladores/carregador-paginas.js?v=202610280002";
 import { createLiveViewController } from "./controladores/estado-visualizacao.js?v=202611030002";
-import { createHidScannerCapture, isScannerNoReadMarker } from "./controladores/captura-leitor-hid.js?v=202610300002";
+import { createHidScannerCapture, isScannerNoReadMarker } from "./controladores/captura-leitor-hid.js?v=202611030003";
 import { createLocalConnectivityController } from "./controladores/conectividade-local.js?v=202610190029";
 import { bindManifestCreationForm, bindManifestEditForm } from "./controladores/formulario-romaneio.js?v=202610190001";
 import { bindProductForm } from "./controladores/formulario-produto.js?v=202610190001";
@@ -79,7 +79,7 @@ const registroTelas = criarRegistroTelas({
   division: () =>
     import("../telas/divisao-carga/divisao-carga.js?v=202610190046").then(({ division }) => division),
   work: () =>
-    import("../telas/operacao/operacao.js?v=202611030002").then(({ work }) => work),
+    import("../telas/operacao/operacao.js?v=202611030003").then(({ work }) => work),
   occurrences: () =>
     import("../telas/ocorrencias/ocorrencias.js?v=202610190046").then(({ occurrences }) => occurrences),
   summary: () =>
@@ -419,7 +419,7 @@ const conectividadeLocal = createLocalConnectivityController({
   refreshSettingsView: () => refreshSettingsStatusView(),
   render: () => render(),
   logWarning: (...args) => logFrontend.aviso(...args),
-  serviceWorkerUrl: "/service-worker.js?v=202611030002",
+  serviceWorkerUrl: "/service-worker.js?v=202611030003",
 });
 
 function waitForDocumentStyles() {

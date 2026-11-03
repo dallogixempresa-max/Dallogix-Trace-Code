@@ -263,7 +263,7 @@ function workControls(store) {
   // para a página separada /emergencia.html. O botão de desbloqueio fica
   // desabilitado enquanto já houver uma solicitação DESBLOQUEAR_MAQUINA
   // pendente ou em processamento pelo gateway.
-  const pendingUnlock = commandPending && pendingCommand === "DESBLOQUEAR_MAQUINA";
+  const pendingUnlock = currentCommandPending && pendingCommand === "DESBLOQUEAR_MAQUINA";
   const unlockButtonAttributes = pendingUnlock
     ? { disabled: true, "aria-disabled": "true", title: "Aguardando confirmação do gateway para o desbloqueio." }
     : "";
