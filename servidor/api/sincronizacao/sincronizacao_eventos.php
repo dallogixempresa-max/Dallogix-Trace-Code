@@ -38,6 +38,11 @@ $installationEquipmentId = $company["equipment_id"] === null ? null : (int) $com
 $allowFirstDalaLink = (bool) ($company["auto_link_first_dala"] ?? false);
 $assignedEquipmentCode = "";
 $pdo = obter_conexao_banco();
+$requestContentType = strtolower(trim(explode(";", (string) ($_SERVER["CONTENT_TYPE"] ?? ""))[0]));
+if ($requestContentType === "application/pdf") {
+    require __DIR__ . "/receber_relatorio_auditoria.php";
+    exit();
+}
 $manifestItemsRepository = new RepositorioItensRomaneioSincronizacao($pdo);
 $auditEventsRepository = new RepositorioAuditoriaEventosSincronizacao($pdo);
 $loadingEventsRepository = new RepositorioCarregamentosEventos($pdo);

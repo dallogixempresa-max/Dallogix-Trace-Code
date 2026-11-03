@@ -30,8 +30,8 @@ RUN printf '%s\n' \
     'expose_php=Off' \
     'display_errors=Off' \
     'log_errors=On' \
-    'upload_max_filesize=10M' \
-    'post_max_size=12M' \
+    'upload_max_filesize=24M' \
+    'post_max_size=26M' \
     'allow_url_fopen=Off' \
     'opcache.enable=1' \
     'opcache.enable_cli=0' \

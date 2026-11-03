@@ -4,9 +4,11 @@ declare(strict_types=1);
 require_once __DIR__ . "/../../configuracao/bootstrap.php";
 require_once __DIR__ . "/../operacoes/temporizacao_leitor.php";
 require_once __DIR__ . "/../../src/Aplicacao/RelatorioAuditoriaPdf.php";
+require_once __DIR__ . "/../../src/Aplicacao/ServicoPublicacaoRelatoriosAuditoria.php";
 require_once __DIR__ . "/../../../scripts/image_storage_path.php";
 
 use App\Aplicacao\RelatorioAuditoriaPdf;
+use App\Aplicacao\ServicoPublicacaoRelatoriosAuditoria;
 
 /** Remove imagens legadas soltas; PDFs de captura ficam até a política de retenção. */
 function trace_cleanup_report_evidence(PDO $pdo, array $loadIds, int $companyId, string $storageRoot): void
@@ -101,6 +103,7 @@ if (!is_array($apiClient)) {
     session_write_close();
 }
 $pdo = db();
+$reportPublisher = new ServicoPublicacaoRelatoriosAuditoria($pdo);
 $manifest = $pdo->prepare("SELECT r.id, r.number, r.status, r.scheduled_date, r.expedidor,
     c.name AS company_name,
     (SELECT rt.plate FROM romaneio_caminhoes rt WHERE rt.romaneio_id = r.id ORDER BY rt.id LIMIT 1) AS plate,
@@ -165,6 +168,12 @@ if ($savedReport !== null) {
         trace_cleanup_report_evidence($pdo, $loadIds, (int) $user["company_id"], $storageRoot);
     } catch (Throwable $exception) {
         $reportFailure($exception);
+    }
+    try {
+        $reportPublisher->enfileirar((int) $user["company_id"], (int) $romaneioId, $reportRelativePath);
+    } catch (Throwable $exception) {
+        registrar_log_erro($exception, "relatorio_auditoria_sync");
+        $respondJson(["error" => "O PDF foi preservado, mas não entrou na fila de sincronização. Refaça o download para tentar novamente."], 503);
     }
     if (is_array($apiClient)) {
         api_v1_registrar_download_pdf($pdo, $apiClient, (int) $romaneioId);
@@ -566,6 +575,12 @@ try {
     trace_cleanup_report_evidence($pdo, $loadIds, (int) $user["company_id"], $storageRoot);
 } catch (Throwable $exception) {
     $reportFailure($exception);
+}
+try {
+    $reportPublisher->enfileirar((int) $user["company_id"], (int) $romaneioId, $reportRelativePath);
+} catch (Throwable $exception) {
+    registrar_log_erro($exception, "relatorio_auditoria_sync");
+    $respondJson(["error" => "O PDF foi preservado, mas não entrou na fila de sincronização. Refaça o download para tentar novamente."], 503);
 }
 if (is_array($apiClient)) {
     api_v1_registrar_download_pdf($pdo, $apiClient, (int) $romaneioId);

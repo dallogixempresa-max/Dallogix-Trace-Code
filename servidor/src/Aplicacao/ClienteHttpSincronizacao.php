@@ -11,6 +11,7 @@ final class ClienteHttpSincronizacao
 {
     private const TEMPO_LIMITE_CONEXAO_SEGUNDOS = 3;
     private const TEMPO_LIMITE_REQUISICAO_SEGUNDOS = 10;
+    private const TEMPO_LIMITE_ARQUIVO_SEGUNDOS = 60;
 
     /**
      * @var Closure(string,string,list<string>,int,int):array{body:string|false,error:string,http_code:int,initialization_failed?:bool}
@@ -77,6 +78,58 @@ final class ClienteHttpSincronizacao
                 "error" => "Endpoint remoto retornou uma resposta inválida.",
                 "http_code" => $httpCode,
             ];
+        }
+
+        return ["ok" => true, "error" => "", "http_code" => $httpCode, "response" => $response];
+    }
+
+    /** @param array<string,string> $metadataHeaders @return array{ok:bool,error:string,http_code:int,response?:array<string,mixed>} */
+    public function postarArquivo(string $remoteUrl, string $body, string $token, array $metadataHeaders): array
+    {
+        $headers = ["Accept: application/json", "Content-Type: application/pdf"];
+        if ($token !== "") {
+            if (preg_match('/[\r\n]/', $token) === 1) {
+                return ["ok" => false, "error" => "Token de sincronização inválido.", "http_code" => 0];
+            }
+            $headers[] = "Authorization: Bearer " . $token;
+        }
+        foreach ($metadataHeaders as $name => $value) {
+            if (preg_match('/\A[A-Za-z0-9-]{1,64}\z/', (string) $name) !== 1
+                || preg_match('/[\r\n]/', (string) $value) === 1) {
+                return ["ok" => false, "error" => "Metadados HTTP do arquivo inválidos.", "http_code" => 0];
+            }
+            $headers[] = $name . ": " . $value;
+        }
+
+        $result = ($this->executarRequisicao)(
+            $remoteUrl,
+            $body,
+            $headers,
+            self::TEMPO_LIMITE_CONEXAO_SEGUNDOS,
+            self::TEMPO_LIMITE_ARQUIVO_SEGUNDOS,
+        );
+        if (($result["initialization_failed"] ?? false) === true) {
+            return ["ok" => false, "error" => "Não foi possível inicializar o cliente HTTP.", "http_code" => $result["http_code"]];
+        }
+        $curlError = trim($result["error"]);
+        $httpCode = $result["http_code"];
+        if ($curlError !== "") {
+            return ["ok" => false, "error" => "Falha de rede: " . $curlError, "http_code" => $httpCode];
+        }
+
+        $response = json_decode((string) $result["body"], true);
+        if ($httpCode < 200 || $httpCode >= 300) {
+            $remoteError = is_array($response) ? trim((string) ($response["error"] ?? "")) : "";
+            return [
+                "ok" => false,
+                "error" => $remoteError !== ""
+                    ? "Endpoint remoto respondeu HTTP {$httpCode}: {$remoteError}"
+                    : "Endpoint remoto respondeu HTTP {$httpCode}.",
+                "http_code" => $httpCode,
+            ];
+        }
+        if (!is_array($response) || !isset($response["data"]) || !is_array($response["data"])) {
+            return ["ok" => false, "error" => "Endpoint remoto retornou uma resposta inválida.", "http_code" => $httpCode];
         }
 
         return ["ok" => true, "error" => "", "http_code" => $httpCode, "response" => $response];

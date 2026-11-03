@@ -66,6 +66,29 @@ final class RepositorioPayloadSincronizacao
             return $payload;
         }
 
+        if ($action === "RELATORIO_AUDITORIA_PUBLICADO") {
+            $sourceManifestId = filter_var(
+                $data["source_romaneio_id"] ?? $entityId,
+                FILTER_VALIDATE_INT,
+            );
+            if ($sourceManifestId !== false && (int) $sourceManifestId > 0) {
+                $statement = $this->connection->prepare(
+                    "SELECT remote_romaneio_id FROM romaneios
+                     WHERE id = :id AND company_id = :company_id LIMIT 1",
+                );
+                $statement->execute([
+                    "id" => (int) $sourceManifestId,
+                    "company_id" => $companyId,
+                ]);
+                $remoteManifestId = filter_var($statement->fetchColumn(), FILTER_VALIDATE_INT);
+                if ($remoteManifestId !== false && (int) $remoteManifestId > 0) {
+                    $data["remote_romaneio_id"] = (int) $remoteManifestId;
+                    $payload["data"] = $data;
+                }
+            }
+            return $payload;
+        }
+
         if (in_array($action, [
             "CARREGAMENTO_PREPARADO",
             "CARREGAMENTO_DALA_VINCULADO",

@@ -15,10 +15,12 @@ require_once __DIR__ . "/../Persistencia/RepositorioFilaSincronizacao.php";
 require_once __DIR__ . "/../Persistencia/RepositorioMapeamentosSincronizacao.php";
 require_once __DIR__ . "/../Persistencia/RepositorioPayloadSincronizacao.php";
 require_once __DIR__ . "/../Persistencia/RepositorioInstalacaoLocal.php";
+require_once __DIR__ . "/../../../scripts/image_storage_path.php";
 
 final class ServicoSincronizacao
 {
     private const RESERVA_EXPIRADA_APOS_MINUTOS = 5;
+    private const TAMANHO_MAXIMO_RELATORIO = 24 * 1024 * 1024;
     private readonly PDO $connection;
     private readonly ClienteHttpSincronizacao $clienteHttp;
     private readonly RepositorioFilaSincronizacao $repositorioFila;
@@ -259,7 +261,9 @@ final class ServicoSincronizacao
                 continue;
             }
             if ($batchUrl !== "") {
-                $result = $this->entregarLote($events, $remoteUrl);
+                $result = $this->loteContemRelatorio($events)
+                    ? $this->entregarLotePorEvento($events, $remoteUrl, "", false)
+                    : $this->entregarLote($events, $remoteUrl);
                 $summary["sent"] += (int) ($result["sent"] ?? 0);
                 $summary["failed"] += (int) ($result["failed"] ?? 0);
                 continue;
@@ -303,6 +307,7 @@ final class ServicoSincronizacao
             try {
                 $this->repositorioMapeamentos->aplicar([$event], (array) ($result["response"] ?? []));
                 $this->marcarComoEnviados([$event]);
+                $this->limparSnapshotRelatorio($event);
                 return ["processed" => true, "status" => "ENVIADO", "id" => $id];
             } catch (\Throwable $exception) {
                 $this->marcarComoFalha(
@@ -429,15 +434,99 @@ final class ServicoSincronizacao
     /** @return array{ok:bool,error:string,http_code:int,response?:array<string,mixed>} */
     private function enviarEventoRemoto(array $event, string $remoteUrl): array
     {
+        $payload = $this->decodificarCarga($event);
+        if (is_array($payload) && ($payload["action"] ?? "") === "RELATORIO_AUDITORIA_PUBLICADO") {
+            return $this->enviarRelatorioRemoto($event, $remoteUrl, $payload);
+        }
+
         $body = json_encode([
             "event_uuid" => $event["event_uuid"],
             "company_id" => $this->idEmpresaRemota($event),
             "aggregate_type" => $event["aggregate_type"],
             "aggregate_id" => (int) $event["aggregate_id"],
-            "payload" => $this->decodificarCarga($event),
+            "payload" => $payload,
         ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
 
         return $this->postarJson($remoteUrl, $body, (int) $event["company_id"]);
+    }
+
+    /** @param array<string,mixed> $payload @return array{ok:bool,error:string,http_code:int,response?:array<string,mixed>} */
+    private function enviarRelatorioRemoto(array $event, string $remoteUrl, array $payload): array
+    {
+        $data = is_array($payload["data"] ?? null) ? $payload["data"] : [];
+        $remoteManifestId = filter_var($data["remote_romaneio_id"] ?? null, FILTER_VALIDATE_INT);
+        $sourceManifestId = filter_var($data["source_romaneio_id"] ?? null, FILTER_VALIDATE_INT);
+        $relativePath = trim((string) ($data["report_path"] ?? ""));
+        $expectedHash = strtolower(trim((string) ($data["sha256"] ?? "")));
+        $expectedSize = filter_var($data["size_bytes"] ?? null, FILTER_VALIDATE_INT);
+        if ($sourceManifestId === false || (int) $sourceManifestId <= 0
+            || preg_match('/\A[a-f0-9]{64}\z/', $expectedHash) !== 1
+            || $expectedSize === false || (int) $expectedSize < 5
+            || (int) $expectedSize > self::TAMANHO_MAXIMO_RELATORIO) {
+            return ["ok" => false, "error" => "Metadados do PDF do romaneio inválidos.", "http_code" => 422];
+        }
+        if ($remoteManifestId === false || (int) $remoteManifestId <= 0) {
+            return ["ok" => false, "error" => "Romaneio ainda sem mapeamento remoto; a sincronização será tentada novamente.", "http_code" => 503];
+        }
+
+        $storageRoot = dirname(__DIR__, 3) . "/armazenamento";
+        $path = trace_image_storage_path($storageRoot, $relativePath);
+        if ($path === null) {
+            return ["ok" => false, "error" => "Snapshot do PDF do romaneio ausente.", "http_code" => 503];
+        }
+        $size = filesize($path);
+        if ($size === false || (int) $size !== (int) $expectedSize || $size > self::TAMANHO_MAXIMO_RELATORIO) {
+            return ["ok" => false, "error" => "Integridade do PDF do romaneio inválida.", "http_code" => 422];
+        }
+        $body = file_get_contents($path);
+        if (!is_string($body) || strlen($body) !== (int) $size
+            || !str_starts_with($body, "%PDF-")
+            || !hash_equals($expectedHash, hash("sha256", $body))) {
+            return ["ok" => false, "error" => "Integridade do PDF do romaneio inválida.", "http_code" => 422];
+        }
+
+        return $this->clienteHttp->postarArquivo(
+            $remoteUrl,
+            $body,
+            $this->obterTokenRemoto((int) $event["company_id"]),
+            [
+                "X-Trace-Event-UUID" => (string) ($event["event_uuid"] ?? ""),
+                "X-Trace-Source-Romaneio-Id" => (string) (int) $sourceManifestId,
+                "X-Trace-Remote-Romaneio-Id" => (string) (int) $remoteManifestId,
+                "X-Trace-Report-SHA256" => $expectedHash,
+            ],
+        );
+    }
+
+    /** @param list<array<string,mixed>> $events */
+    private function loteContemRelatorio(array $events): bool
+    {
+        foreach ($events as $event) {
+            $payload = json_decode((string) ($event["payload"] ?? ""), true);
+            if (is_array($payload) && ($payload["action"] ?? "") === "RELATORIO_AUDITORIA_PUBLICADO") {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** @param array<string,mixed> $event */
+    private function limparSnapshotRelatorio(array $event): void
+    {
+        $payload = json_decode((string) ($event["payload"] ?? ""), true);
+        $relativePath = is_array($payload) && is_array($payload["data"] ?? null)
+            ? trim((string) ($payload["data"]["report_path"] ?? ""))
+            : "";
+        if ($relativePath === "") {
+            return;
+        }
+        $removed = trace_remove_image_storage_file(
+            dirname(__DIR__, 3) . "/armazenamento",
+            $relativePath,
+        );
+        if ($removed === false) {
+            error_log("Não foi possível remover o snapshot do PDF de romaneio já sincronizado.");
+        }
     }
 
     /** @return array{ok:bool,error:string,http_code:int,response?:array<string,mixed>} */
