@@ -93,7 +93,7 @@ export function createLiveViewController({
       endNotice.textContent = excess
         ? `Atenção: ${numero(detectedBags - planned)} sacas passaram do total previsto.`
         : complete
-          ? "Quantidade prevista atingida. A esteira continua contando; pare-a manualmente quando terminar."
+          ? "Quantidade física prevista atingida. Confira a parada da esteira e as leituras pendentes antes de encerrar."
           : nearEnd
             ? "Atenção: o carregamento está próximo da quantidade prevista."
             : "";

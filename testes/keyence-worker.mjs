@@ -219,6 +219,8 @@ test("integra SCANNER, fila SEM_LEITURA, imagem do Keyence e limpeza depois do P
   assert.match(sensorEventsEndpoint, /COUNT\(\*\) FROM eventos_sensor/);
   assert.match(sensorEventsEndpoint, /detectedBags >= \$plannedQuantity/);
   assert.match(sensorEventsEndpoint, /SET state = 'FINALIZANDO'/);
+  assert.match(sensorEventsEndpoint, /\$detectedBags >= \$plannedQuantity[\s\S]*?solicitarOperacao\([\s\S]*?"PAUSAR_CARREGAMENTO"/);
+  assert.match(sensorEventsEndpoint, /"command_request_id" => \$targetStopRequestId/);
   assert.match(readingsEndpoint, /!in_array\(\$loading\["state"\], \["CARREGANDO", "FINALIZANDO", "PAUSADO"\], true\)/);
   assert.match(readingsEndpoint, /\$loading\["state"\] === "PAUSADO" && !\$sensorEventId/);
   assert.match(readingsEndpoint, /"Leitura aguardando o evento de passagem do sensor M2052\."/);
