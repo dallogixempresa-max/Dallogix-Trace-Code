@@ -246,8 +246,12 @@ function workControls(store) {
     : bloqueio(commandLocks.stop);
   const loadingPicker = `<div class="work-header-actions"><button class="button secondary small work-back-button" data-action="goto-manifests" type="button">← Romaneios</button>${(store.state.activeLoadings || []).length > 1 ? `<button class="button secondary small work-back-button" data-action="change-loading" type="button">Trocar Dala</button>` : ""}</div>`;
   const latestScannerReading = store.state.latestScannerReading;
-  const scannerValue = latestScannerReading?.value || "Aguardando leitura…";
-  const scannerValueClass = ["SEM_LEITURA", "PRODUTO_INCORRETO"].includes(latestScannerReading?.result)
+  const esteiraAtiva = ["CARREGANDO", "FINALIZANDO"].includes(estadoOperacional);
+  const scannerValue = esteiraAtiva
+    ? (latestScannerReading?.value || "Aguardando leitura…")
+    : "Aguardando leitura…";
+  const scannerValueClass = esteiraAtiva &&
+    ["SEM_LEITURA", "PRODUTO_INCORRETO"].includes(latestScannerReading?.result)
     ? " is-error"
     : "";
   const scannerMonitor = store.state.loadingId
@@ -337,7 +341,11 @@ function workControls(store) {
     : remainingTotal === 0
       ? `Quantidade física atingida · ${numero(validReadings)} códigos válidos`
       : `Falta${remainingTotal === 1 ? "" : "m"} ${numero(remainingTotal)} saca${remainingTotal === 1 ? "" : "s"} para a quantidade prevista`;
-  const totalSummary = `<section class="work-live-summary" aria-label="Contagem e progresso do carregamento"><div class="work-live-summary-heading"><strong>Sacas detectadas pelo sensor</strong><span><b data-live="detected">${numero(detectedBags)}</b> / <b data-live="planned">${numero(plannedTotal)}</b> previstas · <span data-live="progress-percent">${totalPercent}%</span> · <b data-live="loaded">${numero(validReadings)}</b> códigos válidos</span></div><div class="progress work-live-progress" role="progressbar" aria-label="Progresso de sacas detectadas pelo sensor M2052" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${totalPercent}"><i data-live="progress-bar" style="width:${totalPercent}%"></i></div><div class="work-live-summary-foot"><span data-live="remaining-label">${remainingLabel}</span></div><p class="work-completion-notice ${endNoticeTone}" data-live="end-notice"${endNotice ? "" : " hidden"}>${endNotice}</p>${scannerMonitor}</section>`;
+  const unlinkedBags = detectedBags - validReadings;
+  const noReadNotice = esteiraAtiva && unlinkedBags > 0
+    ? `<p class="work-completion-notice excess" data-live="no-read-notice">${numero(unlinkedBags)} saca${unlinkedBags === 1 ? "" : "s"} detectada${unlinkedBags === 1 ? "" : "s"} sem código válido associado.</p>`
+    : `<p class="work-completion-notice excess" data-live="no-read-notice" hidden></p>`;
+  const totalSummary = `<section class="work-live-summary" aria-label="Contagem e progresso do carregamento"><div class="work-live-summary-heading"><strong>Sacas detectadas pelo sensor</strong><span><b data-live="detected">${numero(detectedBags)}</b> / <b data-live="planned">${numero(plannedTotal)}</b> previstas · <span data-live="progress-percent">${totalPercent}%</span> · <b data-live="loaded">${numero(validReadings)}</b> códigos válidos</span></div><div class="progress work-live-progress" role="progressbar" aria-label="Progresso de sacas detectadas pelo sensor M2052" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${totalPercent}"><i data-live="progress-bar" style="width:${totalPercent}%"></i></div><div class="work-live-summary-foot"><span data-live="remaining-label">${remainingLabel}</span></div><p class="work-completion-notice ${endNoticeTone}" data-live="end-notice"${endNotice ? "" : " hidden"}>${endNotice}</p>${noReadNotice}${scannerMonitor}</section>`;
   const machinePanel = `<section class="panel work-machine-panel"><div class="panel-heading"><div><span class="kicker">Comandos da máquina</span><h3>Operar Dala</h3></div>${summaryAction ? `<div class="work-machine-heading-actions">${summaryAction}</div>` : ""}</div><div class="work-machine-controls">${emergencySection}${stopConfirmation}${controls}</div></section>`;
   const statusColumn = `<section class="work-status-column">${totalSummary}${itemProgress}</section>`;
   const workHeader = `<header class="work-screen-header">${loadingPicker}<div class="work-screen-heading"><h2>${esc(workTitle)}</h2><p>Dala ${esc(equipmentLabel(store))} · Caminhão ${esc(store.state.truck || "—")} <span class="work-header-state">${badge}</span></p></div></header>`;
