@@ -99,6 +99,7 @@ function trace_pending_scanner_event_match(
     int $equipmentId,
     int $scanObservedAtMs,
     bool $forUpdate = false,
+    bool $includeFinalizedNoRead = false,
 ): array {
     $timing = trace_scanner_timing();
     $lookbackMs = $timing["no_read_deadline_ms"] + $timing["early_tolerance_ms"];
@@ -106,6 +107,10 @@ function trace_pending_scanner_event_match(
     $scanStartMs = $scanObservedAtMs - $lookbackMs;
     $scanEndMs = $scanObservedAtMs + $lookaheadMs;
     $lockSql = $forUpdate ? " FOR UPDATE" : "";
+    $readingFilterSql = $includeFinalizedNoRead
+        ? "(NOT EXISTS (SELECT 1 FROM leituras l WHERE l.sensor_event_id = s.id)
+           OR EXISTS (SELECT 1 FROM leituras l WHERE l.sensor_event_id = s.id AND l.result = 'SEM_LEITURA'))"
+        : "NOT EXISTS (SELECT 1 FROM leituras l WHERE l.sensor_event_id = s.id)";
     $statement = $pdo->prepare(
         "SELECT s.id,
                 s.device_detected_at,
@@ -119,7 +124,7 @@ function trace_pending_scanner_event_match(
                AND s.detected_at BETWEEN FROM_UNIXTIME(:server_scan_start_ms / 1000.0)
                                      AND FROM_UNIXTIME(:server_scan_end_ms / 1000.0))
            )
-           AND NOT EXISTS (SELECT 1 FROM leituras l WHERE l.sensor_event_id = s.id)
+           AND {$readingFilterSql}
          ORDER BY s.id ASC
          LIMIT 100{$lockSql}",
     );

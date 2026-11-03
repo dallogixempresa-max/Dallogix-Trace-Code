@@ -288,6 +288,43 @@ test("conflito temporário do banco repete a leitura com o mesmo identificador o
   assert.deepEqual(refreshedLoadings, [11]);
 });
 
+test("deadlock ainda é repetido quando a janela de associação já venceu", async (t) => {
+  const requests = [];
+  const originalNow = Date.now;
+  let currentTime = 100000;
+  t.after(() => { Date.now = originalNow; });
+  Date.now = () => currentTime;
+
+  const service = new ServicoLeiturasOperacionais({
+    api: {
+      fetch: async (url, options) => {
+        requests.push({ url, options });
+        if (requests.length === 1) {
+          currentTime += 1600;
+          return {
+            status: 503,
+            ok: false,
+            clone: () => ({ json: async () => ({ retryable: true }) }),
+          };
+        }
+        return { status: 201, ok: true, json: async () => ({ data: { id: 51, result: "VALIDO" } }) };
+      },
+    },
+    state: { loadingId: 11, operationalState: "CARREGANDO" },
+    jsonHeaders: () => ({ "Content-Type": "application/json", "X-CSRF-Token": "csrf" }),
+    jsonResponse: async (response) => response.json(),
+    loadActiveLoading: async () => {},
+    createEventId: () => "d4a00000-0000-4000-8000-000000000051",
+  });
+
+  const result = await service.registerScannerReading("7898538751531", 1793387000000);
+
+  assert.equal(result.id, 51);
+  assert.equal(requests.length, 2);
+  assert.equal(requests[1].options.headers["X-Trace-Offline-ID"], requests[0].options.headers["X-Trace-Offline-ID"]);
+  assert.equal(requests[1].options.body, requests[0].options.body);
+});
+
 test("segundo saco repete o conflito sem reutilizar a identidade do primeiro", async () => {
   const requests = [];
   let nextId = 48;

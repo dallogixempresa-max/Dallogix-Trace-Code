@@ -90,7 +90,11 @@ export class ServicoLeiturasOperacionais {
         }
       }
 
-      if (response.status === 503 && transientRetryCount < 2 && Date.now() < associationDeadline) {
+      // A janela de associação só limita espera por um evento M2052 ainda não
+      // recebido. Deadlock/lock timeout é outra espera: a transação foi revertida
+      // e o mesmo identificador idempotente pode ser repetido mesmo após 1,5 s,
+      // enquanto o finalizador ainda não tiver registrado SEM_LEITURA.
+      if (response.status === 503 && transientRetryCount < 2) {
         const body = await response.clone().json().catch(() => ({}));
         if (body.retryable === true) {
           transientRetryCount++;

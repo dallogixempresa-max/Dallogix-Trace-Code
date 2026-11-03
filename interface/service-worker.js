@@ -1,4 +1,4 @@
-const CACHE_NAME = "trace-shell-20261103-65";
+const CACHE_NAME = "trace-shell-20261103-66";
 const APPLICATION_ASSET_VERSION = "202611030003";
 const PRECACHE_CONCURRENCY = 4;
 const SHELL = [

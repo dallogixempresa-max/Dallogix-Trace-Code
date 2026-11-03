@@ -69,12 +69,18 @@ $offlineEventId = $solicitacao->offlineEventId;
 $attemptNumber = $solicitacao->attemptNumber;
 
 $pdo = db();
-$pdo->beginTransaction();
 register_shutdown_function(static function () use ($pdo): void {
     if ($pdo->inTransaction()) {
         $pdo->rollBack();
     }
 });
+$transientAttempt = 0;
+// Deadlocks roll back the whole transaction, so the same offline event can be retried safely.
+while (true) {
+$sensorEventId = $solicitacao->sensorEventId;
+$excessStop = null;
+$excessoAlert = null;
+$pdo->beginTransaction();
 try {
 $loadingStatement = $pdo->prepare(
     'SELECT c.id, c.state, c.romaneio_id, c.truck_id, c.equipment_id, c.leituras_validas
@@ -156,7 +162,8 @@ if (($barcode !== "" || $noRead) && ($dispositivoScanner !== null || !$sensorEve
         (int) $loadingId,
         (int) $loading["equipment_id"],
         $scannerObservedAtMs,
-        true,
+        false,
+        $noRead,
     );
 }
 
@@ -200,6 +207,33 @@ if ($sensorEventId) {
             ["error" => "Evento de sensor não pertence ao carregamento."],
             422,
         );
+    }
+}
+if ($noRead && $sensorEventId) {
+    $existingReading = $pdo->prepare(
+        "SELECT id, result FROM leituras
+         WHERE sensor_event_id = :sensor_event_id AND company_id = :company_id
+           AND carregamento_id = :carregamento_id LIMIT 1",
+    );
+    $existingReading->execute([
+        "sensor_event_id" => $sensorEventId,
+        "company_id" => $usuarioAtor["company_id"],
+        "carregamento_id" => $loadingId,
+    ]);
+    $registeredReading = $existingReading->fetch(PDO::FETCH_ASSOC);
+    if ($registeredReading !== false) {
+        $pdo->rollBack();
+        responder_json([
+            "data" => [
+                "id" => (int) $registeredReading["id"],
+                "result" => (string) $registeredReading["result"],
+                "duplicate" => true,
+                "retry" => false,
+                "final" => true,
+                "load_status" => in_array($loading["state"], ["FINALIZANDO", "FINALIZADO"], true)
+                    ? "COMPLETO" : "EM_ANDAMENTO",
+            ],
+        ], 200);
     }
 }
 if ($dispositivoScanner !== null) {
@@ -480,6 +514,11 @@ responder_json(
     if ($pdo->inTransaction()) {
         $pdo->rollBack();
     }
+    if ($transientAttempt < 2) {
+        $transientAttempt++;
+        usleep(random_int(25_000, 75_000) * $transientAttempt);
+        continue;
+    }
     registrar_log_erro($exception, "conflito_transitorio_leitura");
     header("Retry-After: 0");
     responder_json(
@@ -489,4 +528,5 @@ responder_json(
         ],
         503,
     );
+}
 }

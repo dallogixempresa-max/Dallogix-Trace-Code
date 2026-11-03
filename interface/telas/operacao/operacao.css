@@ -1077,3 +1077,47 @@ body.work-page:has(.work-operation-screen) .work-reader-monitor-heading p {
     overflow: visible;
   }
 }
+
+/* O feedback é irmão do #screen-root dentro do .content. Em telas industriais
+   altas, o shell usa flex em linha; mantenha o aviso acima da operação para ele
+   não roubar a largura dos cartões e dos comandos. */
+@media (min-width: 960px) and (min-height: 680px) {
+  body.work-page:has(.work-operation-screen) .content:has(> #trace-inline-feedback) {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  body.work-page:has(.work-operation-screen) .content:has(> #trace-inline-feedback) > #trace-inline-feedback {
+    width: 100%;
+    flex: 0 0 auto;
+    margin: 0 0 10px;
+  }
+
+  body.work-page:has(.work-operation-screen) .content:has(> #trace-inline-feedback) > #screen-root {
+    width: 100%;
+    min-width: 0;
+  }
+
+  body.work-page:has(.work-operation-screen) .work-item-progress-heading {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  body.work-page:has(.work-operation-screen) .work-item-identity {
+    flex: 1 1 200px;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  body.work-page:has(.work-operation-screen) .work-item-identity strong {
+    flex: 1 1 14ch;
+    overflow-wrap: break-word;
+    word-break: normal;
+  }
+
+  body.work-page:has(.work-operation-screen) .work-item-identity code {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    word-break: normal;
+  }
+}

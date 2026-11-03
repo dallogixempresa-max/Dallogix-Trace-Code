@@ -97,6 +97,57 @@ final class ServicoSincronizacao
     }
 
     /**
+     * Reprocessa passagens do sensor e leituras já entregues para preencher
+     * a contagem central e associar cada leitura à sua passagem de origem.
+     */
+    public function reenfileirarPassagensSensorELeiturasEnviadasUmaVez(): int
+    {
+        if (!function_exists("\\trace_e_instalacao_local") || !\trace_e_instalacao_local()) {
+            return 0;
+        }
+
+        $this->connection->beginTransaction();
+        try {
+            $marker = $this->connection->prepare(
+                "INSERT IGNORE INTO sync_backfill_runs (backfill_key)
+                 VALUES ('replay_sensor_read_link_202611')",
+            );
+            $marker->execute();
+            if ($marker->rowCount() !== 1) {
+                $this->connection->commit();
+                return 0;
+            }
+
+            $requeue = $this->connection->prepare(
+                "UPDATE fila_sincronizacao
+                 SET status = 'PENDENTE', attempts = 0, transient_attempts = 0,
+                     last_error = NULL, available_at = NOW(), processing_started_at = NULL
+                 WHERE status = 'ENVIADO'
+                   AND ((aggregate_type = 'sensor_event'
+                         AND JSON_UNQUOTE(JSON_EXTRACT(payload, '$.action')) = 'SENSOR_EVENTO_RECEBIDO')
+                     OR (aggregate_type = 'leitura'
+                         AND JSON_UNQUOTE(JSON_EXTRACT(payload, '$.action')) = 'LEITURA_REGISTRADA'))",
+            );
+            $requeue->execute();
+            $affected = $requeue->rowCount();
+
+            $saveCount = $this->connection->prepare(
+                "UPDATE sync_backfill_runs SET affected_events = :affected_events
+                 WHERE backfill_key = 'replay_sensor_read_link_202611'",
+            );
+            $saveCount->execute(["affected_events" => $affected]);
+            $this->connection->commit();
+
+            return $affected;
+        } catch (\Throwable $exception) {
+            if ($this->connection->inTransaction()) {
+                $this->connection->rollBack();
+            }
+            throw $exception;
+        }
+    }
+
+    /**
      * Reprocessa uma vez leituras arquivadas por não encontrarem o carregamento
      * remoto, desde que o carregamento local já possua esse mapeamento.
      */

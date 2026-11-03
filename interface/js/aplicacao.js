@@ -440,7 +440,7 @@ function waitForDocumentStyles() {
 // tela que tem CSS próprio precisa garantir seu arquivo e sua versão antes do
 // primeiro render, inclusive quando a rota inicial veio de outra página.
 const SCREEN_STYLES = {
-  work: "/telas/operacao/operacao.css?v=202611030002",
+  work: "/telas/operacao/operacao.css?v=202611030003",
   import: "/telas/importar-romaneio/importar-romaneio.css?v=202610071845",
   settings: "/telas/configuracoes/configuracoes.css?v=202610300002",
   dalas: "/telas/dalas/dalas.css?v=202610160005",

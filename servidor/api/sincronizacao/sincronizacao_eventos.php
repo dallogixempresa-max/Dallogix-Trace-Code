@@ -229,6 +229,7 @@ try {
             "CARREGAMENTO_DALA_VINCULADO",
             "ESTADO_CARREGAMENTO_ALTERADO",
             "CARREGAMENTO_FINALIZADO",
+            "SENSOR_EVENTO_RECEBIDO",
             "LEITURA_REGISTRADA",
             "EXCESSO_DETECTADO",
             "REMOCAO_UNIDADE_E_PARADA_FISICA_CONFIRMADAS",
@@ -448,6 +449,123 @@ try {
             $entityId = $loadingId;
         }
 
+        if ($action === "SENSOR_EVENTO_RECEBIDO") {
+            $sourceLoadingId = (int) ($data["carregamento_id"] ?? $entityId);
+            $remoteLoadingId = filter_var($data["remote_carregamento_id"] ?? null, FILTER_VALIDATE_INT);
+            $loadingId = $resolveLoadingId(
+                $companyId,
+                $remoteLoadingId !== false && $remoteLoadingId > 0 ? (int) $remoteLoadingId : 0,
+                $sourceLoadingId,
+            );
+            if ($loadingId === null) {
+                throw new RuntimeException("Não foi possível localizar o carregamento do evento de sensor sincronizado.");
+            }
+
+            $equipmentId = $findEquipment($companyId, $data);
+            $sensorEventUuid = trim((string) ($data["event_uuid"] ?? ""));
+            if (!preg_match('/^[a-f0-9-]{36}$/i', $sensorEventUuid)) {
+                throw new RuntimeException("O evento de sensor contém um identificador inválido.");
+            }
+
+            $detectedAtInput = trim((string) ($data["detected_at"] ?? ""));
+            $detectedAt = preg_match(
+                '/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?$/',
+                $detectedAtInput,
+            ) === 1 ? str_replace("T", " ", $detectedAtInput) : null;
+            if ($detectedAtInput !== "" && $detectedAt === null) {
+                throw new RuntimeException("O horário de detecção do sensor é inválido.");
+            }
+
+            $deviceDetectedAtInput = trim((string) ($data["device_detected_at"] ?? ""));
+            $deviceDetectedAt = null;
+            if ($deviceDetectedAtInput !== "") {
+                if (preg_match(
+                    '/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?$/',
+                    $deviceDetectedAtInput,
+                ) !== 1) {
+                    throw new RuntimeException("O horário informado pelo dispositivo é inválido.");
+                }
+                $deviceDetectedAt = str_replace("T", " ", $deviceDetectedAtInput);
+            }
+
+            $debounceMs = filter_var($data["debounce_ms"] ?? 400, FILTER_VALIDATE_INT);
+            if ($debounceMs === false || (int) $debounceMs < 0 || (int) $debounceMs > 5000) {
+                throw new RuntimeException("O intervalo de debounce do sensor é inválido.");
+            }
+
+            $findSensorEvent = $pdo->prepare(
+                "SELECT id, carregamento_id, equipment_id FROM eventos_sensor
+                 WHERE event_uuid = :event_uuid LIMIT 1",
+            );
+            $findSensorEvent->execute(["event_uuid" => $sensorEventUuid]);
+            $existingSensorEvent = $findSensorEvent->fetch(PDO::FETCH_ASSOC);
+            if ($existingSensorEvent === false) {
+                try {
+                    $insertSensorEvent = $pdo->prepare(
+                        "INSERT INTO eventos_sensor
+                         (carregamento_id, equipment_id, event_uuid, detected_at, device_detected_at, debounce_ms)
+                         VALUES (:loading_id, :equipment_id, :event_uuid, COALESCE(:detected_at, NOW(3)), :device_detected_at, :debounce_ms)",
+                    );
+                    $insertSensorEvent->execute([
+                        "loading_id" => $loadingId,
+                        "equipment_id" => $equipmentId,
+                        "event_uuid" => $sensorEventUuid,
+                        "detected_at" => $detectedAt,
+                        "device_detected_at" => $deviceDetectedAt,
+                        "debounce_ms" => (int) $debounceMs,
+                    ]);
+                    $sensorEventId = (int) $pdo->lastInsertId();
+                    $existingSensorEvent = [
+                        "id" => $sensorEventId,
+                        "carregamento_id" => $loadingId,
+                        "equipment_id" => $equipmentId,
+                    ];
+                } catch (PDOException $exception) {
+                    if ((int) ($exception->errorInfo[1] ?? 0) !== 1062) {
+                        throw $exception;
+                    }
+                    $reloadSensorEvent = $pdo->prepare(
+                        "SELECT id, carregamento_id, equipment_id FROM eventos_sensor
+                         WHERE event_uuid = :event_uuid LIMIT 1 FOR UPDATE",
+                    );
+                    $reloadSensorEvent->execute(["event_uuid" => $sensorEventUuid]);
+                    $existingSensorEvent = $reloadSensorEvent->fetch(PDO::FETCH_ASSOC);
+                    if ($existingSensorEvent === false) {
+                        throw $exception;
+                    }
+                    $sensorEventId = (int) $existingSensorEvent["id"];
+                }
+            } else {
+                $sensorEventId = (int) $existingSensorEvent["id"];
+            }
+            if (
+                (int) $existingSensorEvent["carregamento_id"] !== $loadingId
+                || (int) $existingSensorEvent["equipment_id"] !== $equipmentId
+            ) {
+                throw new RuntimeException("O identificador do evento de sensor já pertence a outra operação.");
+            }
+
+            // Corrige também leituras recebidas antes da passagem quando a fila
+            // local precisou reenviar eventos fora da ordem original.
+            $linkReadings = $pdo->prepare(
+                "UPDATE leituras l
+                 JOIN logs_auditoria a
+                   ON a.company_id = l.company_id AND a.action = 'LEITURA_REGISTRADA'
+                  AND a.entity_type = 'leitura' AND a.entity_id = l.id
+                 SET l.sensor_event_id = :sensor_event_id
+                 WHERE l.company_id = :company_id AND l.carregamento_id = :loading_id
+                   AND l.sensor_event_id IS NULL
+                   AND JSON_UNQUOTE(JSON_EXTRACT(a.metadata, '$.payload.data.sensor_event_uuid')) = :sensor_event_uuid",
+            );
+            $linkReadings->execute([
+                "sensor_event_id" => $sensorEventId,
+                "company_id" => $companyId,
+                "loading_id" => $loadingId,
+                "sensor_event_uuid" => $sensorEventUuid,
+            ]);
+            $entityId = $sensorEventId;
+        }
+
         if ($action === "LEITURA_REGISTRADA") {
             $readingResult = strtoupper(trim((string) ($data["result"] ?? "")));
             $validResults = ["VALIDO", "PRODUTO_INCORRETO", "SEM_LEITURA", "RETORNO", "EXCESSO"];
@@ -511,8 +629,29 @@ try {
                 $readingAtInput,
             ) === 1 ? str_replace("T", " ", $readingAtInput) : null;
             $readingAttempt = max(1, (int) ($data["attempt_number"] ?? 1));
+            $sensorEventId = null;
+            $sensorEventUuid = trim((string) ($data["sensor_event_uuid"] ?? ""));
+            if ($sensorEventUuid !== "") {
+                if (!preg_match('/^[a-f0-9-]{36}$/i', $sensorEventUuid)) {
+                    throw new RuntimeException("A leitura contém um identificador de sensor inválido.");
+                }
+                $findSensorEvent = $pdo->prepare(
+                    "SELECT s.id FROM eventos_sensor s
+                     JOIN carregamentos c ON c.id = s.carregamento_id
+                     WHERE s.event_uuid = :event_uuid AND s.carregamento_id = :loading_id
+                       AND s.equipment_id = :equipment_id AND c.company_id = :company_id LIMIT 1",
+                );
+                $findSensorEvent->execute([
+                    "event_uuid" => $sensorEventUuid,
+                    "loading_id" => $loadingId,
+                    "equipment_id" => (int) $installationEquipmentId,
+                    "company_id" => $readingCompanyId,
+                ]);
+                $resolvedSensorEventId = $findSensorEvent->fetchColumn();
+                $sensorEventId = $resolvedSensorEventId === false ? null : (int) $resolvedSensorEventId;
+            }
             $findSyncedReading = $pdo->prepare(
-                "SELECT id, carregamento_id, result, barcode FROM leituras
+                "SELECT id, carregamento_id, sensor_event_id, result, barcode FROM leituras
                  WHERE company_id = :company_id AND sync_event_uuid = :event_uuid
                  LIMIT 1 FOR UPDATE",
             );
@@ -527,20 +666,34 @@ try {
                     (int) $existingSyncedReading["carregamento_id"] !== $loadingId
                     || (string) $existingSyncedReading["result"] !== $readingResult
                     || (string) ($existingSyncedReading["barcode"] ?? "") !== (string) ($readingBarcode ?? "")
+                    || ($sensorEventId !== null && $existingSyncedReading["sensor_event_id"] !== null
+                        && (int) $existingSyncedReading["sensor_event_id"] !== $sensorEventId)
                 ) {
                     throw new RuntimeException("O identificador do evento já está associado a outra leitura.");
                 }
                 $entityId = (int) $existingSyncedReading["id"];
+                if ($sensorEventId !== null && $existingSyncedReading["sensor_event_id"] === null) {
+                    $linkReading = $pdo->prepare(
+                        "UPDATE leituras SET sensor_event_id = :sensor_event_id
+                         WHERE id = :id AND company_id = :company_id AND sensor_event_id IS NULL",
+                    );
+                    $linkReading->execute([
+                        "sensor_event_id" => $sensorEventId,
+                        "id" => $entityId,
+                        "company_id" => $readingCompanyId,
+                    ]);
+                }
             } else {
                 $insertReading = $pdo->prepare(
                     "INSERT INTO leituras
                      (company_id, carregamento_id, sensor_event_id, sync_event_uuid, product_id, barcode, attempt_number, result, read_at)
-                     VALUES (:company_id, :carregamento_id, NULL, :event_uuid, :product_id, :barcode, :attempt_number, :result, COALESCE(:read_at, NOW(3)))",
+                     VALUES (:company_id, :carregamento_id, :sensor_event_id, :event_uuid, :product_id, :barcode, :attempt_number, :result, COALESCE(:read_at, NOW(3)))",
                 );
                 try {
                     $insertReading->execute([
                         "company_id" => $readingCompanyId,
                         "carregamento_id" => $loadingId,
+                        "sensor_event_id" => $sensorEventId,
                         "event_uuid" => $eventUuid,
                         "product_id" => $readingProductId,
                         "barcode" => $readingBarcode,
@@ -564,10 +717,23 @@ try {
                         || (int) $existingSyncedReading["carregamento_id"] !== $loadingId
                         || (string) $existingSyncedReading["result"] !== $readingResult
                         || (string) ($existingSyncedReading["barcode"] ?? "") !== (string) ($readingBarcode ?? "")
+                        || ($sensorEventId !== null && $existingSyncedReading["sensor_event_id"] !== null
+                            && (int) $existingSyncedReading["sensor_event_id"] !== $sensorEventId)
                     ) {
                         throw $exception;
                     }
                     $entityId = (int) $existingSyncedReading["id"];
+                    if ($sensorEventId !== null && $existingSyncedReading["sensor_event_id"] === null) {
+                        $linkReading = $pdo->prepare(
+                            "UPDATE leituras SET sensor_event_id = :sensor_event_id
+                             WHERE id = :id AND company_id = :company_id AND sensor_event_id IS NULL",
+                        );
+                        $linkReading->execute([
+                            "sensor_event_id" => $sensorEventId,
+                            "id" => $entityId,
+                            "company_id" => $readingCompanyId,
+                        ]);
+                    }
                 }
             }
 

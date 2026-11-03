@@ -35,9 +35,29 @@ final class RepositorioPayloadSincronizacao
                 $remoteLoadingId = $this->buscarCarregamentoRemoto($companyId, (int) $sourceLoadingId);
                 if ($remoteLoadingId !== null) {
                     $data["remote_carregamento_id"] = $remoteLoadingId;
-                    $payload["data"] = $data;
                 }
             }
+            $sensorEventUuid = $this->buscarUuidEventoSensorDaLeitura($companyId, $entityId);
+            if ($sensorEventUuid !== null) {
+                $data["sensor_event_uuid"] = $sensorEventUuid;
+            }
+            $payload["data"] = $data;
+            return $payload;
+        }
+
+        if ($action === "SENSOR_EVENTO_RECEBIDO") {
+            $sourceLoadingId = filter_var($data["carregamento_id"] ?? null, FILTER_VALIDATE_INT);
+            if ($sourceLoadingId !== false && (int) $sourceLoadingId > 0) {
+                $remoteLoadingId = $this->buscarCarregamentoRemoto($companyId, (int) $sourceLoadingId);
+                if ($remoteLoadingId !== null) {
+                    $data["remote_carregamento_id"] = $remoteLoadingId;
+                }
+                $sensorEvent = $this->buscarEventoSensor($companyId, $entityId, (int) $sourceLoadingId);
+                if ($sensorEvent !== null) {
+                    $data = array_merge($data, $sensorEvent);
+                }
+            }
+            $payload["data"] = $data;
             return $payload;
         }
 
@@ -286,5 +306,54 @@ final class RepositorioPayloadSincronizacao
         return $remoteLoadingId !== false && (int) $remoteLoadingId > 0
             ? (int) $remoteLoadingId
             : null;
+    }
+
+    private function buscarUuidEventoSensorDaLeitura(int $companyId, int $readingId): ?string
+    {
+        if ($readingId <= 0) {
+            return null;
+        }
+        $statement = $this->connection->prepare(
+            "SELECT s.event_uuid
+             FROM leituras l
+             JOIN eventos_sensor s ON s.id = l.sensor_event_id
+             WHERE l.id = :reading_id AND l.company_id = :company_id LIMIT 1",
+        );
+        $statement->execute(["reading_id" => $readingId, "company_id" => $companyId]);
+        $eventUuid = $statement->fetchColumn();
+
+        return $eventUuid === false ? null : (string) $eventUuid;
+    }
+
+    /** @return array{event_uuid:string,detected_at:string,device_detected_at:?string,debounce_ms:int}|null */
+    private function buscarEventoSensor(int $companyId, int $sensorEventId, int $loadingId): ?array
+    {
+        if ($sensorEventId <= 0) {
+            return null;
+        }
+        $statement = $this->connection->prepare(
+            "SELECT s.event_uuid, s.detected_at, s.device_detected_at, s.debounce_ms
+             FROM eventos_sensor s
+             JOIN carregamentos c ON c.id = s.carregamento_id
+             WHERE s.id = :sensor_event_id AND s.carregamento_id = :loading_id
+               AND c.company_id = :company_id LIMIT 1",
+        );
+        $statement->execute([
+            "sensor_event_id" => $sensorEventId,
+            "loading_id" => $loadingId,
+            "company_id" => $companyId,
+        ]);
+        $event = $statement->fetch(PDO::FETCH_ASSOC);
+        if ($event === false) {
+            return null;
+        }
+
+        return [
+            "event_uuid" => (string) $event["event_uuid"],
+            "detected_at" => (string) $event["detected_at"],
+            "device_detected_at" => $event["device_detected_at"] === null
+                ? null : (string) $event["device_detected_at"],
+            "debounce_ms" => (int) $event["debounce_ms"],
+        ];
     }
 }

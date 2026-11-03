@@ -57,6 +57,13 @@ if (trace_e_instalacao_local()) {
             $leiturasRecuperadas,
         ));
     }
+    $eventosSensorReenfileirados = $sincronizacao->reenfileirarPassagensSensorELeiturasEnviadasUmaVez();
+    if ($eventosSensorReenfileirados > 0) {
+        fwrite(STDOUT, sprintf(
+            "sync-worker: passagens do sensor e leituras reenfileiradas=%d\n",
+            $eventosSensorReenfileirados,
+        ));
+    }
 }
 $summary = $sincronizacao->processarLote($batchSize);
 $remoteSummary = (new ServicoSincronizacaoRemota($connection))->sincronizarConfiguracaoDaInstalacao();
