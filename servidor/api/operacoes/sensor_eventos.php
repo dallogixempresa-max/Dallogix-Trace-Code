@@ -95,6 +95,7 @@ if ($action === "FINALIZE_EXPIRED") {
                     "sensor_event_id" => (int) $sensorEventId,
                     "result" => "SEM_LEITURA",
                     "source" => "sensor_timeout",
+                    "read_at" => date("Y-m-d H:i:s.v"),
                 ],
             );
             record_operational_event(

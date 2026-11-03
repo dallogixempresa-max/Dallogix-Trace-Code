@@ -224,6 +224,7 @@ try {
             "CARREGAMENTO_DALA_VINCULADO",
             "ESTADO_CARREGAMENTO_ALTERADO",
             "CARREGAMENTO_FINALIZADO",
+            "LEITURA_REGISTRADA",
         ], true);
         $eventKey = strtolower($eventUuid);
         $replay = array_key_exists($eventKey, $knownEventActions);
@@ -371,6 +372,67 @@ try {
                     filter_var($data["romaneio_finalizado"] ?? false, FILTER_VALIDATE_BOOLEAN),
                 );
                 $entityId = $loadingId;
+            }
+        }
+
+        if ($action === "LEITURA_REGISTRADA") {
+            $readingResult = strtoupper(trim((string) ($data["result"] ?? "")));
+            $validResults = ["VALIDO", "PRODUTO_INCORRETO", "SEM_LEITURA", "RETORNO", "EXCESSO"];
+            if (in_array($readingResult, $validResults, true)) {
+                $sourceLoadingId = (int) ($data["carregamento_id"] ?? $entityId);
+                $remoteLoadingId = filter_var($data["remote_carregamento_id"] ?? null, FILTER_VALIDATE_INT);
+                $loadingId = $resolveLoadingId(
+                    $companyId,
+                    $remoteLoadingId !== false && $remoteLoadingId > 0 ? (int) $remoteLoadingId : 0,
+                    $sourceLoadingId,
+                );
+                if ($loadingId !== null) {
+                    $readingCompanyStmt = $pdo->prepare(
+                        "SELECT company_id FROM carregamentos WHERE id = :id LIMIT 1",
+                    );
+                    $readingCompanyStmt->execute(["id" => $loadingId]);
+                    $readingCompanyId = (int) ($readingCompanyStmt->fetchColumn() ?: $companyId);
+                    $sourceProductId = filter_var($data["product_id"] ?? null, FILTER_VALIDATE_INT);
+                    $readingProductId = null;
+                    if ($sourceProductId !== false && $sourceProductId > 0) {
+                        // Resolve local product_id → central product_id via remote_product_id
+                        $productStmt = $pdo->prepare(
+                            "SELECT id FROM produtos
+                             WHERE company_id = :company_id
+                               AND (id = :product_id OR remote_product_id = :product_id)
+                             LIMIT 1",
+                        );
+                        $productStmt->execute(["company_id" => $readingCompanyId, "product_id" => $sourceProductId]);
+                        $resolvedProductId = $productStmt->fetchColumn();
+                        $readingProductId = $resolvedProductId !== false ? (int) $resolvedProductId : null;
+                    }
+                    $readingBarcode = isset($data["barcode"]) && $data["barcode"] !== "" ? (string) $data["barcode"] : null;
+                    $readingAt = isset($data["read_at"]) && preg_match('/^\d{4}-\d{2}-\d{2}/', (string) $data["read_at"])
+                        ? (string) $data["read_at"]
+                        : null;
+                    $readingAttempt = max(1, (int) ($data["attempt_number"] ?? 1));
+                    $insertReading = $pdo->prepare(
+                        "INSERT INTO leituras (company_id, carregamento_id, product_id, barcode, attempt_number, result, read_at)
+                         VALUES (:company_id, :carregamento_id, :product_id, :barcode, :attempt_number, :result, COALESCE(:read_at, NOW(3)))",
+                    );
+                    $insertReading->execute([
+                        "company_id" => $readingCompanyId,
+                        "carregamento_id" => $loadingId,
+                        "product_id" => $readingProductId,
+                        "barcode" => $readingBarcode,
+                        "attempt_number" => $readingAttempt,
+                        "result" => $readingResult,
+                        "read_at" => $readingAt,
+                    ]);
+                    $entityId = (int) $pdo->lastInsertId();
+                    if ($readingResult === "VALIDO") {
+                        $updateValidCount = $pdo->prepare(
+                            "UPDATE carregamentos SET leituras_validas = leituras_validas + 1
+                             WHERE id = :id AND company_id = :company_id",
+                        );
+                        $updateValidCount->execute(["id" => $loadingId, "company_id" => $readingCompanyId]);
+                    }
+                }
             }
         }
 

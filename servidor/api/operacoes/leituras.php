@@ -334,6 +334,8 @@ record_operational_event(
         "barcode" => $barcode,
         "no_read" => $noRead,
         "attempt_number" => $attemptNumber,
+        ...($productId !== null ? ["product_id" => (int) $productId] : []),
+        "read_at" => date("Y-m-d H:i:s.v"),
         ...($offlineEventId !== "" ? ["event_uuid" => $offlineEventId] : []),
     ],
 );
