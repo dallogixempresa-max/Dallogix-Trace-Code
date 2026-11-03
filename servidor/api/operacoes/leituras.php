@@ -387,14 +387,6 @@ if ($result === "PRODUTO_INCORRETO") {
     $evidenceStatus = "NAO_SOLICITADA";
 }
 if ($result === "EXCESSO") {
-    record_operational_event(
-        $pdo,
-        $usuarioAtor,
-        "EXCESSO_DETECTADO",
-        "leitura",
-        $readingId,
-        ["carregamento_id" => (int) $loadingId, "product_id" => $productId],
-    );
     // Registra a pausa lógica e enfileira PAUSAR_CARREGAMENTO pelo caminho
     // normal do gateway, sem escrever diretamente nas saídas do CLP.
     $excessStop = (new ServicoComandoClp($pdo))->solicitarParadaPorExcesso(
@@ -402,6 +394,21 @@ if ($result === "EXCESSO") {
         (int) $loadingId,
     );
     $excessoAlert = $excessStop["operator_alert"];
+    record_operational_event(
+        $pdo,
+        $usuarioAtor,
+        "EXCESSO_DETECTADO",
+        "leitura",
+        $readingId,
+        [
+            "carregamento_id" => (int) $loadingId,
+            "product_id" => $productId,
+            "stop_reason" => $excessStop["stop_reason"] ?? "EXCESSO",
+            "operator_alert" => $excessoAlert,
+            "physical_stop_request_status" => $excessStop["physical_stop_request_status"] ?? "NAO_CONFIRMADA",
+            "command_request_id" => $excessStop["command_request_id"] ?? null,
+        ],
+    );
 }
 if (
     $result === "SEM_LEITURA" &&

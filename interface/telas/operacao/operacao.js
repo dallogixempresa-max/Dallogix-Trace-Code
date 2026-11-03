@@ -285,15 +285,24 @@ function workControls(store) {
     ? `${button("Abrir resumo final", "open-summary", "secondary")}`
     : "";
   const stopCommand = pendingCommand === "PAUSAR_CARREGAMENTO" ? currentCommand : null;
-  const stopConfirmationMessage = !stopCommand
+  const stopConfirmationMessage = store.state.emergency
+    ? pendingCommand === "DESBLOQUEAR_MAQUINA" && currentCommandPending
+      ? "A solicitação de liberação da emergência está aguardando o gateway. A confirmação fica disponível quando o carregamento voltar a pausado."
+      : "A emergência está ativa. Solicite a liberação abaixo; a operação continuará pausada até a confirmação da unidade removida."
+    : !stopCommand
     ? "O gateway ainda não confirmou um comando de parada. Verifique a máquina antes de confirmar."
     : ["PENDENTE", "PROCESSANDO"].includes(pendingStatus)
       ? "Parada solicitada ao gateway; aguardando resposta. O estado local pausado não confirma que a esteira parou."
       : pendingStatus === "APLICADO"
         ? "O gateway confirmou o comando de parada. Verifique a máquina e retire a unidade antes de liberar a retomada."
         : `O gateway não confirmou a parada: ${currentCommand.response_message || "estado físico não confirmado."} Verifique a máquina antes de liberar a retomada.`;
+  const stopEmergencyAction = store.state.emergency
+    ? podeLiberarEmergencia({ role: store.state.userRole, loadingId: store.state.loadingId })
+      ? button("Solicitar liberação da emergência", "unlock", "secondary", unlockButtonAttributes)
+      : '<p>Solicite ao supervisor ou administrador a liberação da emergência.</p>'
+    : button("Acionar emergência", "emergency", "danger");
   const stopConfirmation = store.state.stopReason
-    ? `<section class="work-stop-confirmation" aria-labelledby="work-stop-confirmation-title"><h3 id="work-stop-confirmation-title">Atenção: operação pausada</h3><p class="work-stop-confirmation-alert" role="alert">${esc(store.state.operatorAlert || "Remova a unidade e confirme antes de continuar.")}</p><p>${esc(stopConfirmationMessage)}</p><form class="confirm-stop-removal-form"><label><input type="checkbox" name="confirmar_remocao" value="true" required /><span>Confirmo que a unidade foi removida e que a esteira está fisicamente parada.</span></label><button class="button primary" type="submit">Confirmar e liberar retomada</button><p class="form-feedback" data-form-feedback role="status" aria-live="polite" hidden></p></form></section>`
+    ? `<dialog id="work-stop-dialog" class="work-stop-dialog" role="alertdialog" aria-modal="true" aria-labelledby="work-stop-confirmation-title" aria-describedby="work-stop-confirmation-alert work-stop-confirmation-status"><section class="work-stop-confirmation"><span class="kicker">${store.state.stopReason === "EXCESSO" ? "Quantidade excedida" : "Ação de segurança necessária"}</span><h2 id="work-stop-confirmation-title">Atenção: operação pausada</h2><p id="work-stop-confirmation-alert" class="work-stop-confirmation-alert">${esc(store.state.operatorAlert || "Remova a unidade e confirme antes de continuar.")}</p><p id="work-stop-confirmation-status">${esc(stopConfirmationMessage)}</p><form class="confirm-stop-removal-form"><label><input type="checkbox" name="confirmar_remocao" value="true" required${store.state.stopRemovalAcknowledged === true ? " checked" : ""}${store.state.emergency ? " disabled" : ""} autofocus /><span>Confirmo que a unidade foi removida e que a esteira está fisicamente parada.</span></label><button class="button primary" type="submit"${store.state.emergency ? " disabled" : ""}>Confirmar remoção e liberar retomada</button><p class="form-feedback" data-form-feedback role="status" aria-live="polite" hidden></p></form><div class="work-stop-emergency-action">${stopEmergencyAction}</div></section></dialog>`
     : "";
   const badge = ["PENDENTE", "PROCESSANDO"].includes(pendingStatus) && pendingCommand
       ? `<span class="badge blue">${esc(rotuloComando(pendingCommand))} · aguardando CLP</span>`

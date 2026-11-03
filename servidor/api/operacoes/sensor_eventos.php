@@ -5,6 +5,9 @@ define("TRACE_SKIP_SESSION", true);
 
 require_once __DIR__ . "/../../configuracao/bootstrap.php";
 require_once __DIR__ . "/temporizacao_leitor.php";
+require_once __DIR__ . "/../../src/Aplicacao/ServicoComandoClp.php";
+
+use App\Aplicacao\ServicoComandoClp;
 
 exigir_metodo_http(["POST"]);
 $device = require_device_token(["CLP", "SENSOR"]);
@@ -383,7 +386,37 @@ try {
         }
     }
     $becameFinalizing = false;
-    if ($loading["state"] === "CARREGANDO" && $plannedQuantity > 0 && $detectedBags >= $plannedQuantity) {
+    $excessStop = null;
+    $automaticStop = false;
+    if (
+        $plannedQuantity > 0 &&
+        $detectedBags > $plannedQuantity &&
+        in_array($loading["state"], ["CARREGANDO", "FINALIZANDO", "PAUSADO"], true)
+    ) {
+        $excessStop = (new ServicoComandoClp($pdo))->solicitarParadaPorExcesso(
+            ["id" => null, "company_id" => (int) $device["company_id"]],
+            (int) $loadingId,
+        );
+        $automaticStop = ($excessStop["stop_reason"] ?? null) === "EXCESSO";
+        record_operational_event(
+            $pdo,
+            ["id" => null, "company_id" => $device["company_id"]],
+            "EXCESSO_DETECTADO",
+            "carregamento",
+            (int) $loadingId,
+            [
+                "carregamento_id" => (int) $loadingId,
+                "sensor_event_id" => $eventId,
+                "event_uuid" => $eventUuid,
+                "planned_quantity" => $plannedQuantity,
+                "detected_bags" => $detectedBags,
+                "stop_reason" => $excessStop["stop_reason"] ?? "EXCESSO",
+                "operator_alert" => $excessStop["operator_alert"] ?? null,
+                "physical_stop_request_status" => $excessStop["physical_stop_request_status"] ?? "NAO_CONFIRMADA",
+                "command_request_id" => $excessStop["command_request_id"] ?? null,
+            ],
+        );
+    } elseif ($loading["state"] === "CARREGANDO" && $plannedQuantity > 0 && $detectedBags >= $plannedQuantity) {
         $transition = $pdo->prepare(
             "UPDATE carregamentos SET state = 'FINALIZANDO'
              WHERE id = :id AND company_id = :company_id AND state = 'CARREGANDO'",
@@ -432,9 +465,15 @@ try {
                 "detected_bags" => $detectedBags,
                 "planned_quantity" => $plannedQuantity,
                 "operator_warning" => $nearEndWarning,
-                "automatic_stop" => false,
-                "load_status" => ($loading["state"] === "FINALIZANDO" || $becameFinalizing)
-                    ? "COMPLETO" : "EM_ANDAMENTO",
+                "automatic_stop" => $automaticStop,
+                "stop_reason" => $automaticStop ? "EXCESSO" : null,
+                "physical_stop_request_status" => $excessStop["physical_stop_request_status"] ?? null,
+                "command_request_id" => $excessStop["command_request_id"] ?? null,
+                "operator_alert" => $excessStop["operator_alert"] ?? null,
+                "load_status" => $automaticStop
+                    ? "EM_ANDAMENTO"
+                    : (($loading["state"] === "FINALIZANDO" || $becameFinalizing)
+                        ? "COMPLETO" : "EM_ANDAMENTO"),
                 "image_action" => "AGUARDANDO_RESULTADO_LEITURA",
                 "scanner_correlated" => false,
             ],

@@ -225,6 +225,7 @@ try {
             "ESTADO_CARREGAMENTO_ALTERADO",
             "CARREGAMENTO_FINALIZADO",
             "LEITURA_REGISTRADA",
+            "EXCESSO_DETECTADO",
             "REMOCAO_UNIDADE_E_PARADA_FISICA_CONFIRMADAS",
         ], true);
         $eventKey = strtolower($eventUuid);
@@ -399,6 +400,45 @@ try {
                     "company_id" => $companyId,
                     "stop_reason" => $stopReason,
                 ]);
+            }
+            $entityId = $loadingId;
+        }
+
+        if ($action === "EXCESSO_DETECTADO") {
+            $sourceLoadingId = (int) ($data["carregamento_id"] ?? $data["source_carregamento_id"] ?? $entityId);
+            $remoteLoadingId = filter_var($data["remote_carregamento_id"] ?? null, FILTER_VALIDATE_INT);
+            $loadingId = $resolveLoadingId(
+                $companyId,
+                $remoteLoadingId !== false && $remoteLoadingId > 0 ? (int) $remoteLoadingId : 0,
+                $sourceLoadingId,
+            );
+            if ($loadingId === null) {
+                throw new RuntimeException("Não foi possível localizar o carregamento do excesso detectado pelo sensor.");
+            }
+
+            $stopReason = strtoupper(trim((string) ($data["stop_reason"] ?? "EXCESSO")));
+            if (!in_array($stopReason, ["PRODUTO_INCORRETO", "EXCESSO"], true)) {
+                $stopReason = "EXCESSO";
+            }
+            $operatorAlert = trim((string) ($data["operator_alert"] ?? ""));
+            if ($operatorAlert === "") {
+                $operatorAlert = "Quantidade excedida detectada pelo sensor M2052. Verifique a parada física no PC industrial, remova a unidade excedente e confirme antes de retomar.";
+            }
+            $pauseLoading = $pdo->prepare(
+                "UPDATE carregamentos
+                 SET state = 'PAUSADO', stop_reason = :stop_reason, operator_alert = :operator_alert
+                 WHERE id = :id AND company_id = :company_id
+                   AND state IN ('CARREGANDO', 'FINALIZANDO', 'PAUSADO')
+                   AND (stop_reason IS NULL OR stop_reason = :stop_reason)",
+            );
+            $pauseLoading->execute([
+                "stop_reason" => $stopReason,
+                "operator_alert" => $operatorAlert,
+                "id" => $loadingId,
+                "company_id" => $companyId,
+            ]);
+            if ($pauseLoading->rowCount() > 0) {
+                $manifestEventsRepository->sincronizarStatusCarregamento($companyId, $loadingId, "PAUSADO");
             }
             $entityId = $loadingId;
         }

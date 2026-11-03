@@ -350,6 +350,12 @@ final class ServicoComandoClp
                     404,
                 );
             }
+            if (!empty($loading["stop_reason"])) {
+                throw new ExcecaoComandoClp(
+                    "Confirme a remoção da unidade e a parada física antes de alterar a reversão.",
+                    409,
+                );
+            }
             if (!in_array($loading["state"], ["PREPARANDO", "PAUSADO"], true)) {
                 throw new ExcecaoComandoClp(
                     "Só é possível ligar ou desligar a reversão com a esteira parada.",

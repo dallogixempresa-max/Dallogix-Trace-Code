@@ -186,6 +186,7 @@ export class ServicoCarregamentoAtivo {
       this.state.operationalState = "AGUARDANDO";
       this.state.stopReason = null;
       this.state.operatorAlert = "";
+      this.state.stopRemovalAcknowledged = false;
       this.state.truck = "—";
       this.state.romaneio = "—";
       this.state.equipmentCode = "—";
@@ -204,11 +205,16 @@ export class ServicoCarregamentoAtivo {
       this.state.commandFeedback = "";
       this.state.commandIntent = null;
       this.state.plcCommand = null;
+      this.state.stopRemovalAcknowledged = false;
     }
     this.state.loadingId = Number(loading.id);
     this.state.selectedLoadingId = Number(loading.id);
     this.state.operationalState = loading.state;
-    this.state.stopReason = loading.stop_reason || null;
+    const nextStopReason = loading.stop_reason || null;
+    if (this.state.stopReason !== nextStopReason) {
+      this.state.stopRemovalAcknowledged = false;
+    }
+    this.state.stopReason = nextStopReason;
     this.state.operatorAlert = loading.operator_alert || "";
     this.state.emergency = loading.state === "EMERGENCIA";
     this.state.running = ["CARREGANDO", "FINALIZANDO"].includes(loading.state);

@@ -6,9 +6,9 @@ import { confirmarAcao, limparNotificacao, notificar, solicitarTexto } from "./c
 import { setFormFeedback } from "./componentes/form-feedback.js?v=202610190001";
 import { ServicoEmergencia } from "./servicos/ServicoEmergencia.js?v=202610060001";
 import { ServicoOperacao } from "./servicos/ServicoOperacao.js?v=202610060001";
-import { ArmazenamentoTrace } from "./classes/ArmazenamentoTrace.js?v=202611030001";
+import { ArmazenamentoTrace } from "./classes/ArmazenamentoTrace.js?v=202611030002";
 import { FORM_ACTIONS } from "./constantes/acoes.js?v=202609140210";
-import { changeOperationLoading, linhaItemRomaneio } from "./controladores/operacao.js?v=202610290001";
+import { changeOperationLoading, linhaItemRomaneio } from "./controladores/operacao.js?v=202611030002";
 import { createOperationalRealtimeController } from "./controladores/tempo-real.js?v=202610280002";
 import { createPageRefreshController } from "./controladores/page-refresh.js?v=202610130001";
 import { createDalaStatusRealtimeController } from "./controladores/status-dalas-tempo-real.js?v=202610200003";
@@ -23,7 +23,7 @@ import { criarTratadorAcoesInterface, instalarInteracoesGlobaisInterface } from 
 import { criarTratadorAcoesRelatorios } from "./controladores/acoes-relatorios.js?v=202610190043";
 import { criarDelegacaoAcoes, criarDespachanteAcoes } from "./controladores/despachante-acoes.js?v=202610190059";
 import { criarCarregadorPaginas } from "./controladores/carregador-paginas.js?v=202610280002";
-import { createLiveViewController } from "./controladores/estado-visualizacao.js?v=202610290001";
+import { createLiveViewController } from "./controladores/estado-visualizacao.js?v=202611030002";
 import { createHidScannerCapture, isScannerNoReadMarker } from "./controladores/captura-leitor-hid.js?v=202610300002";
 import { createLocalConnectivityController } from "./controladores/conectividade-local.js?v=202610190029";
 import { bindManifestCreationForm, bindManifestEditForm } from "./controladores/formulario-romaneio.js?v=202610190001";
@@ -31,7 +31,7 @@ import { bindProductForm } from "./controladores/formulario-produto.js?v=2026101
 import { bindDalaCreationForm, bindDalaEditForm } from "./controladores/formulario-dala.js?v=202610190030";
 import { bindCsvManifestImportForm, bindPdfManifestImportForm } from "./controladores/formulario-importacao-romaneio.js?v=202610190001";
 import { bindAdministrativeForms } from "./controladores/formularios-administrativos.js?v=202610190001";
-import { bindOperationalForms } from "./controladores/formularios-operacionais.js?v=202610290001";
+import { bindOperationalForms } from "./controladores/formularios-operacionais.js?v=202611030002";
 import { bindPageForms } from "./controladores/formularios-telas.js?v=202610190001";
 import { el, esc } from "./funcoes/html.js";
 import { rotuloEstado } from "./funcoes/rotulos.js?v=202609240001";
@@ -79,7 +79,7 @@ const registroTelas = criarRegistroTelas({
   division: () =>
     import("../telas/divisao-carga/divisao-carga.js?v=202610190046").then(({ division }) => division),
   work: () =>
-    import("../telas/operacao/operacao.js?v=202610290001").then(({ work }) => work),
+    import("../telas/operacao/operacao.js?v=202611030002").then(({ work }) => work),
   occurrences: () =>
     import("../telas/ocorrencias/ocorrencias.js?v=202610190046").then(({ occurrences }) => occurrences),
   summary: () =>
@@ -419,7 +419,7 @@ const conectividadeLocal = createLocalConnectivityController({
   refreshSettingsView: () => refreshSettingsStatusView(),
   render: () => render(),
   logWarning: (...args) => logFrontend.aviso(...args),
-  serviceWorkerUrl: "/service-worker.js?v=202610300002",
+  serviceWorkerUrl: "/service-worker.js?v=202611030002",
 });
 
 function waitForDocumentStyles() {
@@ -440,7 +440,7 @@ function waitForDocumentStyles() {
 // tela que tem CSS próprio precisa garantir seu arquivo e sua versão antes do
 // primeiro render, inclusive quando a rota inicial veio de outra página.
 const SCREEN_STYLES = {
-  work: "/telas/operacao/operacao.css?v=202610290001",
+  work: "/telas/operacao/operacao.css?v=202611030002",
   import: "/telas/importar-romaneio/importar-romaneio.css?v=202610071845",
   settings: "/telas/configuracoes/configuracoes.css?v=202610300002",
   dalas: "/telas/dalas/dalas.css?v=202610160005",

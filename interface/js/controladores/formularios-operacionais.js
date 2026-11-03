@@ -48,15 +48,31 @@ function vincularDalaCarregamento({ root, store, render, setFeedback, readForm }
 }
 
 function confirmarRemocaoDeParada({ root, store, render, notify, setFeedback }) {
+  const dialog = root.querySelector("#work-stop-dialog");
+  if (dialog) {
+    if (dialog.dataset.modalBound !== "1") {
+      dialog.addEventListener("cancel", (event) => event.preventDefault());
+      dialog.dataset.modalBound = "1";
+    }
+    if (!dialog.open) dialog.showModal();
+  }
+
   root.querySelectorAll(".confirm-stop-removal-form").forEach((form) => {
+    const confirmation = form.querySelector('[name="confirmar_remocao"]');
+    if (confirmation) {
+      confirmation.checked = store.state.stopRemovalAcknowledged === true;
+      confirmation.addEventListener("change", () => {
+        store.state.stopRemovalAcknowledged = confirmation.checked;
+      });
+    }
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
       if (form.dataset.submitting === "1") return;
-      const confirmation = form.querySelector('[name="confirmar_remocao"]');
       if (!confirmation?.checked) {
         setFeedback(form, "Confirme a remoção da unidade e a parada física antes de continuar.", "error");
         return;
       }
+      store.state.stopRemovalAcknowledged = true;
 
       form.dataset.submitting = "1";
       form.querySelectorAll("button").forEach((button) => {
