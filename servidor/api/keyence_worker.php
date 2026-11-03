@@ -62,7 +62,7 @@ if ($action === "PENDING_IMAGES") {
          JOIN carregamentos c ON c.id = r.carregamento_id
          JOIN eventos_sensor s ON s.id = r.sensor_event_id AND s.carregamento_id = r.carregamento_id
          WHERE r.equipment_id = :equipment_id AND c.company_id = :company_id
-           AND r.reason = 'SEM_LEITURA' AND r.status IN ('PENDENTE', 'CAPTURADA')
+           AND r.reason = 'SEM_LEITURA' AND r.status IN ('PENDENTE', 'CAPTURADA', 'ERRO')
            AND r.requested_at >= NOW(3) - INTERVAL 10 MINUTE
          ORDER BY r.requested_at, r.id LIMIT 100",
     );
@@ -160,7 +160,7 @@ try {
         $pdo->commit();
         json_response(["data" => ["request_id" => (int) $requestId, "duplicate" => true]]);
     }
-    if ($capture["status"] !== "PENDENTE") {
+    if (!in_array($capture["status"], ["PENDENTE", "ERRO"], true)) {
         $pdo->rollBack();
         json_response(["error" => "A solicitação não está mais disponível para a imagem Keyence."], 409);
     }
@@ -244,7 +244,7 @@ try {
         "UPDATE solicitacoes_imagens_evidencia
          SET status = 'CAPTURADA', captured_at = {$capturedAtExpression}, claimed_by_device_id = :device_id,
              error_message = NULL, updated_at = NOW(3)
-         WHERE id = :id AND status = 'PENDENTE'",
+         WHERE id = :id AND status IN ('PENDENTE', 'ERRO')",
     );
     $completeParameters = ["device_id" => $device["id"], "id" => (int) $requestId];
     if ($capturedAtEpochMs !== null) {

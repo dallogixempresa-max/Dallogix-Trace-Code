@@ -141,6 +141,23 @@ if ($loadIds !== []) {
     if ((int) $pendingCaptures->fetchColumn() > 0) {
         $respondJson(["error" => "Aguarde o envio das imagens de erro do Keyence antes de gerar o PDF."], 409);
     }
+    $missingRequests = $pdo->prepare(
+        "SELECT COUNT(*) FROM leituras l
+         LEFT JOIN solicitacoes_imagens_evidencia r
+           ON r.sensor_event_id = l.sensor_event_id
+          AND r.carregamento_id = l.carregamento_id AND r.reason = 'SEM_LEITURA'
+         WHERE l.carregamento_id IN (" . implode(",", array_fill(0, count($loadIds), "?")) . ")
+           AND l.result = 'SEM_LEITURA'
+           AND (r.id IS NULL OR r.status <> 'CAPTURADA')",
+    );
+    $missingRequests->execute($loadIds);
+    $missingCount = (int) $missingRequests->fetchColumn();
+    if ($missingCount > 0) {
+        $respondJson([
+            "error" => "O relatório aguarda foto do Keyence para {$missingCount} passagem(ns) sem código.",
+            "missing_evidence_count" => $missingCount,
+        ], 409);
+    }
 }
 $storageRoot = realpath(__DIR__ . "/../../../armazenamento");
 if ($storageRoot === false) {
@@ -347,6 +364,13 @@ if ($loadIds !== []) {
         }
     }
     unset($noRead);
+    $missingEvidence = count(array_filter($noReadRows, static fn(array $row): bool => !$row["has_image"]));
+    if ($missingEvidence > 0) {
+        $respondJson([
+            "error" => "O relatório aguarda foto de {$missingEvidence} passagem(ns) sem código. Verifique a captura do Keyence antes de gerar o PDF.",
+            "missing_evidence_count" => $missingEvidence,
+        ], 409);
+    }
 
     $occurrenceQuery = $pdo->prepare("SELECT o.type, o.quantity, o.description, o.created_at, p.name AS product_name
         FROM ocorrencias o LEFT JOIN produtos p ON p.id = o.product_id WHERE o.carregamento_id IN ({$placeholders}) ORDER BY o.created_at");

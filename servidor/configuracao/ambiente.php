@@ -172,8 +172,8 @@ function limite_sinal_scanner_segundos(): int
 /** Finaliza solicitações sem foto depois da janela reservada ao leitor Keyence. */
 function expirar_solicitacoes_imagem_keyence(PDO $pdo, ?int $equipmentId = null, array $loadingIds = []): int
 {
-    $configured = filter_var(getenv("KEYENCE_IMAGE_RECEIVE_TIMEOUT_MS") ?: 6000, FILTER_VALIDATE_INT);
-    $timeoutMicroseconds = max(1000, min(120000, $configured === false ? 6000 : (int) $configured)) * 1000;
+    $configured = filter_var(getenv("KEYENCE_IMAGE_RECEIVE_TIMEOUT_MS") ?: 120000, FILTER_VALIDATE_INT);
+    $timeoutMicroseconds = max(1000, min(120000, $configured === false ? 120000 : (int) $configured)) * 1000;
     $conditions = [
         "reason = 'SEM_LEITURA'",
         "status IN ('PENDENTE', 'CAPTURANDO')",

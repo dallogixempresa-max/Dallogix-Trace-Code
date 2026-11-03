@@ -33,6 +33,7 @@ const FAILED_SCAN_DIR = join(INBOX_DIR, "failed-scans");
 const QUARANTINE_DIR = join(INBOX_DIR, "quarantine");
 const TCP_BIND_ADDRESS = process.env.KEYENCE_SERVICE_BIND || "0.0.0.0";
 const IMAGE_MATCH_WINDOW_MS = boundedInteger(process.env.KEYENCE_IMAGE_MATCH_WINDOW_MS, 3000, 1000, 60000);
+const IMAGE_UNMATCHED_GRACE_MS = boundedInteger(process.env.KEYENCE_IMAGE_UNMATCHED_GRACE_MS, 30000, 5000, 120000);
 const IMAGE_ARCHIVE_MATCH_WINDOW_MS = boundedInteger(process.env.KEYENCE_IMAGE_ARCHIVE_MATCH_WINDOW_MS, 1500, 500, 10000);
 const IMAGE_SETTLE_MS = boundedInteger(process.env.KEYENCE_IMAGE_SETTLE_MS, 800, 0, 10000);
 const IMAGE_BURST_WINDOW_MS = boundedInteger(process.env.KEYENCE_IMAGE_BURST_WINDOW_MS, 100, 0, 1000);
@@ -423,7 +424,7 @@ async function processImageQueue() {
               }).length,
             });
           }
-        } else if (Date.now() - receivedAt > matchWindowMs + IMAGE_SETTLE_MS) {
+        } else if (Date.now() - receivedAt > Math.max(matchWindowMs + IMAGE_SETTLE_MS, IMAGE_UNMATCHED_GRACE_MS)) {
           await quarantineImageGroup(group, "sem_solicitacao_compativel", {
             sha256: group.representative.name.slice(15, 79),
           });

@@ -85,7 +85,7 @@ Enquanto o Network Navigator estiver conectado ao SR-X, o leitor não pode usar 
 | `KEYENCE_IMAGE_ARCHIVE_POLL_MS` | `2000` | Intervalo para procurar novas imagens na pasta local. |
 | `KEYENCE_IMAGE_ARCHIVE_HOST_DIR` | `C:/Keyence/Falhas` | Origem no PC, montada em modo somente leitura. |
 | `KEYENCE_IMAGE_MAX_AGE_MS` | `300000` | Prazo para imagem sem correspondência antes da remoção da caixa de entrada. |
-| `KEYENCE_IMAGE_RECEIVE_TIMEOUT_MS` | `6000` | Prazo para receber e associar a foto de erro antes de marcar a solicitação como `ERRO`. |
+| `KEYENCE_IMAGE_RECEIVE_TIMEOUT_MS` | `120000` | Prazo de 2 minutos para receber e associar a foto de erro; uma foto tardia ainda pode recuperar uma solicitação em `ERRO`. |
 
 ## Arquivos principais
 
