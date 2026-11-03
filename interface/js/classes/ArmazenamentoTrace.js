@@ -2,7 +2,7 @@ import { OfflineOperationBuffer, secureRandomId } from "./OfflineOperationBuffer
 import { ClienteApi, erroRespostaHttp } from "../api/ClienteApi.js?v=202610140003";
 import { ServicoSincronizacao } from "../servicos/ServicoSincronizacao.js?v=202610290001";
 import { ServicoDalas } from "../servicos/ServicoDalas.js?v=202610190001";
-import { ServicoObservabilidade } from "../servicos/ServicoObservabilidade.js?v=202610190003";
+import { ServicoObservabilidade } from "../servicos/ServicoObservabilidade.js?v=202611030001";
 import { ServicoCarregamentoAtivo } from "../servicos/ServicoCarregamentoAtivo.js?v=202610290001";
 import { ServicoComandosMaquina } from "../servicos/ServicoComandosMaquina.js?v=202610190029";
 import { ServicoLeiturasOperacionais } from "../servicos/ServicoLeiturasOperacionais.js?v=202610290002";
