@@ -62,9 +62,13 @@ function ConvertTo-TraceIndustrialSettings {
     if ([int]$configuredFunction -notin @(1, 2, 3, 4)) {
         throw "modbus_heartbeat_function deve ser 1, 2, 3 ou 4."
     }
-    $activeLevel = [string](Get-TraceConfigProperty $Configuration "sensor_active_level" "1")
+    $activeLevel = Get-TraceConfigProperty $Configuration "sensor_active_level" $null
+    if ($null -eq $activeLevel -or [string]::IsNullOrWhiteSpace([string]$activeLevel)) { $activeLevel = "1" }
+    $activeLevel = [string]$activeLevel
     if ($activeLevel -notin @("0", "1")) { throw "sensor_active_level deve ser 0 ou 1." }
-    $signalMode = [string](Get-TraceConfigProperty $Configuration "sensor_signal_mode" "rising_edge")
+    $signalMode = Get-TraceConfigProperty $Configuration "sensor_signal_mode" $null
+    if ($null -eq $signalMode -or [string]::IsNullOrWhiteSpace([string]$signalMode)) { $signalMode = "rising_edge" }
+    $signalMode = [string]$signalMode
     if ($signalMode -notin @("rising_edge", "falling_edge", "toggle")) {
         throw "sensor_signal_mode deve ser rising_edge, falling_edge ou toggle."
     }
