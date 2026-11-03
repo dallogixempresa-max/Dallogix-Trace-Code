@@ -283,9 +283,12 @@ $quantities = $readingRepository->obterQuantidadesParaClassificar(
 );
 $loadingPlannedQuantity = $quantities["loading_planned_quantity"];
 $loadingValidCount = $quantities["loading_valid_count"];
+$loadingSemLeituraCount = $quantities["loading_sem_leitura_count"];
 $productPlannedQuantity = $quantities["product_planned_quantity"];
 $productValidCount = $quantities["product_valid_count"];
+$productSemLeituraCount = $quantities["product_sem_leitura_count"];
 $physicalExcess = false;
+$physicalEventPosition = null;
 if ($sensorEventId && $loadingPlannedQuantity > 0) {
     // A posição da passagem é estável mesmo se as leituras chegarem fora de ordem.
     $sensorPosition = $pdo->prepare(
@@ -298,7 +301,8 @@ if ($sensorEventId && $loadingPlannedQuantity > 0) {
         "equipment_id" => $loading["equipment_id"],
         "sensor_event_id" => $sensorEventId,
     ]);
-    $physicalExcess = (int) $sensorPosition->fetchColumn() > $loadingPlannedQuantity;
+    $physicalEventPosition = (int) $sensorPosition->fetchColumn();
+    $physicalExcess = $physicalEventPosition > $loadingPlannedQuantity;
 }
 $classification = (new ClassificadorLeitura())->classificar(
     $barcode !== "",
@@ -308,11 +312,14 @@ $classification = (new ClassificadorLeitura())->classificar(
     $loadingPlannedQuantity,
     $loadingValidCount,
     $physicalExcess,
+    $productSemLeituraCount,
+    $loadingSemLeituraCount,
 );
 $result = $classification["result"];
 $productId = $classification["product_id"];
 $productPlannedQuantity = $classification["product_planned_quantity"];
 $productValidCount = $classification["product_valid_count"];
+$productQuotaReached = $classification["product_quota_reached"];
 
 $insert = $pdo->prepare(
     "INSERT INTO leituras (company_id, carregamento_id, sensor_event_id, product_id, barcode, attempt_number, result, read_at) VALUES (:company_id, :carregamento_id, :sensor_event_id, :product_id, :barcode, :attempt_number, :result, NOW(3))",
@@ -394,15 +401,16 @@ record_operational_event(
 );
 $occurrenceId = null;
 $evidenceStatus = "NAO_SOLICITADA";
-if ($result === "SEM_LEITURA") {
+if ($noRead) {
     $occurrence = $pdo->prepare(
         'INSERT INTO ocorrencias (company_id, carregamento_id, type, quantity, description, created_by) VALUES (:company_id, :carregamento_id, \'FALHA_SEM_LEITURA\', 1, :description, :created_by)',
     );
     $occurrence->execute([
         "company_id" => $usuarioAtor["company_id"],
         "carregamento_id" => $loadingId,
-        "description" =>
-        "Saco detectado pelo sensor sem código de barras válido.",
+        "description" => $result === "EXCESSO"
+            ? "Saco excedente detectado pelo sensor sem código de barras válido."
+            : "Saco detectado pelo sensor sem código de barras válido.",
         "created_by" => $usuarioAtor["id"],
     ]);
     $occurrenceId = (int) $pdo->lastInsertId();
@@ -479,8 +487,37 @@ if ($result === "EXCESSO") {
         ],
     );
 }
+$productQuotaStop = null;
+$currentPassages = $loadingValidCount + $loadingSemLeituraCount + ($result === "VALIDO" ? 1 : 0);
+$loadingTargetReachedOnCurrentPass = $loadingPlannedQuantity > 0 && (
+    ($physicalEventPosition !== null && $physicalEventPosition >= $loadingPlannedQuantity)
+    || ($physicalEventPosition === null && $currentPassages >= $loadingPlannedQuantity)
+);
+if ($productQuotaReached && !$loadingTargetReachedOnCurrentPass) {
+    $productQuotaStop = (new ServicoComandoClp($pdo))->solicitarParadaAoAtingirMetaProduto(
+        $usuarioAtor,
+        (int) $loadingId,
+    );
+    record_operational_event(
+        $pdo,
+        $usuarioAtor,
+        "COTA_PRODUTO_ATINGIDA",
+        "leitura",
+        $readingId,
+        [
+            "carregamento_id" => (int) $loadingId,
+            "product_id" => $productId,
+            "planned_quantity" => $productPlannedQuantity,
+            "loaded_quantity" => $productValidCount + 1,
+            "stop_reason" => $productQuotaStop["stop_reason"] ?? "COTA_PRODUTO_ATINGIDA",
+            "operator_alert" => $productQuotaStop["operator_alert"] ?? null,
+            "physical_stop_request_status" => $productQuotaStop["physical_stop_request_status"] ?? "NAO_CONFIRMADA",
+            "command_request_id" => $productQuotaStop["command_request_id"] ?? null,
+        ],
+    );
+}
 if (
-    $result === "SEM_LEITURA" &&
+    $noRead &&
     $sensorEventId
 ) {
     $evidenceRequest = $pdo->prepare(
@@ -492,7 +529,7 @@ if (
         "sensor_event_id" => $sensorEventId,
         "carregamento_id" => $loadingId,
         "equipment_id" => $loading["equipment_id"],
-        "reason" => $result,
+        "reason" => "SEM_LEITURA",
     ]);
     $evidenceIdStatement = $pdo->prepare(
         "SELECT id FROM solicitacoes_imagens_evidencia WHERE sensor_event_id = :sensor_event_id LIMIT 1",
@@ -508,11 +545,12 @@ if (
         "IMAGEM_EVIDENCIA_SOLICITADA",
         "evidence_request",
         $evidenceRequestId,
-        ["sensor_event_id" => $sensorEventId, "reason" => $result],
+        ["sensor_event_id" => $sensorEventId, "reason" => "SEM_LEITURA", "reading_result" => $result],
     );
     $evidenceStatus = "IMAGEM_PENDENTE_INCIDENTE";
 }
 $loadStatus = $loading["state"] === "FINALIZANDO" ? "COMPLETO" : "EM_ANDAMENTO";
+$stopDetails = $excessStop ?? $wrongProductStop ?? $productQuotaStop;
 $pdo->commit();
 responder_json(
     [
@@ -527,18 +565,14 @@ responder_json(
             "evidence_status" => $evidenceStatus,
             "load_status" => $loadStatus,
             "excesso" => $result === "EXCESSO",
-            "stop_reason" => $result === "EXCESSO" ? ($excessStop["stop_reason"] ?? "EXCESSO")
-                : ($wrongProductStop["stop_reason"] ?? $loading["stop_reason"] ?? null),
-            "physical_stop_request_status" => $result === "EXCESSO"
-                ? ($excessStop["physical_stop_request_status"] ?? "NAO_CONFIRMADA")
-                : ($wrongProductStop["physical_stop_request_status"] ?? null),
-            "command_request_id" => $result === "EXCESSO"
-                ? ($excessStop["command_request_id"] ?? null)
-                : ($wrongProductStop["command_request_id"] ?? null),
+            "product_quota_reached" => $productQuotaReached,
+            "stop_reason" => $stopDetails["stop_reason"] ?? $loading["stop_reason"] ?? null,
+            "physical_stop_request_status" => $stopDetails["physical_stop_request_status"] ?? null,
+            "command_request_id" => $stopDetails["command_request_id"] ?? null,
             "operator_alert" => match ($result) {
                 "EXCESSO" => $excessoAlert ?? "Quantidade excedida: mais sacas passaram do que o previsto no romaneio. Remova a unidade excedente e confirme antes de continuar.",
                 "PRODUTO_INCORRETO" => $wrongProductStop["operator_alert"] ?? "Produto fora do romaneio. Remova a unidade e confirme a parada física antes de continuar.",
-                default => $loading["operator_alert"] ?? null,
+                default => $productQuotaStop["operator_alert"] ?? $loading["operator_alert"] ?? null,
             },
         ],
     ],

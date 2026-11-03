@@ -62,9 +62,11 @@ if ($action === "PENDING_IMAGES") {
          JOIN carregamentos c ON c.id = r.carregamento_id
          JOIN eventos_sensor s ON s.id = r.sensor_event_id AND s.carregamento_id = r.carregamento_id
          WHERE r.equipment_id = :equipment_id AND c.company_id = :company_id
-           AND r.reason = 'SEM_LEITURA' AND r.status IN ('PENDENTE', 'CAPTURADA', 'ERRO')
-           AND r.requested_at >= NOW(3) - INTERVAL 10 MINUTE
-         ORDER BY r.requested_at, r.id LIMIT 100",
+           AND r.reason = 'SEM_LEITURA'
+           AND (r.status IN ('PENDENTE', 'ERRO') OR
+                (r.status = 'CAPTURADA' AND r.requested_at >= NOW(3) - INTERVAL 10 MINUTE))
+         ORDER BY CASE WHEN r.status = 'CAPTURADA' THEN 1 ELSE 0 END,
+                  r.requested_at, r.id LIMIT 100",
     );
     $statement->execute([
         "equipment_id" => $device["equipment_id"],

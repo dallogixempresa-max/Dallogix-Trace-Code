@@ -2,7 +2,7 @@ import { button, esc } from "../../js/funcoes/html.js";
 import { numero } from "../../js/funcoes/formato.js?v=202609201000";
 import { rotuloComando, rotuloEstado } from "../../js/funcoes/rotulos.js?v=202609240001";
 import { resolverComandoAtual } from "../../js/funcoes/estado-comando.js?v=202610130003";
-import { emergencyPanel, pageHeader } from "../../js/funcoes/view.js?v=202610280005";
+import { emergencyPanel, pageHeader } from "../../js/funcoes/view.js?v=202611030005";
 
 function equipmentLabel(store) {
   if (store.state.equipmentCode && store.state.equipmentCode !== "—") {
@@ -94,6 +94,9 @@ export function workControlLocks(state, {
     (commandPending && pendingCommand === "REVERSAO_ATIVAR");
   const emergency = operationalState === "EMERGENCIA";
   const hasLoading = Boolean(state.loadingId);
+  const planned = Number(state.planned) || 0;
+  const detected = Number(state.detectedBags) || 0;
+  const manifestTargetReached = planned > 0 && detected >= planned;
   const canOperate = ["ADMIN_EMPRESA", "SUPERVISOR", "USUARIO"].includes(String(state.userRole || "").toUpperCase());
   const canReverse = canOperate;
   const locks = { run: "", stop: "", "reverse-on": "", "reverse-off": "" };
@@ -147,12 +150,14 @@ export function workControlLocks(state, {
   locks.run = emergency
     ? "A emergência precisa ser liberada antes de iniciar."
     : state.stopReason
-      ? "Confirme que a unidade foi removida e que a esteira está fisicamente parada antes de retomar."
+      ? state.stopReason === "COTA_PRODUTO_ATINGIDA"
+        ? "Confirme a parada física antes de continuar com outro produto."
+        : "Confirme que a unidade foi removida e que a esteira está fisicamente parada antes de retomar."
+    : manifestTargetReached
+      ? "A quantidade prevista do romaneio foi atingida. Abra a conferência final para encerrar."
     : !stopped
       ? stateLock("iniciar a esteira")
-      : state.reversalCommand === "REVERSAO_ATIVAR"
-        ? "Desligue a reversão antes de ligar a esteira para frente."
-        : "";
+      : "";
   locks.stop = emergency
     ? "A emergência já mantém a operação parada."
     : running || operationalState === "FINALIZANDO"
@@ -214,6 +219,8 @@ function workControls(store) {
   const pendingCommand = String(currentCommand?.command || "").toUpperCase();
   const pendingStatus = String(currentCommand?.status || "").toUpperCase();
   const currentCommandPending = ["PENDENTE", "PROCESSANDO"].includes(pendingStatus);
+  const reversalActive = store.state.reversalCommand === "REVERSAO_ATIVAR" ||
+    (currentCommandPending && pendingCommand === "REVERSAO_ATIVAR");
   const bloqueio = (reason) => reason
     ? { disabled: true, "aria-disabled": "true", title: reason }
     : "";
@@ -257,7 +264,8 @@ function workControls(store) {
   const scannerMonitor = store.state.loadingId
     ? `<div class="work-reader-monitor"><div class="work-reader-monitor-heading"><span class="kicker">Visor do leitor</span><small>Último código recebido automaticamente do leitor.</small></div><div class="work-scanner-display"><span class="work-scanner-display-label">Código de barras</span><output id="automatic-scanner-barcode" class="work-scanner-display-value${scannerValueClass}" data-live="scanner-value" role="status" aria-live="polite" aria-atomic="true">${esc(scannerValue)}</output></div></div>`
     : "";
-  const controls = `<div class="work-controls"><div class="work-routine-controls">${button("Ligar esteira", "run", "primary", bloqueio(commandLocks.run))}${button("Desligar esteira", "stop", "ghost", atributosPararEsteira)}${button("Ligar reversão", "reverse-on", "secondary", atributosLigarReversao)}${button("Desligar reversão", "reverse-off", "secondary", atributosDesligarReversao)}</div><div class="work-emergency-zone">${button("EMERGÊNCIA", "emergency", "danger", bloqueioEmergencia)}</div></div>`;
+  const runLabel = reversalActive ? "Ligar esteira em reversão" : "Ligar esteira";
+  const controls = `<div class="work-controls"><div class="work-routine-controls">${button(runLabel, "run", "primary", bloqueio(commandLocks.run))}${button("Desligar esteira", "stop", "ghost", atributosPararEsteira)}${button("Ligar reversão", "reverse-on", "secondary", atributosLigarReversao)}${button("Desligar reversão", "reverse-off", "secondary", atributosDesligarReversao)}</div><div class="work-emergency-zone">${button("EMERGÊNCIA", "emergency", "danger", bloqueioEmergencia)}</div></div>`;
   // Quando o carregamento entra em emergência, o painel de liberação precisa
   // aparecer na própria tela de operação — sem forçar o operador a navegar
   // para a página separada /emergencia.html. O botão de desbloqueio fica
@@ -276,11 +284,12 @@ function workControls(store) {
         buttonAttributes: unlockButtonAttributes,
         commandStatus: store.state.plcCommand,
         compact: true,
+        showStartButton: false,
       })
     : "";
-  const summaryReady = ["FINALIZANDO", "FINALIZADO"].includes(
-    store.state.operationalState,
-  );
+  const totalTargetReached = plannedTotal > 0 && detectedBags >= plannedTotal;
+  const summaryReady = ["FINALIZANDO", "FINALIZADO"].includes(store.state.operationalState) ||
+    (totalTargetReached && store.state.operationalState === "PAUSADO");
   const summaryAction = summaryReady
     ? `${button("Abrir resumo final", "open-summary", "secondary")}`
     : "";
@@ -289,6 +298,8 @@ function workControls(store) {
     ? pendingCommand === "DESBLOQUEAR_MAQUINA" && currentCommandPending
       ? "A solicitação de liberação da emergência está aguardando o gateway. A confirmação fica disponível quando o carregamento voltar a pausado."
       : "A emergência está ativa. Solicite a liberação abaixo; a operação continuará pausada até a confirmação da unidade removida."
+    : store.state.stopReason === "COTA_PRODUTO_ATINGIDA"
+      ? "A cota deste produto foi atingida. Aguarde a confirmação da parada física antes de continuar com outro produto."
     : !stopCommand
     ? "O gateway ainda não confirmou um comando de parada. Verifique a máquina antes de confirmar."
     : ["PENDENTE", "PROCESSANDO"].includes(pendingStatus)
@@ -301,8 +312,20 @@ function workControls(store) {
       ? button("Solicitar liberação da emergência", "unlock", "secondary", unlockButtonAttributes)
       : '<p>Solicite ao supervisor ou administrador a liberação da emergência.</p>'
     : button("Acionar emergência", "emergency", "danger");
-  const stopConfirmation = store.state.stopReason
-    ? `<dialog id="work-stop-dialog" class="work-stop-dialog" role="alertdialog" aria-modal="true" aria-labelledby="work-stop-confirmation-title" aria-describedby="work-stop-confirmation-alert work-stop-confirmation-status"><section class="work-stop-confirmation"><span class="kicker">${store.state.stopReason === "EXCESSO" ? "Quantidade excedida" : "Ação de segurança necessária"}</span><h2 id="work-stop-confirmation-title">Atenção: operação pausada</h2><p id="work-stop-confirmation-alert" class="work-stop-confirmation-alert">${esc(store.state.operatorAlert || "Remova a unidade e confirme antes de continuar.")}</p><p id="work-stop-confirmation-status">${esc(stopConfirmationMessage)}</p><form class="confirm-stop-removal-form"><label><input type="checkbox" name="confirmar_remocao" value="true" required${store.state.stopRemovalAcknowledged === true ? " checked" : ""}${store.state.emergency ? " disabled" : ""} autofocus /><span>Confirmo que a unidade foi removida e que a esteira está fisicamente parada.</span></label><button class="button primary" type="submit"${store.state.emergency ? " disabled" : ""}>Confirmar remoção e liberar retomada</button><p class="form-feedback" data-form-feedback role="status" aria-live="polite" hidden></p></form><div class="work-stop-emergency-action">${stopEmergencyAction}</div></section></dialog>`
+  const stopReasonIsProductQuota = store.state.stopReason === "COTA_PRODUTO_ATINGIDA";
+  const stopConfirmationLabel = stopReasonIsProductQuota
+    ? "Meta do produto atingida"
+    : store.state.stopReason === "EXCESSO"
+      ? "Quantidade excedida"
+      : "Ação de segurança necessária";
+  const stopConfirmationCheckLabel = stopReasonIsProductQuota
+    ? "Confirmo que a esteira está fisicamente parada e vou continuar com outro produto."
+    : "Confirmo que a unidade foi removida e que a esteira está fisicamente parada.";
+  const stopConfirmationButtonLabel = stopReasonIsProductQuota
+    ? "Confirmar parada e continuar"
+    : "Confirmar remoção e liberar retomada";
+  const stopConfirmation = store.state.stopReason && !store.state.emergency
+    ? `<dialog id="work-stop-dialog" class="work-stop-dialog" role="alertdialog" aria-modal="true" aria-labelledby="work-stop-confirmation-title" aria-describedby="work-stop-confirmation-alert work-stop-confirmation-status"><section class="work-stop-confirmation"><span class="kicker">${stopConfirmationLabel}</span><h2 id="work-stop-confirmation-title">Atenção: operação pausada</h2><p id="work-stop-confirmation-alert" class="work-stop-confirmation-alert">${esc(store.state.operatorAlert || "Confirme a parada física antes de continuar.")}</p><p id="work-stop-confirmation-status">${esc(stopConfirmationMessage)}</p><form class="confirm-stop-removal-form"><label><input type="checkbox" name="confirmar_remocao" value="true" required${store.state.stopRemovalAcknowledged === true ? " checked" : ""} autofocus /><span>${stopConfirmationCheckLabel}</span></label><button class="button primary" type="submit">${stopConfirmationButtonLabel}</button><p class="form-feedback" data-form-feedback role="status" aria-live="polite" hidden></p></form><div class="work-stop-emergency-action">${stopEmergencyAction}</div></section></dialog>`
     : "";
   const badge = ["PENDENTE", "PROCESSANDO"].includes(pendingStatus) && pendingCommand
       ? `<span class="badge blue">${esc(rotuloComando(pendingCommand))} · aguardando CLP</span>`
@@ -358,7 +381,8 @@ function workControls(store) {
   const panelHeading = estadoOperacional === "EMERGENCIA"
     ? ""
     : `<div class="panel-heading"><div><span class="kicker">Comandos da máquina</span><h3>Operar Dala</h3></div>${summaryAction ? `<div class="work-machine-heading-actions">${summaryAction}</div>` : ""}</div>`;
-  const machinePanel = `<section class="panel work-machine-panel">${panelHeading}<div class="work-machine-controls">${emergencySection}${stopConfirmation}${controls}</div></section>`;
+  const visibleControls = estadoOperacional === "EMERGENCIA" ? "" : controls;
+  const machinePanel = `<section class="panel work-machine-panel">${panelHeading}<div class="work-machine-controls">${emergencySection}${stopConfirmation}${visibleControls}</div></section>`;
   const statusColumn = `<section class="work-status-column">${totalSummary}${itemProgress}</section>`;
   const workHeader = `<header class="work-screen-header">${loadingPicker}<div class="work-screen-heading"><h2>${esc(workTitle)}</h2><p>Dala ${esc(equipmentLabel(store))} · Caminhão ${esc(store.state.truck || "—")} <span class="work-header-state">${badge}</span></p></div></header>`;
   return `<div class="work-operation-screen">${workHeader}<div class="work-operation-layout">${statusColumn}${machinePanel}</div></div>`;

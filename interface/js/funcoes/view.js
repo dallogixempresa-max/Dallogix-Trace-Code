@@ -49,6 +49,7 @@ export function emergencyPanel({
   buttonAttributes = "",
   commandStatus = null,
   compact = false,
+  showStartButton = true,
   showTechnical = true,
 } = {}) {
   const status = String(commandStatus?.status || "").toUpperCase();
@@ -72,7 +73,7 @@ export function emergencyPanel({
   return `<section class="emergency${compact ? " emergency-compact" : ""}" aria-live="assertive">
     <div class="emergency-intro"><span class="kicker">Solicitação de emergência</span><h2>Operação bloqueada</h2><p>Estado lógico do Trace: <strong>${esc(loading)}</strong></p></div>
     <div class="emergency-lock-status"><strong>Esteira bloqueada</strong><span>Ligar esteira fica indisponível enquanto a emergência estiver ativa.</span></div>
-    <div class="emergency-actions">${disabledStart}${canUnlock ? button("Liberar emergência", "unlock", "secondary", buttonAttributes) : ""}</div>
+    <div class="emergency-actions">${showStartButton ? disabledStart : ""}${canUnlock ? button("Liberar emergência", "unlock", "secondary", buttonAttributes) : ""}</div>
     ${technicalDetails}
     <p class="emergency-safety-note">A emergência permanece travada até uma liberação explícita. A solicitação não substitui o botão físico de emergência; confira a condição segura na máquina e no CLP antes de liberar.</p>
   </section>`;

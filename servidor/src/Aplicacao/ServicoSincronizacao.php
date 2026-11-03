@@ -510,10 +510,14 @@ final class ServicoSincronizacao
         $relativePath = trim((string) ($data["report_path"] ?? ""));
         $expectedHash = strtolower(trim((string) ($data["sha256"] ?? "")));
         $expectedSize = filter_var($data["size_bytes"] ?? null, FILTER_VALIDATE_INT);
+        $evidenceNoReadCount = filter_var($data["evidence_no_read_count"] ?? 0, FILTER_VALIDATE_INT);
+        $evidenceCount = filter_var($data["evidence_count"] ?? 0, FILTER_VALIDATE_INT);
         if ($sourceManifestId === false || (int) $sourceManifestId <= 0
             || preg_match('/\A[a-f0-9]{64}\z/', $expectedHash) !== 1
             || $expectedSize === false || (int) $expectedSize < 5
-            || (int) $expectedSize > self::TAMANHO_MAXIMO_RELATORIO) {
+            || (int) $expectedSize > self::TAMANHO_MAXIMO_RELATORIO
+            || $evidenceNoReadCount === false || (int) $evidenceNoReadCount < 0
+            || $evidenceCount === false || (int) $evidenceCount < (int) $evidenceNoReadCount) {
             return ["ok" => false, "error" => "Metadados do PDF do romaneio inválidos.", "http_code" => 422];
         }
         if ($remoteManifestId === false || (int) $remoteManifestId <= 0) {
@@ -545,6 +549,8 @@ final class ServicoSincronizacao
                 "X-Trace-Source-Romaneio-Id" => (string) (int) $sourceManifestId,
                 "X-Trace-Remote-Romaneio-Id" => (string) (int) $remoteManifestId,
                 "X-Trace-Report-SHA256" => $expectedHash,
+                "X-Trace-Report-No-Read-Count" => (string) (int) $evidenceNoReadCount,
+                "X-Trace-Report-Evidence-Count" => (string) (int) $evidenceCount,
             ],
         );
     }

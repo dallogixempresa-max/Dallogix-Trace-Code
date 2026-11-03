@@ -183,6 +183,14 @@ final class ServicoPublicacaoRelatoriosAuditoria
     private function enfileirarArquivo(int $companyId, int $romaneioId, string $relativeReportPath): bool
     {
         $snapshot = $this->validarEPrepararSnapshot($companyId, $romaneioId, $relativeReportPath);
+        $evidenceRelativePath = $relativeReportPath . ".evidence.json";
+        $evidencePath = trace_image_storage_path($this->storageRoot, $evidenceRelativePath);
+        $evidenceBytes = $evidencePath === null ? false : file_get_contents($evidencePath);
+        $evidenceManifest = is_string($evidenceBytes) ? json_decode($evidenceBytes, true) : null;
+        if ($evidencePath !== null && (!is_array($evidenceManifest)
+            || !hash_equals($snapshot["sha256"], (string) ($evidenceManifest["pdf_sha256"] ?? "")))) {
+            throw new RuntimeException("Manifesto de evidências ausente ou incompatível com o PDF.");
+        }
         $existing = $this->connection->prepare(
             "SELECT 1 FROM fila_sincronizacao
              WHERE company_id = :company_id AND aggregate_type = 'romaneio' AND aggregate_id = :romaneio_id
@@ -219,6 +227,8 @@ final class ServicoPublicacaoRelatoriosAuditoria
                 "report_path" => $snapshot["relative_path"],
                 "sha256" => $snapshot["sha256"],
                 "size_bytes" => $snapshot["size_bytes"],
+                "evidence_no_read_count" => (int) (is_array($evidenceManifest) ? ($evidenceManifest["no_read_count"] ?? 0) : 0),
+                "evidence_count" => (int) (is_array($evidenceManifest) ? ($evidenceManifest["evidence_count"] ?? 0) : 0),
             ],
         );
         return true;

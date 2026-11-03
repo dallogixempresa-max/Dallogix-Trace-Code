@@ -16,7 +16,7 @@ import { createMachineCommandQueue } from "./controladores/comandos-maquina.js?v
 import { criarRegistroTelas } from "./controladores/registro-telas.js?v=202610190046";
 import { criarTratadorAcoesNavegacao } from "./controladores/acoes-navegacao.js?v=202610190001";
 import { criarTratadorAcoesAdministracao } from "./controladores/acoes-administracao.js?v=202610190001";
-import { criarTratadorAcoesOperacionais } from "./controladores/acoes-operacionais.js?v=202610290001";
+import { criarTratadorAcoesOperacionais } from "./controladores/acoes-operacionais.js?v=202611030005";
 import { criarTratadorAcoesDiagnostico } from "./controladores/acoes-diagnostico.js?v=202610190001";
 import { criarTratadorAcoesCadastros } from "./controladores/acoes-cadastros.js?v=202610190042";
 import { criarTratadorAcoesInterface, instalarInteracoesGlobaisInterface } from "./controladores/acoes-interface.js?v=202610190042";
@@ -31,7 +31,7 @@ import { bindProductForm } from "./controladores/formulario-produto.js?v=2026101
 import { bindDalaCreationForm, bindDalaEditForm } from "./controladores/formulario-dala.js?v=202610190030";
 import { bindCsvManifestImportForm, bindPdfManifestImportForm } from "./controladores/formulario-importacao-romaneio.js?v=202610190001";
 import { bindAdministrativeForms } from "./controladores/formularios-administrativos.js?v=202610190001";
-import { bindOperationalForms } from "./controladores/formularios-operacionais.js?v=202611030003";
+import { bindOperationalForms } from "./controladores/formularios-operacionais.js?v=202611030005";
 import { bindPageForms } from "./controladores/formularios-telas.js?v=202610190001";
 import { el, esc } from "./funcoes/html.js";
 import { rotuloEstado } from "./funcoes/rotulos.js?v=202609240001";
@@ -79,11 +79,11 @@ const registroTelas = criarRegistroTelas({
   division: () =>
     import("../telas/divisao-carga/divisao-carga.js?v=202610190046").then(({ division }) => division),
   work: () =>
-    import("../telas/operacao/operacao.js?v=202611030003").then(({ work }) => work),
+    import("../telas/operacao/operacao.js?v=202611030005").then(({ work }) => work),
   occurrences: () =>
     import("../telas/ocorrencias/ocorrencias.js?v=202610190046").then(({ occurrences }) => occurrences),
   summary: () =>
-    import("../telas/resumo-final/resumo-final.js?v=202610190046").then(({ summary }) => summary),
+    import("../telas/resumo-final/resumo-final.js?v=202611030005").then(({ summary }) => summary),
   products: () =>
     import("../telas/produtos/produtos.js?v=202610190046").then(({ products }) => products),
   alerts: () =>
@@ -440,7 +440,7 @@ function waitForDocumentStyles() {
 // tela que tem CSS próprio precisa garantir seu arquivo e sua versão antes do
 // primeiro render, inclusive quando a rota inicial veio de outra página.
 const SCREEN_STYLES = {
-  work: "/telas/operacao/operacao.css?v=202611030003",
+  work: "/telas/operacao/operacao.css?v=202611030005",
   import: "/telas/importar-romaneio/importar-romaneio.css?v=202610071845",
   settings: "/telas/configuracoes/configuracoes.css?v=202610300002",
   dalas: "/telas/dalas/dalas.css?v=202610160005",
@@ -619,6 +619,12 @@ function installScannerHidReceiver() {
             notificar(
               reading.operator_alert || "Quantidade excedida. O carregamento foi pausado. Remova a unidade e confirme.",
               "erro",
+            );
+          }
+          if (reading?.product_quota_reached) {
+            notificar(
+              reading.operator_alert || "Meta do produto atingida. A esteira foi pausada para evitar excedente.",
+              "aviso",
             );
           }
           if (currentPage === "work") renderScreen();

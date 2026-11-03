@@ -105,7 +105,14 @@ if ((int) $pending->fetchColumn() > 0) {
 }
 $divergences = $pdo->prepare("SELECT ri.product_id, SUM(ri.planned_quantity) AS planned_quantity,
     GREATEST(0,
-      COALESCE((SELECT COUNT(*) FROM leituras l WHERE l.carregamento_id = :loading_id AND l.product_id = ri.product_id AND l.result = 'VALIDO'), 0)
+      COALESCE((SELECT COUNT(*) FROM leituras l WHERE l.carregamento_id = :loading_id AND l.product_id = ri.product_id AND l.result IN ('VALIDO', 'SEM_LEITURA')), 0)
+      + CASE WHEN (
+          SELECT COUNT(DISTINCT ri2.product_id) FROM romaneio_itens ri2
+          WHERE ri2.romaneio_id = ri.romaneio_id AND (ri2.truck_id = :divergence_truck_id OR ri2.truck_id IS NULL)
+        ) = 1 THEN COALESCE((
+          SELECT COUNT(*) FROM leituras l
+          WHERE l.carregamento_id = :unassigned_loading_id AND l.result = 'SEM_LEITURA' AND l.product_id IS NULL
+        ), 0) ELSE 0 END
       - COALESCE((SELECT SUM(ret.quantity) FROM retornos ret JOIN leituras lr ON lr.id = ret.leitura_id
                   WHERE ret.carregamento_id = :return_loading_id AND lr.product_id = ri.product_id), 0)
     ) AS moved_quantity,
@@ -117,6 +124,8 @@ $divergences->execute([
     "return_loading_id" => $loadingId,
     "romaneio_id" => $loading["romaneio_id"],
     "truck_id" => $loading["truck_id"],
+    "divergence_truck_id" => $loading["truck_id"],
+    "unassigned_loading_id" => $loadingId,
 ]);
 $divergenceRows = $divergences->fetchAll();
 $hasDivergence = false;

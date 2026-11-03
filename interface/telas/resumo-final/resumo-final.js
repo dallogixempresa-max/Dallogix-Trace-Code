@@ -34,7 +34,9 @@ export function summary(store) {
       ? "A esteira está parada pelo CLP. Confira o balanço antes de encerrar."
       : store.state.stopReason
         ? "Resolva a ocorrência e confirme a parada antes de encerrar."
-        : "Atingir a meta gera um aviso; pare a esteira pelo comando da máquina para encerrar.";
+        : Number(store.state.planned) > 0 && Number(store.state.detectedBags) >= Number(store.state.planned)
+          ? "Quantidade prevista atingida. Aguarde a confirmação da parada automática e confira as passagens pendentes antes de encerrar."
+          : "A carga ainda não atingiu a quantidade total prevista.";
   const waitingForEvidence = store.state.operationalState === "PAUSADO" && !canFinish && !store.state.stopReason
     ? `<p role="status">${esc(pendingNotice || "Aguardando confirmação dos dispositivos antes de encerrar.")}</p>`
     : "";

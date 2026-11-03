@@ -8,6 +8,8 @@ $eventUuid = trim((string) ($_SERVER["HTTP_X_TRACE_EVENT_UUID"] ?? ""));
 $sourceManifestId = filter_var($_SERVER["HTTP_X_TRACE_SOURCE_ROMANEIO_ID"] ?? null, FILTER_VALIDATE_INT);
 $remoteManifestId = filter_var($_SERVER["HTTP_X_TRACE_REMOTE_ROMANEIO_ID"] ?? null, FILTER_VALIDATE_INT);
 $expectedHash = strtolower(trim((string) ($_SERVER["HTTP_X_TRACE_REPORT_SHA256"] ?? "")));
+$evidenceNoReadCount = filter_var($_SERVER["HTTP_X_TRACE_REPORT_NO_READ_COUNT"] ?? "0", FILTER_VALIDATE_INT);
+$evidenceCount = filter_var($_SERVER["HTTP_X_TRACE_REPORT_EVIDENCE_COUNT"] ?? "0", FILTER_VALIDATE_INT);
 $contentType = strtolower(trim(explode(";", (string) ($_SERVER["CONTENT_TYPE"] ?? ""))[0]));
 $contentLength = filter_var($_SERVER["CONTENT_LENGTH"] ?? null, FILTER_VALIDATE_INT);
 $maximumBytes = 24 * 1024 * 1024;
@@ -17,6 +19,8 @@ if ($contentType !== "application/pdf"
     || $sourceManifestId === false || (int) $sourceManifestId <= 0
     || $remoteManifestId === false || (int) $remoteManifestId <= 0
     || preg_match('/\A[a-f0-9]{64}\z/', $expectedHash) !== 1
+    || $evidenceNoReadCount === false || (int) $evidenceNoReadCount < 0
+    || $evidenceCount === false || (int) $evidenceCount < (int) $evidenceNoReadCount
     || ($contentLength !== false && (int) $contentLength > $maximumBytes)) {
     responder_json(["error" => "Metadados do relatório de romaneio inválidos."], 422);
 }
@@ -64,6 +68,25 @@ if (file_put_contents($temporaryPath, $pdf, LOCK_EX) !== strlen($pdf)
     }
     responder_json(["error" => "Não foi possível persistir o relatório recebido."], 503);
 }
+$evidenceManifest = json_encode([
+    "version" => 1,
+    "pdf_sha256" => $expectedHash,
+    "no_read_count" => (int) $evidenceNoReadCount,
+    "evidence_count" => (int) $evidenceCount,
+], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+$manifestPath = $reportPath . ".evidence.json";
+if (is_link($manifestPath)) {
+    responder_json(["error" => "Manifesto de evidências remoto inválido."], 503);
+}
+$temporaryManifestPath = $manifestPath . ".tmp-" . bin2hex(random_bytes(8));
+if (file_put_contents($temporaryManifestPath, $evidenceManifest, LOCK_EX) !== strlen($evidenceManifest)
+    || !chmod($temporaryManifestPath, 0600)
+    || !rename($temporaryManifestPath, $manifestPath)) {
+    if (is_file($temporaryManifestPath)) {
+        trace_remove_image_storage_file($storageRoot, $relativeDirectory . "/" . basename($temporaryManifestPath));
+    }
+    responder_json(["error" => "Não foi possível persistir o manifesto de evidências remoto."], 503);
+}
 
 $metadata = json_encode([
     "source_installation_id" => (int) $installationId,
@@ -71,6 +94,8 @@ $metadata = json_encode([
     "remote_romaneio_id" => (int) $remoteManifestId,
     "sha256" => $expectedHash,
     "size_bytes" => strlen($pdf),
+    "evidence_no_read_count" => (int) $evidenceNoReadCount,
+    "evidence_count" => (int) $evidenceCount,
 ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
 
 $pdo->beginTransaction();

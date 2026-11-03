@@ -967,6 +967,79 @@ body.work-page:has(.work-operation-screen) .work-machine-controls .work-emergenc
   padding-top: 14px;
 }
 
+/* A emergência tem uma ação própria; não mostra os comandos normais por trás
+   do bloqueio nem comprime o cartão vermelho na coluna estreita da operação. */
+body.work-page:has(.emergency-compact) {
+  height: auto;
+  min-height: 100dvh;
+  overflow: auto;
+}
+
+body.work-page:has(.emergency-compact) .main {
+  height: auto;
+  min-height: 100dvh;
+  overflow: visible;
+}
+
+body.work-page:has(.emergency-compact) .content {
+  display: block;
+  min-height: 0;
+  overflow: visible;
+}
+
+body.work-page:has(.emergency-compact) #screen-root,
+body.work-page:has(.emergency-compact) .work-operation-screen {
+  display: block;
+  height: auto;
+  min-height: 0;
+}
+
+body.work-page:has(.emergency-compact) .work-operation-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "comandos" "status";
+  min-height: 0;
+}
+
+body.work-page:has(.emergency-compact) .work-machine-panel {
+  position: static;
+  width: 100%;
+  order: 0;
+}
+
+body.work-page:has(.emergency-compact) .work-status-column {
+  max-height: none;
+  overflow: visible;
+  order: 1;
+}
+
+body.work-page:has(.emergency-compact) .work-machine-panel .emergency-compact {
+  width: min(900px, 100%);
+  min-height: 0;
+  margin: 0 auto;
+  display: block;
+  color: #f4f9fc;
+}
+
+body.work-page:has(.emergency-compact) .emergency-compact h2 {
+  color: #fff;
+}
+
+body.work-page:has(.emergency-compact) .emergency-compact .kicker {
+  color: #b8edf5;
+}
+
+body.work-page:has(.emergency-compact) .emergency-compact .emergency-intro p,
+body.work-page:has(.emergency-compact) .emergency-compact .emergency-safety-note,
+body.work-page:has(.emergency-compact) .emergency-compact .emergency-technical p {
+  color: #ffe9e9;
+}
+
+body.work-page:has(.emergency-compact) .emergency-compact .emergency-actions {
+  grid-template-columns: minmax(0, 420px);
+  justify-content: center;
+}
+
 @media (max-width: 620px) {
   body.work-page:has(.work-operation-screen) .work-machine-controls .work-routine-controls .button,
   body.work-page:has(.work-operation-screen) .work-machine-controls .work-emergency-zone .button {

@@ -149,7 +149,10 @@ export function criarTratadorAcoesOperacionais({
   }
 
   async function abrirResumo() {
-    if (!["FINALIZANDO", "FINALIZADO"].includes(store.state.operationalState)) {
+    const totalTargetReached = Number(store.state.planned) > 0
+      && Number(store.state.detectedBags) >= Number(store.state.planned);
+    const pausedAtTarget = store.state.operationalState === "PAUSADO" && totalTargetReached;
+    if (!["FINALIZANDO", "FINALIZADO"].includes(store.state.operationalState) && !pausedAtTarget) {
       notificarForaDaOperacao(
         "O resumo final ficará disponível após a conclusão da passagem dos sacos.",
         "aviso",

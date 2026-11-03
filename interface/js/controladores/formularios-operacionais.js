@@ -72,8 +72,16 @@ function confirmarRemocaoDeParada({ root, store, render, notify, setFeedback }) 
       form.addEventListener("submit", async (event) => {
         event.preventDefault();
         if (form.dataset.submitting === "1") return;
+        const stopReason = store.state.stopReason;
+        const quotaConfirmation = stopReason === "COTA_PRODUTO_ATINGIDA";
         if (!confirmation?.checked) {
-          setFeedback(form, "Confirme a remoção da unidade e a parada física antes de continuar.", "error");
+          setFeedback(
+            form,
+            quotaConfirmation
+              ? "Confirme a parada física antes de continuar com outro produto."
+              : "Confirme a remoção da unidade e a parada física antes de continuar.",
+            "error",
+          );
           return;
         }
         store.state.stopRemovalAcknowledged = true;
@@ -85,7 +93,9 @@ function confirmarRemocaoDeParada({ root, store, render, notify, setFeedback }) 
         setFeedback(form, "Registrando confirmação…");
         try {
           await store.confirmStopRemoval();
-          notify("Confirmação registrada. A operação continua pausada; use Ligar esteira quando estiver pronta.");
+          notify(quotaConfirmation
+            ? "Parada confirmada. Você pode continuar o carregamento com outro produto."
+            : "Confirmação registrada. A operação continua pausada; use Ligar esteira quando estiver pronta.");
           render();
         } catch (error) {
           setFeedback(form, error.message || "Não foi possível registrar a confirmação de segurança.", "error");

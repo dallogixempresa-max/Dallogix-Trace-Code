@@ -268,9 +268,13 @@ final class RepositorioMonitoramento
         $loadingPlaceholders = [];
         $readingPlaceholders = [];
         $returnReadingPlaceholders = [];
+        $noReadPlaceholders = [];
+        $plannedItemPlaceholders = [];
         $params = [
             "company_id" => $companyId,
             "reading_company_id" => $companyId,
+            "no_read_company_id" => $companyId,
+            "planned_items_company_id" => $companyId,
         ];
         foreach ($loadingIds as $index => $loadingId) {
             $name = "loading_id_{$index}";
@@ -282,6 +286,12 @@ final class RepositorioMonitoramento
             $returnReadingName = "return_reading_loading_id_{$index}";
             $returnReadingPlaceholders[] = ":{$returnReadingName}";
             $params[$returnReadingName] = $loadingId;
+            $noReadName = "no_read_loading_id_{$index}";
+            $noReadPlaceholders[] = ":{$noReadName}";
+            $params[$noReadName] = $loadingId;
+            $plannedItemName = "planned_item_loading_id_{$index}";
+            $plannedItemPlaceholders[] = ":{$plannedItemName}";
+            $params[$plannedItemName] = $loadingId;
         }
 
         $items = $this->consultar(
@@ -289,9 +299,25 @@ final class RepositorioMonitoramento
                 SELECT l.carregamento_id, l.product_id, COUNT(*) AS loaded_quantity
                 FROM leituras l
                 WHERE l.company_id = :reading_company_id
-                  AND l.result = 'VALIDO'
+                  AND l.result IN ('VALIDO', 'SEM_LEITURA')
                   AND l.carregamento_id IN (" . implode(", ", $readingPlaceholders) . ")
                 GROUP BY l.carregamento_id, l.product_id
+            ), leituras_sem_produto AS (
+                SELECT l.carregamento_id, COUNT(*) AS quantity
+                FROM leituras l
+                WHERE l.company_id = :no_read_company_id
+                  AND l.result = 'SEM_LEITURA' AND l.product_id IS NULL
+                  AND l.carregamento_id IN (" . implode(", ", $noReadPlaceholders) . ")
+                GROUP BY l.carregamento_id
+            ), produtos_planejados AS (
+                SELECT c.id AS carregamento_id, COUNT(DISTINCT ri.product_id) AS quantity
+                FROM carregamentos c
+                JOIN romaneio_itens ri
+                  ON ri.romaneio_id = c.romaneio_id
+                 AND (ri.truck_id = c.truck_id OR ri.truck_id IS NULL)
+                WHERE c.company_id = :planned_items_company_id
+                  AND c.id IN (" . implode(", ", $plannedItemPlaceholders) . ")
+                GROUP BY c.id
             ), retornos_por_item AS (
                 SELECT r.carregamento_id, l.product_id, SUM(r.quantity) AS returned_quantity
                 FROM retornos r
@@ -301,7 +327,11 @@ final class RepositorioMonitoramento
             )
             SELECT c.id AS loading_id, ri.product_id, p.name, p.code,
                    SUM(ri.planned_quantity) AS planned_quantity,
-                   GREATEST(0, COALESCE(lv.loaded_quantity, 0) - COALESCE(ret.returned_quantity, 0)) AS loaded_quantity
+                   GREATEST(0,
+                     COALESCE(lv.loaded_quantity, 0)
+                     + CASE WHEN pp.quantity = 1 THEN COALESCE(lsp.quantity, 0) ELSE 0 END
+                     - COALESCE(ret.returned_quantity, 0)
+                   ) AS loaded_quantity
             FROM carregamentos c
             JOIN romaneio_itens ri
               ON ri.romaneio_id = c.romaneio_id
@@ -311,6 +341,8 @@ final class RepositorioMonitoramento
               ON lv.carregamento_id = c.id AND lv.product_id = ri.product_id
             LEFT JOIN retornos_por_item ret
               ON ret.carregamento_id = c.id AND ret.product_id = ri.product_id
+            LEFT JOIN leituras_sem_produto lsp ON lsp.carregamento_id = c.id
+            LEFT JOIN produtos_planejados pp ON pp.carregamento_id = c.id
             WHERE c.company_id = :company_id
               AND c.id IN (" . implode(", ", $loadingPlaceholders) . ")
             GROUP BY c.id, ri.product_id, p.name, p.code, lv.loaded_quantity, ret.returned_quantity

@@ -159,6 +159,14 @@ if ($loadIds !== []) {
         ], 409);
     }
 }
+$noReadCount = 0;
+if ($loadIds !== []) {
+    $noReadCountQuery = $pdo->prepare(
+        "SELECT COUNT(*) FROM leituras WHERE carregamento_id IN (" . implode(",", array_fill(0, count($loadIds), "?")) . ") AND result = 'SEM_LEITURA'",
+    );
+    $noReadCountQuery->execute($loadIds);
+    $noReadCount = (int) $noReadCountQuery->fetchColumn();
+}
 $storageRoot = realpath(__DIR__ . "/../../../armazenamento");
 if ($storageRoot === false) {
     $respondJson(["error" => "Armazenamento de relatórios indisponível."], 503);
@@ -175,7 +183,20 @@ if (is_link($reportPath)) {
     $respondJson(["error" => "Destino do relatório inválido."], 503);
 }
 $savedReport = trace_image_storage_path($storageRoot, $reportRelativePath);
-if ($savedReport !== null) {
+ $evidenceManifestPath = $reportPath . ".evidence.json";
+ $cachedEvidenceValid = $noReadCount === 0;
+ if ($savedReport !== null && $noReadCount > 0 && is_file($evidenceManifestPath) && !is_link($evidenceManifestPath)) {
+    $manifestBytes = file_get_contents($evidenceManifestPath);
+    $manifestData = is_string($manifestBytes) ? json_decode($manifestBytes, true) : null;
+    $cachedPdfHash = hash_file("sha256", $savedReport);
+    $cachedEvidenceValid = is_array($manifestData)
+        && ($manifestData["version"] ?? null) === 1
+        && (int) ($manifestData["no_read_count"] ?? -1) === $noReadCount
+        && (int) ($manifestData["evidence_count"] ?? -1) >= $noReadCount
+        && is_string($cachedPdfHash)
+        && hash_equals((string) ($manifestData["pdf_sha256"] ?? ""), $cachedPdfHash);
+ }
+if ($savedReport !== null && $cachedEvidenceValid) {
     // nosemgrep: php.lang.security.injection.tainted-filename.tainted-filename -- Caminho usa IDs inteiros validados e é resolvido na raiz canônica, recusando links simbólicos.
     $savedPdf = file_get_contents($savedReport);
     if (!is_string($savedPdf) || !str_starts_with($savedPdf, "%PDF-")) {
@@ -247,8 +268,11 @@ $lastLoad = $loadRows !== [] ? $loadRows[array_key_last($loadRows)] : [];
 
 $items = $pdo->prepare("SELECT p.name, COALESCE(MIN(pc.barcode), p.code, '—') AS barcode, SUM(ri.planned_quantity) AS planned_quantity,
     GREATEST(0, COALESCE((SELECT COUNT(*) FROM leituras l JOIN carregamentos c ON c.id = l.carregamento_id
-      WHERE c.romaneio_id = ri.romaneio_id AND l.product_id = ri.product_id
-        AND l.result = 'VALIDO'), 0) - COALESCE((SELECT SUM(ret.quantity) FROM retornos ret
+      WHERE c.romaneio_id = ri.romaneio_id
+        AND l.result IN ('VALIDO', 'SEM_LEITURA')
+        AND (l.product_id = ri.product_id OR (l.product_id IS NULL AND l.result = 'SEM_LEITURA'
+          AND (SELECT COUNT(DISTINCT ri2.product_id) FROM romaneio_itens ri2
+               WHERE ri2.romaneio_id = ri.romaneio_id) = 1))), 0) - COALESCE((SELECT SUM(ret.quantity) FROM retornos ret
       JOIN carregamentos c ON c.id = ret.carregamento_id
       JOIN leituras lr ON lr.id = ret.leitura_id
       WHERE c.romaneio_id = ri.romaneio_id AND lr.product_id = ri.product_id), 0)) AS moved_quantity
@@ -594,6 +618,28 @@ if (file_put_contents($temporaryReportPath, $pdfBytes, LOCK_EX) !== strlen($pdfB
         trace_remove_image_storage_file($storageRoot, $temporaryReportPath);
     }
     $respondJson(["error" => "Não foi possível salvar o PDF final no servidor; as evidências foram preservadas."], 503);
+}
+{
+    $manifestPath = $reportPath . ".evidence.json";
+    if (is_link($manifestPath)) {
+        $respondJson(["error" => "Manifesto de evidências inválido; as evidências foram preservadas."], 503);
+    }
+    $manifest = json_encode([
+        "version" => 1,
+        "pdf_sha256" => hash("sha256", $pdfBytes),
+        "no_read_count" => $noReadCount,
+        "evidence_count" => (int) ($operationSummary["no_read_images"] ?? 0),
+    ], JSON_UNESCAPED_SLASHES);
+    $temporaryManifestPath = $manifestPath . ".tmp-" . bin2hex(random_bytes(8));
+    if (!is_string($manifest)
+        || file_put_contents($temporaryManifestPath, $manifest, LOCK_EX) !== strlen((string) $manifest)
+        || !chmod($temporaryManifestPath, 0600)
+        || !rename($temporaryManifestPath, $manifestPath)) {
+        if (is_file($temporaryManifestPath)) {
+            trace_remove_image_storage_file($storageRoot, $temporaryManifestPath);
+        }
+        $respondJson(["error" => "Não foi possível validar as evidências do relatório salvo."], 503);
+    }
 }
 try {
     trace_cleanup_report_evidence($pdo, $loadIds, (int) $user["company_id"], $storageRoot);
