@@ -611,6 +611,18 @@ function installScannerHidReceiver() {
               "aviso",
             );
           }
+          if (reading?.result === "EXCESSO") {
+            store.state.latestScannerReading = { ...store.state.latestScannerReading, result: reading.result };
+            // O carregamento já foi pausado pelo servidor com stop_reason='EXCESSO'.
+            // A tela de parada bloqueante (work-stop-confirmation) aparece assim
+            // que o estado atualizado chegar via loadActiveLoading — que já foi
+            // chamado dentro de registerScannerReading. Exibimos também uma
+            // notificação para garantir visibilidade imediata.
+            notificar(
+              reading.operator_alert || "Quantidade excedida. O carregamento foi pausado. Remova a unidade e confirme.",
+              "erro",
+            );
+          }
           if (currentPage === "work") renderScreen();
         } catch (error) {
           logFrontend.aviso("leitor.hid.registro", error);

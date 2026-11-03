@@ -393,6 +393,19 @@ if ($result === "EXCESSO") {
         $readingId,
         ["carregamento_id" => (int) $loadingId, "product_id" => $productId],
     );
+    // Pausa o carregamento imediatamente para forçar confirmação do operador
+    // antes de permitir continuar. O frontend exibe popup bloqueante quando
+    // receber stop_reason='EXCESSO' na resposta ou via polling do estado.
+    $excessoAlert = "Quantidade excedida: mais sacas passaram do que o previsto no romaneio. Remova a unidade excedente e confirme antes de continuar.";
+    $pauseExcesso = $pdo->prepare(
+        "UPDATE carregamentos
+         SET state = 'PAUSADO', stop_reason = 'EXCESSO', operator_alert = :operator_alert
+         WHERE id = :id AND state IN ('CARREGANDO', 'FINALIZANDO')",
+    );
+    $pauseExcesso->execute([
+        "id" => $loadingId,
+        "operator_alert" => $excessoAlert,
+    ]);
 }
 if (
     $result === "SEM_LEITURA" &&
@@ -442,9 +455,9 @@ responder_json(
             "evidence_status" => $evidenceStatus,
             "load_status" => $loadStatus,
             "excesso" => $result === "EXCESSO",
-            "stop_reason" => null,
+            "stop_reason" => $result === "EXCESSO" ? "EXCESSO" : null,
             "operator_alert" => match ($result) {
-                "EXCESSO" => "Quantidade prevista para este produto atingida. Confira a leitura excedente.",
+                "EXCESSO" => $excessoAlert ?? "Quantidade excedida: mais sacas passaram do que o previsto no romaneio. Remova a unidade excedente e confirme antes de continuar.",
                 "PRODUTO_INCORRETO" => "Código recebido, mas o produto não está previsto no romaneio. A passagem foi contada e a operação continua.",
                 default => null,
             },
