@@ -153,6 +153,15 @@ try {
                 "Linha {$lineNumber} possui motorista ou expedidor acima de 160 caracteres.",
             );
         }
+        // Mitigação de injeção de fórmula: campos de texto livre não devem
+        // começar com caracteres interpretados como fórmulas pelo Excel/LibreOffice.
+        foreach (["motorista" => $driverName, "expedidor" => $shipper] as $campo => $valor) {
+            if ($valor !== "" && in_array($valor[0], ["=", "+", "-", "@"], true)) {
+                throw new ExcecaoValidacaoImportacaoCsv(
+                    "Linha {$lineNumber}: campo {$campo} não pode começar com '=', '+', '-' ou '@'.",
+                );
+            }
+        }
 
         $product = $productsByCode[mb_strtolower($productCode, "UTF-8")] ?? null;
         if (!$product) {

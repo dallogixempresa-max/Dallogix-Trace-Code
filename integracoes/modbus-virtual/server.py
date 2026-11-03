@@ -16,6 +16,10 @@ from array import array
 
 HOST = "0.0.0.0"
 PORT = int(os.getenv("MODBUS_PORT", "1502"))
+# Lista de permissão de IPs: se definida, rejeita conexões de origens não autorizadas.
+# Aceita um único IP ou uma lista separada por vírgulas (ex.: "192.168.1.10,192.168.1.11").
+_raw_allowed = os.getenv("MODBUS_ALLOWED_ADDRESS", "").strip()
+ALLOWED_ADDRESSES: list[str] = [a.strip() for a in _raw_allowed.split(",") if a.strip()] if _raw_allowed else []
 COILS = array("B", [0] * 64)
 DISCRETE_INPUTS = array("B", [0] * 64)
 HOLDING_REGISTERS = array("H", [0] * 64)
@@ -61,6 +65,11 @@ def read_bits(values: array, address: int, quantity: int) -> bytes:
 
 class ModbusHandler(socketserver.BaseRequestHandler):
     def handle(self) -> None:
+        if ALLOWED_ADDRESSES:
+            remote = self.client_address[0]
+            if remote not in ALLOWED_ADDRESSES:
+                logging.warning("Conexão Modbus rejeitada: %s", remote)
+                return
         self.request.settimeout(3)
         while True:
             try:

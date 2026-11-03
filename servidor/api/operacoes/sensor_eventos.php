@@ -257,6 +257,12 @@ try {
         );
     }
 
+    // ATENÇÃO: eventos_sensor guarda dois relógios diferentes na mesma linha.
+    // detected_at vem de NOW(3), no fuso da sessão MySQL, fixado em UTC pelo compose.
+    // device_detected_at vem de trace_epoch_ms_to_sql_datetime(), que converte para
+    // o fuso da aplicação. Cada ramo das comparações abaixo precisa continuar usando
+    // a referência do seu próprio relógio: comparar as duas colunas entre si, ou medir
+    // latência entre elas, dá um erro silencioso do tamanho do deslocamento do fuso.
     $debounceReferenceMs = $deviceDetectedAt !== null
         ? (int) round(((float) $parsedDeviceDate->format("U.u")) * 1000)
         : (int) round(microtime(true) * 1000);

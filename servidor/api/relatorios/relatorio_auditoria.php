@@ -191,12 +191,26 @@ $formatDate = static function (?string $value): string {
     $timestamp = strtotime($value);
     return $timestamp === false ? $value : date("d/m/Y", $timestamp);
 };
+// Carimbos DATETIME são gravados em UTC (NOW() roda com --default-time-zone=+00:00).
+// A auditoria precisa exibir o relógio da operação, senão início, fim e legendas das
+// fotos de falha aparecem adiantados pelo deslocamento do fuso.
 $formatDateTime = static function (?string $value): string {
     if (!$value) {
         return "—";
     }
-    $timestamp = strtotime($value);
-    return $timestamp === false ? $value : date("d/m/Y H:i", $timestamp);
+    try {
+        $moment = new DateTimeImmutable($value, new DateTimeZone("UTC"));
+    } catch (Exception) {
+        return $value;
+    }
+    // A zero-date do MySQL ("0000-00-00 00:00:00") não lança e viraria 29/11/-0001.
+    // Num documento de auditoria é melhor exibir o valor cru do que uma data absurda.
+    if ((int) $moment->format("Y") < 1970) {
+        return $value;
+    }
+    return $moment
+        ->setTimezone(new DateTimeZone(date_default_timezone_get()))
+        ->format("d/m/Y H:i");
 };
 $equipmentLabels = array_values(array_unique(array_map(
     static fn(array $row): string => trim((string) ($row["equipment_name"] ?: $row["equipment_code"] ?: "Dala")),
@@ -280,6 +294,8 @@ if ($loadIds !== []) {
 
     $noReadQuery = $pdo->prepare(
         "SELECT l.id, l.sensor_event_id, l.carregamento_id, l.read_at,
+                l.product_id,
+                p.name AS product_name,
                 r.status AS evidence_status,
                 EXISTS (
                     SELECT 1 FROM imagens i
@@ -291,6 +307,7 @@ if ($loadIds !== []) {
                       ))
                 ) AS has_image
          FROM leituras l
+         LEFT JOIN produtos p ON p.id = l.product_id
          LEFT JOIN solicitacoes_imagens_evidencia r
            ON r.sensor_event_id = l.sensor_event_id
           AND r.carregamento_id = l.carregamento_id AND r.reason = 'SEM_LEITURA'
@@ -300,6 +317,9 @@ if ($loadIds !== []) {
     $noReadQuery->execute($loadIds);
     $noReadRows = $noReadQuery->fetchAll(PDO::FETCH_ASSOC);
     $operationSummary["no_reads"] = count($noReadRows);
+    // Sacas que passaram sem leitura e não têm product_id: a identidade do produto
+    // é desconhecida e não pode ser atribuída. Exibidas separadamente na auditoria.
+    $operationSummary["no_reads_sem_produto"] = count(array_filter($noReadRows, static fn(array $r): bool => $r["product_id"] === null));
     foreach ($noReadRows as &$noRead) {
         $sensorEventId = (int) ($noRead["sensor_event_id"] ?? 0);
         $noRead["sack_reference"] = $sackReferencesByEvent[$sensorEventId] ?? "Passagem não vinculada";
@@ -398,29 +418,37 @@ $report->escreverCartoesResumo([
     "Fim" => $formatDateTime($lastLoad["finished_at"] ?? null),
 ]);
 $report->escreverTitulo("Resumo da operação");
-$report->escreverCartoesResumo([
+$resumoOp = [
     "Sacas detectadas pelo sensor M2052" => $operationSummary["passages"],
     "Leituras válidas" => $operationSummary["valid_readings"],
     "Sacas retornadas" => $operationSummary["returned_bags"],
     "Falhas sem leitura" => $operationSummary["no_reads"],
     "Fotos de falha anexadas" => $operationSummary["no_read_images"],
-]);
+];
+// Exibe "Sacas não identificadas" somente quando há SEM_LEITURA com product_id
+// NULL — situação exclusiva de romaneios com múltiplos produtos. Em romaneios
+// de produto único todas as SEM_LEITURA já carregam o product_id correto.
+if (($operationSummary["no_reads_sem_produto"] ?? 0) > 0) {
+    $resumoOp["Sacas não identificadas"] = $operationSummary["no_reads_sem_produto"];
+}
+$report->escreverCartoesResumo($resumoOp);
 $report->escreverTitulo("Falhas de leitura do código de barras");
 if ($noReadRows === []) {
     $report->escreverParagrafo("Nenhuma falha sem leitura foi registrada nesta operação.");
 } else {
-    $report->escreverParagrafo("Cada falha corresponde a uma passagem de saco registrada pelo sensor. A esteira continua operando; a foto é anexada quando recebida do Keyence.");
+    $report->escreverParagrafo("Cada falha corresponde a uma passagem de saco registrada pelo sensor. A esteira continua operando; a foto é anexada quando recebida do Keyence. Quando o romaneio contém múltiplos produtos e o código de barras não foi lido, a identidade do produto é registrada como \"Não identificado\" — a passagem está contabilizada no total do sensor mas não em nenhum item específico.");
     $report->escreverTabela(
-        ["Data/hora", "Passagem", "Evidência da imagem"],
+        ["Data/hora", "Produto", "Passagem", "Evidência da imagem"],
         array_map(
             static fn(array $row): array => [
                 $formatDateTime($row["read_at"]),
+                $row["product_name"] ?? "Não identificado",
                 $row["sack_reference"],
                 $row["evidence_label"],
             ],
             $noReadRows,
         ),
-        [145, 175, 195],
+        [110, 120, 140, 145],
     );
 }
 if ($romaneio["status"] === "CANCELADO") {
@@ -446,6 +474,18 @@ $report->escreverTabela(
     }, $itemRows),
     [205, 105, 65, 65, 75],
 );
+// Nota sobre sacas sem identificação: só aparece quando há SEM_LEITURA com
+// product_id NULL, o que ocorre quando o romaneio tem múltiplos produtos e o
+// sensor registrou a passagem mas o leitor não leu o código. Essas sacas não
+// entram na coluna Movido de nenhum produto — são rastreáveis pelas fotos.
+if (($operationSummary["no_reads_sem_produto"] ?? 0) > 0) {
+    $semProduto = $operationSummary["no_reads_sem_produto"];
+    $report->escreverParagrafo(
+        "Atenção: {$semProduto} " . ($semProduto === 1 ? "saca passou" : "sacas passaram") . " pelo sensor sem leitura do código de barras e sem identificação de produto. " .
+        "Essas passagens constam no total detectado pelo sensor M2052, mas não são atribuídas a nenhum item acima. " .
+        "Consulte a seção \"Falhas de leitura do código de barras\" e as evidências fotográficas para rastrear cada passagem.",
+    );
+}
 $divergences = array_values(
     array_filter(
         $itemRows,
@@ -454,7 +494,7 @@ $divergences = array_values(
     ),
 );
 if ($divergences === []) {
-    $report->escreverParagrafo("Sem divergências.");
+    $report->escreverParagrafo("Sem divergências de itens identificados.");
 } else {
     $report->escreverTitulo("Divergências");
     $report->escreverTabela(

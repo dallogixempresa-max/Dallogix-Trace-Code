@@ -58,6 +58,11 @@ final class RepositorioRomaneiosLista
                 JOIN romaneios_paginados rp ON rp.id = ri.romaneio_id
                 GROUP BY ri.romaneio_id
             ), loaded AS (
+                -- Conta leituras VALIDO em vez de ler carregamentos.leituras_validas:
+                -- o contador é por carregamento, enquanto o relatório de auditoria e o
+                -- encerramento precisam do mesmo número por produto e por resultado.
+                -- Ler o contador aqui faria o total da tela deixar de bater com a soma
+                -- da coluna Movido do PDF, que é o documento de rastreabilidade.
                 SELECT c.romaneio_id, COUNT(*) AS loaded_quantity
                 FROM leituras l
                 JOIN carregamentos c ON c.id = l.carregamento_id

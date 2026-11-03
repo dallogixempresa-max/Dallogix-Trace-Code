@@ -149,9 +149,9 @@ export function criarTratadorAcoesOperacionais({
   }
 
   async function abrirResumo() {
-    if (!["FINALIZANDO", "PAUSADO", "FINALIZADO"].includes(store.state.operationalState)) {
+    if (!["FINALIZANDO", "FINALIZADO"].includes(store.state.operationalState)) {
       notificarForaDaOperacao(
-        "O resumo final ficará disponível ao atingir a meta ou parar o carregamento.",
+        "O resumo final ficará disponível após a conclusão da passagem dos sacos.",
         "aviso",
       );
       return;

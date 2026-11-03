@@ -6,6 +6,7 @@ export class ServicoRomaneios {
     this.jsonResponse = jsonResponse;
     this.getCsrfToken = getCsrfToken;
     this.setManifestRows = setManifestRows;
+    this.manifestsRequestId = 0;
   }
 
   async loadManifests() {
@@ -17,6 +18,10 @@ export class ServicoRomaneios {
     params.set("page", String(page));
     params.set("per_page", "50");
 
+    // Guarda por requestId: se o usuário trocar filtro/página antes desta
+    // resposta voltar, uma resposta mais antiga não pode sobrescrever a
+    // lista/paginação já atualizada por uma chamada mais recente.
+    const requestId = ++this.manifestsRequestId;
     const query = params.toString();
     const response = await this.api.fetch(
       `/api/romaneios.php${query ? `?${query}` : ""}`,
@@ -25,6 +30,7 @@ export class ServicoRomaneios {
       response,
       "Não foi possível carregar os romaneios.",
     );
+    if (requestId !== this.manifestsRequestId) return;
     const romaneiosDaPagina = respostaRomaneios.data || [];
     this.setManifestRows(romaneiosDaPagina);
     this.state.manifestMeta = respostaRomaneios.meta || {

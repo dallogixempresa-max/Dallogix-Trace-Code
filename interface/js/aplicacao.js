@@ -6,7 +6,7 @@ import { confirmarAcao, limparNotificacao, notificar, solicitarTexto } from "./c
 import { setFormFeedback } from "./componentes/form-feedback.js?v=202610190001";
 import { ServicoEmergencia } from "./servicos/ServicoEmergencia.js?v=202610060001";
 import { ServicoOperacao } from "./servicos/ServicoOperacao.js?v=202610060001";
-import { ArmazenamentoTrace } from "./classes/ArmazenamentoTrace.js?v=202610290002";
+import { ArmazenamentoTrace } from "./classes/ArmazenamentoTrace.js?v=202611030001";
 import { FORM_ACTIONS } from "./constantes/acoes.js?v=202609140210";
 import { changeOperationLoading, linhaItemRomaneio } from "./controladores/operacao.js?v=202610290001";
 import { createOperationalRealtimeController } from "./controladores/tempo-real.js?v=202610280002";
@@ -221,6 +221,22 @@ async function executarComandoDeOperacao(node, action) {
   const command = action === "reverse-toggle"
     ? (store.state.returnMode ? "REVERSAO_DESATIVAR" : "REVERSAO_ATIVAR")
     : commands[action];
+  // Trava os botões já no clique, antes de o servidor confirmar o PENDENTE:
+  // fecha a janela entre "operador clicou" e "status chegou" em que um
+  // segundo clique (duplicado) ou um clique perdido podiam ocorrer.
+  // EMERGÊNCIA é isenta de propósito: por design (ver bloqueioEmergencia em
+  // telas/operacao/operacao.js) ela precisa continuar disponível mesmo com
+  // outro comando em voo — nunca pode ser descartada aqui, só serializada
+  // pela fila como já era antes desta trava.
+  const isEmergency = command === "EMERGENCIA";
+  const commandToken = !isEmergency && store.beginCommand ? store.beginCommand() : null;
+  if (!isEmergency && !commandToken && store.state.commandInFlight) {
+    // Já existe um comando em voo (clique duplicado antes do re-render
+    // desabilitar o botão): ignora silenciosamente em vez de enfileirar
+    // outro envio ao CLP.
+    return;
+  }
+  if (!isEmergency && currentPage === "work") render();
   try {
     await machineCommandQueue.enqueue(loadingId, command, async () => {
       if (command === "INICIAR_CARREGAMENTO") return servicoOperacao.iniciar(loadingId);
@@ -237,10 +253,22 @@ async function executarComandoDeOperacao(node, action) {
         acao: action,
         carregamento_id: loadingId,
       });
-      store.state.commandFeedback = "";
+      // A falha precisa ficar visível na própria tela de operação (quiosque):
+      // antes, o erro era apenas logado e o operador não recebia feedback.
+      store.state.commandFeedback = error?.message
+        || "Não foi possível enviar o comando à máquina. Verifique o equipamento.";
       render();
     } else {
       notificarForaDaOperacao(error.message, "erro");
+    }
+  } finally {
+    // Libera a trava de clique independentemente do resultado: sucesso,
+    // erro, ou mesmo se o comando foi deduplicado pela fila (nesse caso o
+    // commandPending do status PENDENTE/PROCESSANDO assume a trava a partir
+    // daqui, então destravar aqui não reabre a janela de clique perdido).
+    if (store.endCommand && commandToken) {
+      store.endCommand(commandToken);
+      if (currentPage === "work") render();
     }
   }
 }
@@ -550,6 +578,20 @@ function installScannerHidReceiver() {
           };
           displayBarcode("Falha na leitura (sem código)", { error: true });
           if (currentPage === "work") renderScreen();
+          // Registra a falha de leitura no backend para que o evento de
+          // passagem do sensor seja vinculado a um registro SEM_LEITURA.
+          // Sem esse envio, a saca ficava contada pelo M2052 mas sem
+          // nenhuma leitura associada, gerando o descompasso
+          // "1 / 5 previstas · 0 códigos válidos".
+          // O backend (SolicitacaoLeitura::fromPayload) já detecta o padrão
+          // ERROR e converte para noRead = true automaticamente.
+          try {
+            await store.registerScannerReading(barcode, capturedAtEpochMs);
+            if (currentPage === "work") renderScreen();
+          } catch (error) {
+            // A falha já está visível no visor; não duplicar com notificação.
+            logFrontend.aviso("leitor.hid.sem-leitura", error);
+          }
           return;
         }
         store.state.latestScannerReading = {

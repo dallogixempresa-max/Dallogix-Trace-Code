@@ -217,6 +217,14 @@ try {
             "romaneio_pronto_para_encerrar" => $romaneioProntoParaEncerrar,
         ],
     );
+    // Sacas que passaram pelo sensor sem leitura e sem product_id: ocorrem quando
+    // o romaneio tem múltiplos produtos e o código não foi lido. São rastreáveis
+    // pelas fotos do Keyence mas não são atribuídas a nenhum produto específico.
+    $semProdutoQuery = $pdo->prepare(
+        "SELECT COUNT(*) FROM leituras WHERE carregamento_id = :loading_id AND result = 'SEM_LEITURA' AND product_id IS NULL",
+    );
+    $semProdutoQuery->execute(["loading_id" => $loadingId]);
+    $leiturasSemProduto = (int) $semProdutoQuery->fetchColumn();
     $pdo->commit();
     json_response([
         "data" => [
@@ -225,6 +233,7 @@ try {
             "romaneio_id" => (int) $loading["romaneio_id"],
             "romaneio_number" => (string) $loading["romaneio_number"],
             "romaneio_pronto_para_encerrar" => $romaneioProntoParaEncerrar,
+            "leituras_sem_produto" => $leiturasSemProduto,
         ],
     ]);
 } catch (Throwable $exception) {

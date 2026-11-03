@@ -78,7 +78,13 @@ final class ServicoPreparacaoCarregamentoSincronizado
             "manifest_id" => (int) $manifest["id"],
             "truck_id" => (int) $truck["id"],
             "state" => $state,
-            "started_at" => (string) ($data["started_at"] ?? date("Y-m-d H:i:s")),
+            // started_at nulo significa carregamento ainda não iniciado e precisa chegar
+            // nulo ao banco: a coluna aceita NULL e desvincularDala() a zera de propósito.
+            // Fabricar "agora" aqui fazia o Início do relatório de auditoria avançar a
+            // cada polling, porque a sincronização reescreve a coluna em todo ciclo.
+            "started_at" => isset($data["started_at"]) && $data["started_at"] !== ""
+                ? (string) $data["started_at"]
+                : null,
             "company_id" => $companyId,
         ], $loadingId);
 

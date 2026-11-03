@@ -65,6 +65,6 @@ export function manifestView(store) {
 <article class="manifest-detail-card manifest-detail-quantity-card"><small>Carregamento</small>${quantitySummary}</article>
 </div>
 <section class="panel manifest-items-panel"><h3>Itens do Romaneio</h3><div class="table-wrap"><table class="mobile-card-table manifest-items-table"><thead><tr><th>Produto</th><th>Código de Barras</th><th>Qtd. Prevista</th></tr></thead><tbody>
-${items.length ? items.map((item) => `<tr><td data-label="Produto"><strong>${esc(item.name)}</strong></td><td data-label="Código"><code>${esc(item.code || "—")}</code></td><td data-label="Quantidade">${numero(item.planned_quantity)}</td></tr>`).join("") : '<tr><td colspan="3" class="empty-cell">Nenhum item cadastrado.</td></tr>'}
+${items.length ? items.map((item) => `<tr><td data-label="Produto"><strong>${esc(item.name)}</strong></td><td data-label="Código de Barras"><code>${esc(item.barcode || item.code || "—")}</code></td><td data-label="Quantidade">${numero(item.planned_quantity)}</td></tr>`).join("") : '<tr><td colspan="3" class="empty-cell">Nenhum item cadastrado.</td></tr>'}
 </tbody></table></div></section>${finishManifestPanel}${canCancel ? `<section class="panel manifest-cancel-panel"><div><strong>Cancelamento do romaneio</strong><p>Use somente se o carregamento ainda não tiver começado.</p></div>${button("Cancelar romaneio", "cancel-manifest", "danger")}</section>` : ""}</div>`;
 }

@@ -1,0 +1,55 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import test from "node:test";
+
+const readingsEndpoint = await readFile(new URL("../servidor/api/operacoes/leituras.php", import.meta.url), "utf8");
+const manifestApi = await readFile(new URL("../servidor/api/romaneios/romaneios.php", import.meta.url), "utf8");
+const manifestList = await readFile(new URL("../servidor/src/Persistencia/RepositorioRomaneiosLista.php", import.meta.url), "utf8");
+const reportEndpoint = await readFile(new URL("../servidor/api/relatorios/relatorio_auditoria.php", import.meta.url), "utf8");
+const finishEndpoint = await readFile(new URL("../servidor/api/operacoes/encerrar_carregamento.php", import.meta.url), "utf8");
+
+// carregamentos.leituras_validas é um contador POR CARREGAMENTO. O relatório de
+// auditoria e o encerramento precisam do mesmo número por produto e por resultado,
+// granularidades que o contador não atende. Por isso as telas de romaneio contam
+// leituras VALIDO como o PDF: trocar só um dos lados pelo contador faria o total da
+// tela deixar de bater com a soma da coluna "Movido" do documento de auditoria.
+
+test("o contador por carregamento é incrementado na mesma transação da leitura", () => {
+  assert.match(readingsEndpoint, /UPDATE carregamentos SET leituras_validas = leituras_validas \+ 1/);
+  const begin = readingsEndpoint.indexOf("$pdo->beginTransaction();");
+  const increment = readingsEndpoint.indexOf("SET leituras_validas = leituras_validas + 1");
+  const commit = readingsEndpoint.indexOf("$pdo->commit();");
+  assert.ok(begin !== -1 && increment !== -1 && commit !== -1);
+  assert.ok(begin < increment && increment < commit);
+});
+
+test("tela e auditoria contam leituras válidas da mesma tabela", () => {
+  // Se um destes passar a ler o contador, os números divergem entre tela e PDF.
+  assert.match(manifestApi, /SELECT COUNT\(\*\) FROM leituras l JOIN carregamentos c2[\s\S]{0,200}?l\.result = 'VALIDO'/);
+  assert.match(manifestList, /FROM leituras l[\s\S]{0,200}?WHERE l\.result = 'VALIDO'/);
+  assert.match(reportEndpoint, /FROM leituras l JOIN carregamentos c[\s\S]{0,200}?l\.result = 'VALIDO'/);
+  assert.doesNotMatch(manifestApi, /SUM\(c2\.leituras_validas\)/);
+  assert.doesNotMatch(manifestList, /SUM\(c\.leituras_validas\) AS loaded_quantity/);
+});
+
+test("auditoria e encerramento contam por produto, o que o contador não permite", () => {
+  // Esta é a razão de não unificar no contador: ambos filtram por product_id.
+  assert.match(reportEndpoint, /l\.product_id = ri\.product_id/);
+  assert.match(finishEndpoint, /l\.product_id = ri\.product_id/);
+});
+
+test("a contagem do detalhe do romaneio é escopada por empresa", () => {
+  // Esta subquery era a única irmã sem o filtro, o que também impedia o uso do
+  // índice idx_reading_company_loading_result_product.
+  assert.match(
+    manifestApi,
+    /JOIN carregamentos c2 ON c2\.id = l\.carregamento_id WHERE c2\.romaneio_id = r\.id AND c2\.company_id = r\.company_id/,
+  );
+});
+
+test("as sacas detectadas seguem escopadas por empresa", () => {
+  assert.match(
+    manifestApi,
+    /FROM eventos_sensor s JOIN carregamentos c5 ON c5\.id = s\.carregamento_id WHERE c5\.romaneio_id = r\.id AND c5\.company_id = r\.company_id/,
+  );
+});

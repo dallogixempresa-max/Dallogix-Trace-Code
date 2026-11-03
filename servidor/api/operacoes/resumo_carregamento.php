@@ -61,6 +61,15 @@ $data["sem_leitura"] = $count(
     "SELECT COUNT(*) FROM leituras WHERE carregamento_id = :id AND result = 'SEM_LEITURA'",
     ["id" => $loadingId],
 );
+// Sacas sem produto: SEM_LEITURA com product_id NULL. Ocorre em romaneios com
+// múltiplos produtos quando o sensor registra a passagem mas o leitor não lê
+// o código — a identidade do produto é desconhecida. Exibida separadamente
+// para não imputar a falha a nenhum produto específico.
+$data["leituras_sem_produto"] = $count(
+    $pdo,
+    "SELECT COUNT(*) FROM leituras WHERE carregamento_id = :id AND result = 'SEM_LEITURA' AND product_id IS NULL",
+    ["id" => $loadingId],
+);
 $data["produtos_incorretos"] = $count(
     $pdo,
     "SELECT COUNT(*) FROM leituras WHERE carregamento_id = :id AND result = 'PRODUTO_INCORRETO'",

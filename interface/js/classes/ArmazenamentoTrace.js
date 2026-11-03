@@ -2,7 +2,7 @@ import { OfflineOperationBuffer, secureRandomId } from "./OfflineOperationBuffer
 import { ClienteApi, erroRespostaHttp } from "../api/ClienteApi.js?v=202610140003";
 import { ServicoSincronizacao } from "../servicos/ServicoSincronizacao.js?v=202610290001";
 import { ServicoDalas } from "../servicos/ServicoDalas.js?v=202610190001";
-import { ServicoObservabilidade } from "../servicos/ServicoObservabilidade.js?v=202610190003";
+import { ServicoObservabilidade } from "../servicos/ServicoObservabilidade.js?v=202611030001";
 import { ServicoCarregamentoAtivo } from "../servicos/ServicoCarregamentoAtivo.js?v=202610290001";
 import { ServicoComandosMaquina } from "../servicos/ServicoComandosMaquina.js?v=202610190029";
 import { ServicoLeiturasOperacionais } from "../servicos/ServicoLeiturasOperacionais.js?v=202610290002";
@@ -301,7 +301,10 @@ export class ArmazenamentoTrace {
       const error = await erroRespostaHttp(response, fallback);
       throw error || new Error(fallback);
     }
-    return response.json().catch(() => ({}));
+    if (response.status === 204) return {};
+    return response.json().catch(() => {
+      throw new Error("O servidor retornou uma resposta inesperada.");
+    });
   }
   async fetchAllPages(path, { signal = undefined, cursorParam = "cursor" } = {}) {
     return buscarTodasPaginas({
