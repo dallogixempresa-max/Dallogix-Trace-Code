@@ -607,8 +607,8 @@ function installScannerHidReceiver() {
           if (reading?.result === "PRODUTO_INCORRETO") {
             store.state.latestScannerReading = { ...store.state.latestScannerReading, result: reading.result };
             notificar(
-              reading.operator_alert || "Produto fora do romaneio. A passagem foi contada e a operação continua.",
-              "aviso",
+              reading.operator_alert || "Produto fora do romaneio. Remova a unidade e confirme a parada física antes de continuar.",
+              "erro",
             );
           }
           if (reading?.result === "EXCESSO") {

@@ -80,10 +80,11 @@ while (true) {
 $sensorEventId = $solicitacao->sensorEventId;
 $excessStop = null;
 $excessoAlert = null;
+$wrongProductStop = null;
 $pdo->beginTransaction();
 try {
 $loadingStatement = $pdo->prepare(
-    'SELECT c.id, c.state, c.romaneio_id, c.truck_id, c.equipment_id, c.leituras_validas
+    'SELECT c.id, c.state, c.stop_reason, c.operator_alert, c.romaneio_id, c.truck_id, c.equipment_id, c.leituras_validas
      FROM carregamentos c
      WHERE c.id = :id AND c.company_id = :company_id LIMIT 1 FOR UPDATE',
 );
@@ -282,10 +283,23 @@ $quantities = $readingRepository->obterQuantidadesParaClassificar(
 );
 $loadingPlannedQuantity = $quantities["loading_planned_quantity"];
 $loadingValidCount = $quantities["loading_valid_count"];
-$loadingSemLeituraCount = $quantities["loading_sem_leitura_count"] ?? 0;
 $productPlannedQuantity = $quantities["product_planned_quantity"];
 $productValidCount = $quantities["product_valid_count"];
-$productSemLeituraCount = $quantities["product_sem_leitura_count"] ?? 0;
+$physicalExcess = false;
+if ($sensorEventId && $loadingPlannedQuantity > 0) {
+    // A posição da passagem é estável mesmo se as leituras chegarem fora de ordem.
+    $sensorPosition = $pdo->prepare(
+        "SELECT COUNT(*) FROM eventos_sensor
+         WHERE carregamento_id = :loading_id AND equipment_id = :equipment_id
+           AND id <= :sensor_event_id",
+    );
+    $sensorPosition->execute([
+        "loading_id" => $loadingId,
+        "equipment_id" => $loading["equipment_id"],
+        "sensor_event_id" => $sensorEventId,
+    ]);
+    $physicalExcess = (int) $sensorPosition->fetchColumn() > $loadingPlannedQuantity;
+}
 $classification = (new ClassificadorLeitura())->classificar(
     $barcode !== "",
     $matchedProductId,
@@ -293,8 +307,7 @@ $classification = (new ClassificadorLeitura())->classificar(
     $productValidCount,
     $loadingPlannedQuantity,
     $loadingValidCount,
-    $loadingSemLeituraCount,
-    $productSemLeituraCount,
+    $physicalExcess,
 );
 $result = $classification["result"];
 $productId = $classification["product_id"];
@@ -423,6 +436,24 @@ if ($result === "PRODUTO_INCORRETO") {
         ["carregamento_id" => (int) $loadingId, "leitura_id" => $readingId],
     );
     $evidenceStatus = "NAO_SOLICITADA";
+    $wrongProductStop = (new ServicoComandoClp($pdo))->solicitarParadaPorProdutoIncorreto(
+        $usuarioAtor,
+        (int) $loadingId,
+    );
+    record_operational_event(
+        $pdo,
+        $usuarioAtor,
+        "PARADA_PRODUTO_INCORRETO",
+        "leitura",
+        $readingId,
+        [
+            "carregamento_id" => (int) $loadingId,
+            "stop_reason" => $wrongProductStop["stop_reason"],
+            "operator_alert" => $wrongProductStop["operator_alert"],
+            "physical_stop_request_status" => $wrongProductStop["physical_stop_request_status"],
+            "command_request_id" => $wrongProductStop["command_request_id"],
+        ],
+    );
 }
 if ($result === "EXCESSO") {
     // Registra a pausa lógica e enfileira PAUSAR_CARREGAMENTO pelo caminho
@@ -496,15 +527,18 @@ responder_json(
             "evidence_status" => $evidenceStatus,
             "load_status" => $loadStatus,
             "excesso" => $result === "EXCESSO",
-            "stop_reason" => $result === "EXCESSO" ? ($excessStop["stop_reason"] ?? "EXCESSO") : null,
+            "stop_reason" => $result === "EXCESSO" ? ($excessStop["stop_reason"] ?? "EXCESSO")
+                : ($wrongProductStop["stop_reason"] ?? $loading["stop_reason"] ?? null),
             "physical_stop_request_status" => $result === "EXCESSO"
-                ? ($excessStop["physical_stop_request_status"] ?? "NAO_CONFIRMADA") : null,
+                ? ($excessStop["physical_stop_request_status"] ?? "NAO_CONFIRMADA")
+                : ($wrongProductStop["physical_stop_request_status"] ?? null),
             "command_request_id" => $result === "EXCESSO"
-                ? ($excessStop["command_request_id"] ?? null) : null,
+                ? ($excessStop["command_request_id"] ?? null)
+                : ($wrongProductStop["command_request_id"] ?? null),
             "operator_alert" => match ($result) {
                 "EXCESSO" => $excessoAlert ?? "Quantidade excedida: mais sacas passaram do que o previsto no romaneio. Remova a unidade excedente e confirme antes de continuar.",
-                "PRODUTO_INCORRETO" => "Código recebido, mas o produto não está previsto no romaneio. A passagem foi contada e a operação continua.",
-                default => null,
+                "PRODUTO_INCORRETO" => $wrongProductStop["operator_alert"] ?? "Produto fora do romaneio. Remova a unidade e confirme a parada física antes de continuar.",
+                default => $loading["operator_alert"] ?? null,
             },
         ],
     ],

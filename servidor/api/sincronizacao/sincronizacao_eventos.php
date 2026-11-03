@@ -232,6 +232,7 @@ try {
             "SENSOR_EVENTO_RECEBIDO",
             "LEITURA_REGISTRADA",
             "EXCESSO_DETECTADO",
+            "PARADA_PRODUTO_INCORRETO",
             "REMOCAO_UNIDADE_E_PARADA_FISICA_CONFIRMADAS",
         ], true);
         $eventKey = strtolower($eventUuid);
@@ -410,7 +411,7 @@ try {
             $entityId = $loadingId;
         }
 
-        if ($action === "EXCESSO_DETECTADO") {
+        if (in_array($action, ["EXCESSO_DETECTADO", "PARADA_PRODUTO_INCORRETO"], true)) {
             $sourceLoadingId = (int) ($data["carregamento_id"] ?? $data["source_carregamento_id"] ?? $entityId);
             $remoteLoadingId = filter_var($data["remote_carregamento_id"] ?? null, FILTER_VALIDATE_INT);
             $loadingId = $resolveLoadingId(
@@ -419,16 +420,19 @@ try {
                 $sourceLoadingId,
             );
             if ($loadingId === null) {
-                throw new RuntimeException("Não foi possível localizar o carregamento do excesso detectado pelo sensor.");
+                throw new RuntimeException("Não foi possível localizar o carregamento da parada por divergência.");
             }
 
-            $stopReason = strtoupper(trim((string) ($data["stop_reason"] ?? "EXCESSO")));
+            $defaultReason = $action === "PARADA_PRODUTO_INCORRETO" ? "PRODUTO_INCORRETO" : "EXCESSO";
+            $stopReason = strtoupper(trim((string) ($data["stop_reason"] ?? $defaultReason)));
             if (!in_array($stopReason, ["PRODUTO_INCORRETO", "EXCESSO"], true)) {
-                $stopReason = "EXCESSO";
+                $stopReason = $defaultReason;
             }
             $operatorAlert = trim((string) ($data["operator_alert"] ?? ""));
             if ($operatorAlert === "") {
-                $operatorAlert = "Quantidade excedida detectada pelo sensor M2052. Verifique a parada física no PC industrial, remova a unidade excedente e confirme antes de retomar.";
+                $operatorAlert = $stopReason === "PRODUTO_INCORRETO"
+                    ? "Produto fora do romaneio. Verifique a parada física no PC industrial, remova a unidade e confirme antes de retomar."
+                    : "Quantidade excedida detectada pelo sensor. Verifique a parada física no PC industrial, remova a unidade excedente e confirme antes de retomar.";
             }
             $pauseLoading = $pdo->prepare(
                 "UPDATE carregamentos

@@ -70,10 +70,10 @@ final class ServicoComandoClp
             $allowedStates = $command === "INICIAR_CARREGAMENTO"
                 ? ["PREPARANDO", "PAUSADO"]
                 : ["PREPARANDO", "CARREGANDO", "FINALIZANDO"];
-            $paradaPorExcesso = $command === "PAUSAR_CARREGAMENTO"
+            $paradaPorDivergencia = $command === "PAUSAR_CARREGAMENTO"
                 && $loading["state"] === "PAUSADO"
-                && $loading["stop_reason"] === "EXCESSO";
-            if ($paradaPorExcesso) {
+                && in_array($loading["stop_reason"], ["EXCESSO", "PRODUTO_INCORRETO"], true);
+            if ($paradaPorDivergencia) {
                 $allowedStates[] = "PAUSADO";
             }
             if ($command === "INICIAR_CARREGAMENTO" && !empty($loading["stop_reason"])) {
@@ -195,57 +195,76 @@ final class ServicoComandoClp
      */
     public function solicitarParadaPorExcesso(array $user, int $loadingId): array
     {
+        return $this->solicitarParadaPorDivergencia($user, $loadingId, "EXCESSO");
+    }
+
+    /** @param array{id:int|string|null, company_id:int|string|null} $user */
+    public function solicitarParadaPorProdutoIncorreto(array $user, int $loadingId): array
+    {
+        return $this->solicitarParadaPorDivergencia($user, $loadingId, "PRODUTO_INCORRETO");
+    }
+
+    /** @param array{id:int|string|null, company_id:int|string|null} $user
+     * @return array{command_request_id:?int,physical_stop_request_status:string,operator_alert:string,stop_reason:?string}
+     */
+    private function solicitarParadaPorDivergencia(array $user, int $loadingId, string $reason): array
+    {
         if ($user["company_id"] === null) {
             throw new ExcecaoComandoClp("Usuário sem empresa vinculada.", 403);
         }
 
-        $ownsTransaction = $this->iniciarEscopoTransacao("trace_parada_excesso");
+        $savepoint = $reason === "EXCESSO" ? "trace_parada_excesso" : "trace_parada_produto";
+        $label = $reason === "EXCESSO" ? "Quantidade excedida" : "Produto fora do romaneio";
+        $ownsTransaction = $this->iniciarEscopoTransacao($savepoint);
         try {
             $loading = $this->repositorio->localizarCarregamento($loadingId, (int) $user["company_id"]);
             if (!$loading) {
                 throw new ExcecaoComandoClp("Carregamento não encontrado para esta empresa.", 404);
             }
             if (!in_array($loading["state"], ["CARREGANDO", "FINALIZANDO", "PAUSADO"], true)) {
-                throw new ExcecaoComandoClp("O carregamento não está em um estado que permita registrar a parada por excesso.", 409);
+                throw new ExcecaoComandoClp("O carregamento não está em um estado que permita registrar a parada por divergência.", 409);
             }
-            if (!empty($loading["stop_reason"]) && $loading["stop_reason"] !== "EXCESSO") {
+            if (!empty($loading["stop_reason"]) && $loading["stop_reason"] !== $reason) {
                 $result = [
                     "command_request_id" => null,
                     "physical_stop_request_status" => "BLOQUEIO_EXISTENTE",
                     "operator_alert" => (string) ($loading["operator_alert"] ?? "Já existe uma parada aguardando confirmação."),
                     "stop_reason" => (string) $loading["stop_reason"],
                 ];
-                $this->concluirEscopoTransacao($ownsTransaction, "trace_parada_excesso");
+                $this->concluirEscopoTransacao($ownsTransaction, $savepoint);
                 return $result;
             }
 
-            $operatorAlert = "Quantidade excedida. A solicitação de pausa física foi enviada ao gateway do CLP; remova a unidade e confirme somente quando a esteira estiver fisicamente parada.";
+            $operatorAlert = "$label. A solicitação de pausa física foi enviada ao gateway do CLP; remova a unidade e confirme somente quando a esteira estiver fisicamente parada.";
             $pauseLoading = $this->connection->prepare(
                 "UPDATE carregamentos
-                 SET state = 'PAUSADO', stop_reason = 'EXCESSO', operator_alert = :operator_alert
+                 SET state = 'PAUSADO', stop_reason = :stop_reason, operator_alert = :operator_alert
                  WHERE id = :id AND company_id = :company_id
-                   AND state IN ('CARREGANDO', 'FINALIZANDO', 'PAUSADO')",
+                   AND state IN ('CARREGANDO', 'FINALIZANDO', 'PAUSADO')
+                   AND (stop_reason IS NULL OR stop_reason = :existing_reason)",
             );
             $pauseLoading->execute([
                 "id" => $loadingId,
                 "company_id" => (int) $user["company_id"],
                 "operator_alert" => $operatorAlert,
+                "stop_reason" => $reason,
+                "existing_reason" => $reason,
             ]);
 
-            $alreadyPausedForExcess = $loading["state"] === "PAUSADO"
-                && $loading["stop_reason"] === "EXCESSO";
+            $alreadyPausedForReason = $loading["state"] === "PAUSADO"
+                && $loading["stop_reason"] === $reason;
             $pendingPause = $this->repositorio->comandoPendente($loadingId, "PAUSAR_CARREGAMENTO");
             $requestId = null;
             $requestStatus = "PENDENTE";
             if ($pendingPause) {
                 $requestId = (int) $pendingPause["id"];
                 $requestStatus = (string) $pendingPause["status"];
-            } elseif ($alreadyPausedForExcess) {
+            } elseif ($alreadyPausedForReason) {
                 $lastPause = $this->repositorio->ultimaSolicitacaoComando($loadingId, "PAUSAR_CARREGAMENTO");
                 if ($lastPause && $lastPause["status"] === "APLICADO") {
                     $requestId = (int) $lastPause["id"];
                     $requestStatus = "APLICADO";
-                    $operatorAlert = "Quantidade excedida. O gateway confirmou a parada física. Remova a unidade e confirme somente quando a esteira estiver fisicamente parada.";
+                    $operatorAlert = "$label. O gateway confirmou a parada física. Remova a unidade e confirme somente quando a esteira estiver fisicamente parada.";
                 }
             }
             if (!$pendingPause && $requestStatus !== "APLICADO") {
@@ -257,7 +276,7 @@ final class ServicoComandoClp
                         throw $exception;
                     }
                     $requestStatus = "NAO_SOLICITADA";
-                    $operatorAlert = "Quantidade excedida. A parada automática pelo CLP não foi confirmada: "
+                    $operatorAlert = "$label. A parada automática pelo CLP não foi confirmada: "
                         . $exception->getMessage()
                         . " Pare a esteira pelo procedimento operacional e confirme somente após a parada física.";
                 }
@@ -265,23 +284,24 @@ final class ServicoComandoClp
 
             $saveAlert = $this->connection->prepare(
                 "UPDATE carregamentos SET operator_alert = :operator_alert
-                 WHERE id = :id AND company_id = :company_id AND stop_reason = 'EXCESSO'",
+                 WHERE id = :id AND company_id = :company_id AND stop_reason = :stop_reason",
             );
             $saveAlert->execute([
                 "operator_alert" => $operatorAlert,
                 "id" => $loadingId,
                 "company_id" => (int) $user["company_id"],
+                "stop_reason" => $reason,
             ]);
 
-            $this->concluirEscopoTransacao($ownsTransaction, "trace_parada_excesso");
+            $this->concluirEscopoTransacao($ownsTransaction, $savepoint);
             return [
                 "command_request_id" => $requestId,
                 "physical_stop_request_status" => $requestStatus,
                 "operator_alert" => $operatorAlert,
-                "stop_reason" => "EXCESSO",
+                "stop_reason" => $reason,
             ];
         } catch (Throwable $exception) {
-            $this->reverterEscopoTransacao($ownsTransaction, "trace_parada_excesso");
+            $this->reverterEscopoTransacao($ownsTransaction, $savepoint);
             throw $exception;
         }
     }

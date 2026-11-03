@@ -138,7 +138,7 @@ test("associa códigos às passagens em ordem e reserva um evento por quadro", (
   assert.equal(nextUnreservedSensorEventId([101, 102, 103], reserved), null);
   assert.match(imageEndpoint, /pending_sensor_event_ids/);
   assert.match(imageEndpoint, /trace_pending_scanner_event_match\(/);
-  assert.match(readingsEndpoint, /trace_pending_scanner_event_match\([\s\S]*?\$scannerObservedAtMs,\s*true,/);
+  assert.match(readingsEndpoint, /trace_pending_scanner_event_match\([\s\S]*?\$scannerObservedAtMs,\s*false,\s*\$noRead,/);
   assert.match(scannerTiming, /\$expectedAtMs\s*=\s*\$detectedAtMs\s*\+\s*\$timing\["travel_ms"\]/);
   assert.match(scannerTiming, /ORDER BY s\.id ASC/);
   assert.match(scannerTiming, /FOR UPDATE/);
@@ -222,8 +222,8 @@ test("integra SCANNER, fila SEM_LEITURA, imagem do Keyence e limpeza depois do P
   assert.match(readingsEndpoint, /!in_array\(\$loading\["state"\], \["CARREGANDO", "FINALIZANDO", "PAUSADO"\], true\)/);
   assert.match(readingsEndpoint, /\$loading\["state"\] === "PAUSADO" && !\$sensorEventId/);
   assert.match(readingsEndpoint, /"Leitura aguardando o evento de passagem do sensor M2052\."/);
-  assert.match(readingsEndpoint, /PRODUTO_INCORRETO.*?A passagem foi contada e a operação continua/s);
-  assert.doesNotMatch(readingsEndpoint, /if \(\$result === "PRODUTO_INCORRETO"\)[\s\S]*?PAUSAR_CARREGAMENTO/);
+  assert.match(readingsEndpoint, /solicitarParadaPorProdutoIncorreto/);
+  assert.match(readingsEndpoint, /PARADA_PRODUTO_INCORRETO/);
   assert.match(manifestEndpoint, /\$action === "finish"/);
   assert.match(manifestEndpoint, /UPDATE romaneios SET status = 'FINALIZADO'/);
   assert.match(manifestEndpoint, /status IN \('PENDENTE', 'CAPTURANDO'\)/);
