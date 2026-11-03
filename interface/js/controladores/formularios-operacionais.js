@@ -61,39 +61,45 @@ function confirmarRemocaoDeParada({ root, store, render, notify, setFeedback }) 
     const confirmation = form.querySelector('[name="confirmar_remocao"]');
     if (confirmation) {
       confirmation.checked = store.state.stopRemovalAcknowledged === true;
-      confirmation.addEventListener("change", () => {
-        store.state.stopRemovalAcknowledged = confirmation.checked;
-      });
+      if (confirmation.dataset.changeBound !== "1") {
+        confirmation.addEventListener("change", () => {
+          store.state.stopRemovalAcknowledged = confirmation.checked;
+        });
+        confirmation.dataset.changeBound = "1";
+      }
     }
-    form.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      if (form.dataset.submitting === "1") return;
-      if (!confirmation?.checked) {
-        setFeedback(form, "Confirme a remoção da unidade e a parada física antes de continuar.", "error");
-        return;
-      }
-      store.state.stopRemovalAcknowledged = true;
-
-      form.dataset.submitting = "1";
-      form.querySelectorAll("button").forEach((button) => {
-        button.disabled = true;
-      });
-      setFeedback(form, "Registrando confirmação…");
-      try {
-        await store.confirmStopRemoval();
-        notify("Confirmação registrada. A operação continua pausada; use Ligar esteira quando estiver pronta.");
-        render();
-      } catch (error) {
-        setFeedback(form, error.message || "Não foi possível registrar a confirmação de segurança.", "error");
-      } finally {
-        if (form.isConnected) {
-          form.dataset.submitting = "";
-          form.querySelectorAll("button").forEach((button) => {
-            button.disabled = false;
-          });
+    if (form.dataset.submitBound !== "1") {
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        if (form.dataset.submitting === "1") return;
+        if (!confirmation?.checked) {
+          setFeedback(form, "Confirme a remoção da unidade e a parada física antes de continuar.", "error");
+          return;
         }
-      }
-    });
+        store.state.stopRemovalAcknowledged = true;
+
+        form.dataset.submitting = "1";
+        form.querySelectorAll("button").forEach((button) => {
+          button.disabled = true;
+        });
+        setFeedback(form, "Registrando confirmação…");
+        try {
+          await store.confirmStopRemoval();
+          notify("Confirmação registrada. A operação continua pausada; use Ligar esteira quando estiver pronta.");
+          render();
+        } catch (error) {
+          setFeedback(form, error.message || "Não foi possível registrar a confirmação de segurança.", "error");
+        } finally {
+          if (form.isConnected) {
+            form.dataset.submitting = "";
+            form.querySelectorAll("button").forEach((button) => {
+              button.disabled = false;
+            });
+          }
+        }
+      });
+      form.dataset.submitBound = "1";
+    }
   });
 }
 

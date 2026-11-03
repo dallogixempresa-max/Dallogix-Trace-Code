@@ -31,7 +31,7 @@ import { bindProductForm } from "./controladores/formulario-produto.js?v=2026101
 import { bindDalaCreationForm, bindDalaEditForm } from "./controladores/formulario-dala.js?v=202610190030";
 import { bindCsvManifestImportForm, bindPdfManifestImportForm } from "./controladores/formulario-importacao-romaneio.js?v=202610190001";
 import { bindAdministrativeForms } from "./controladores/formularios-administrativos.js?v=202610190001";
-import { bindOperationalForms } from "./controladores/formularios-operacionais.js?v=202611030002";
+import { bindOperationalForms } from "./controladores/formularios-operacionais.js?v=202611030003";
 import { bindPageForms } from "./controladores/formularios-telas.js?v=202610190001";
 import { el, esc } from "./funcoes/html.js";
 import { rotuloEstado } from "./funcoes/rotulos.js?v=202609240001";

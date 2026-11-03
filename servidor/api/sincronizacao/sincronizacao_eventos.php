@@ -584,7 +584,8 @@ try {
                     "UPDATE carregamentos
                      SET state = 'PAUSADO', stop_reason = 'EXCESSO', operator_alert = :operator_alert
                      WHERE id = :id AND company_id = :company_id
-                       AND state IN ('CARREGANDO', 'FINALIZANDO', 'PAUSADO')",
+                       AND state IN ('CARREGANDO', 'FINALIZANDO', 'PAUSADO')
+                       AND (stop_reason IS NULL OR stop_reason = 'EXCESSO')",
                 );
                 $pauseLoading->execute([
                     "operator_alert" => $excessAlert,
