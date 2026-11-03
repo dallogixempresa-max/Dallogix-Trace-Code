@@ -55,24 +55,16 @@ final class RepositorioCarregamentosEventos
         if (($candidateId <= 0 && $sourceId <= 0) || $equipmentId === null) {
             return null;
         }
-        $statement = $this->connection->prepare(
-            "SELECT id FROM carregamentos WHERE company_id = :company_id
-             AND ((:candidate_a > 0 AND id = :candidate_b AND equipment_id = :equipment_id)
-               OR (:source_a > 0 AND remote_installation_id = :installation_id
-                   AND remote_carregamento_id = :source_b)) LIMIT 1",
-        );
-        $statement->execute([
-            "company_id" => $companyId,
-            "equipment_id" => $equipmentId,
-            "installation_id" => $installationId,
-            "candidate_a" => $candidateId,
-            "candidate_b" => $candidateId,
-            "source_a" => $sourceId,
-            "source_b" => $sourceId,
-        ]);
-        $id = $statement->fetchColumn();
+        if ($candidateId > 0) {
+            $remoteId = $this->localizarPorIdRemoto($companyId, $candidateId, $equipmentId);
+            if ($remoteId !== null) {
+                return $remoteId;
+            }
+        }
 
-        return $id === false ? null : (int) $id;
+        return $sourceId > 0
+            ? $this->localizarPorOrigem($companyId, $installationId, $sourceId)
+            : null;
     }
 
     /**

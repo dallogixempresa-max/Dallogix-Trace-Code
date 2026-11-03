@@ -19,6 +19,7 @@ require_once __DIR__ . "/../Persistencia/RepositorioInstalacaoLocal.php";
 final class ServicoSincronizacao
 {
     private const RESERVA_EXPIRADA_APOS_MINUTOS = 5;
+    private readonly PDO $connection;
     private readonly ClienteHttpSincronizacao $clienteHttp;
     private readonly RepositorioFilaSincronizacao $repositorioFila;
     private readonly RepositorioPayloadSincronizacao $payloadSincronizacao;
@@ -37,11 +38,60 @@ final class ServicoSincronizacao
         ?RepositorioMapeamentosSincronizacao $repositorioMapeamentos = null,
     )
     {
+        $this->connection = $connection;
         $this->clienteHttp = $clienteHttp ?? new ClienteHttpSincronizacao();
         $this->repositorioFila = $repositorioFila ?? new RepositorioFilaSincronizacao($connection);
         $this->payloadSincronizacao = $payloadSincronizacao ?? new RepositorioPayloadSincronizacao($connection);
         $this->repositorioInstalacaoLocal = $repositorioInstalacaoLocal ?? new RepositorioInstalacaoLocal($connection);
         $this->repositorioMapeamentos = $repositorioMapeamentos ?? new RepositorioMapeamentosSincronizacao($connection);
+    }
+
+    /**
+     * Reenvia uma vez leituras que a instalação local já marcou como enviadas.
+     * O servidor central usa o UUID do evento para inserir ou reconhecer cada leitura.
+     */
+    public function reenfileirarLeiturasEnviadasUmaVez(): int
+    {
+        if (!function_exists("\\trace_e_instalacao_local") || !\trace_e_instalacao_local()) {
+            return 0;
+        }
+
+        $this->connection->beginTransaction();
+        try {
+            $marker = $this->connection->prepare(
+                "INSERT IGNORE INTO sync_backfill_runs (backfill_key)
+                 VALUES ('replay_leitura_registrada_202611')",
+            );
+            $marker->execute();
+            if ($marker->rowCount() !== 1) {
+                $this->connection->commit();
+                return 0;
+            }
+
+            $requeue = $this->connection->prepare(
+                "UPDATE fila_sincronizacao
+                 SET status = 'PENDENTE', attempts = 0, transient_attempts = 0,
+                     last_error = NULL, available_at = NOW(), processing_started_at = NULL
+                 WHERE aggregate_type = 'leitura' AND status = 'ENVIADO'
+                   AND JSON_UNQUOTE(JSON_EXTRACT(payload, '$.action')) = 'LEITURA_REGISTRADA'",
+            );
+            $requeue->execute();
+            $affected = $requeue->rowCount();
+
+            $saveCount = $this->connection->prepare(
+                "UPDATE sync_backfill_runs SET affected_events = :affected_events
+                 WHERE backfill_key = 'replay_leitura_registrada_202611'",
+            );
+            $saveCount->execute(["affected_events" => $affected]);
+            $this->connection->commit();
+
+            return $affected;
+        } catch (\Throwable $exception) {
+            if ($this->connection->inTransaction()) {
+                $this->connection->rollBack();
+            }
+            throw $exception;
+        }
     }
 
     /** @return array{processed:bool,status:string,id:int,reason?:string,error?:string,http_code?:int} */

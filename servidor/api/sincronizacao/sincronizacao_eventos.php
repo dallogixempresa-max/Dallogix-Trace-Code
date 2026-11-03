@@ -225,6 +225,7 @@ try {
             "ESTADO_CARREGAMENTO_ALTERADO",
             "CARREGAMENTO_FINALIZADO",
             "LEITURA_REGISTRADA",
+            "REMOCAO_UNIDADE_E_PARADA_FISICA_CONFIRMADAS",
         ], true);
         $eventKey = strtolower($eventUuid);
         $replay = array_key_exists($eventKey, $knownEventActions);
@@ -375,49 +376,127 @@ try {
             }
         }
 
+        if ($action === "REMOCAO_UNIDADE_E_PARADA_FISICA_CONFIRMADAS") {
+            $sourceLoadingId = (int) ($data["carregamento_id"] ?? $entityId);
+            $remoteLoadingId = filter_var($data["remote_carregamento_id"] ?? null, FILTER_VALIDATE_INT);
+            $loadingId = $resolveLoadingId(
+                $companyId,
+                $remoteLoadingId !== false && $remoteLoadingId > 0 ? (int) $remoteLoadingId : 0,
+                $sourceLoadingId,
+            );
+            if ($loadingId === null) {
+                throw new RuntimeException("Não foi possível localizar o carregamento da confirmação da parada.");
+            }
+            $stopReason = strtoupper(trim((string) ($data["stop_reason"] ?? "")));
+            if (in_array($stopReason, ["PRODUTO_INCORRETO", "EXCESSO"], true)) {
+                $clearStop = $pdo->prepare(
+                    "UPDATE carregamentos SET stop_reason = NULL, operator_alert = NULL
+                     WHERE id = :id AND company_id = :company_id AND state = 'PAUSADO'
+                       AND stop_reason = :stop_reason",
+                );
+                $clearStop->execute([
+                    "id" => $loadingId,
+                    "company_id" => $companyId,
+                    "stop_reason" => $stopReason,
+                ]);
+            }
+            $entityId = $loadingId;
+        }
+
         if ($action === "LEITURA_REGISTRADA") {
             $readingResult = strtoupper(trim((string) ($data["result"] ?? "")));
             $validResults = ["VALIDO", "PRODUTO_INCORRETO", "SEM_LEITURA", "RETORNO", "EXCESSO"];
-            if (in_array($readingResult, $validResults, true)) {
-                $sourceLoadingId = (int) ($data["carregamento_id"] ?? $entityId);
-                $remoteLoadingId = filter_var($data["remote_carregamento_id"] ?? null, FILTER_VALIDATE_INT);
-                $loadingId = $resolveLoadingId(
-                    $companyId,
-                    $remoteLoadingId !== false && $remoteLoadingId > 0 ? (int) $remoteLoadingId : 0,
-                    $sourceLoadingId,
+            if (!in_array($readingResult, $validResults, true)) {
+                throw new RuntimeException("O evento de leitura contém um resultado inválido.");
+            }
+
+            $sourceLoadingId = (int) ($data["carregamento_id"] ?? $entityId);
+            $remoteLoadingId = filter_var($data["remote_carregamento_id"] ?? null, FILTER_VALIDATE_INT);
+            $loadingId = $resolveLoadingId(
+                $companyId,
+                $remoteLoadingId !== false && $remoteLoadingId > 0 ? (int) $remoteLoadingId : 0,
+                $sourceLoadingId,
+            );
+            if ($loadingId === null) {
+                throw new RuntimeException("Não foi possível localizar o carregamento da leitura sincronizada.");
+            }
+
+            $readingCompanyStmt = $pdo->prepare(
+                "SELECT company_id FROM carregamentos WHERE id = :id AND company_id = :company_id LIMIT 1",
+            );
+            $readingCompanyStmt->execute(["id" => $loadingId, "company_id" => $companyId]);
+            $readingCompanyId = (int) ($readingCompanyStmt->fetchColumn() ?: 0);
+            if ($readingCompanyId !== $companyId) {
+                throw new RuntimeException("O carregamento da leitura não pertence à empresa sincronizada.");
+            }
+
+            $readingBarcode = isset($data["barcode"]) && $data["barcode"] !== ""
+                ? (string) $data["barcode"] : null;
+            $sourceProductId = filter_var($data["product_id"] ?? null, FILTER_VALIDATE_INT);
+            $readingProductId = null;
+            if ($sourceProductId !== false && $sourceProductId > 0) {
+                $productStmt = $pdo->prepare(
+                    "SELECT id FROM produtos
+                     WHERE company_id = :company_id AND remote_product_id = :source_product_id
+                     LIMIT 1",
                 );
-                if ($loadingId !== null) {
-                    $readingCompanyStmt = $pdo->prepare(
-                        "SELECT company_id FROM carregamentos WHERE id = :id LIMIT 1",
-                    );
-                    $readingCompanyStmt->execute(["id" => $loadingId]);
-                    $readingCompanyId = (int) ($readingCompanyStmt->fetchColumn() ?: $companyId);
-                    $sourceProductId = filter_var($data["product_id"] ?? null, FILTER_VALIDATE_INT);
-                    $readingProductId = null;
-                    if ($sourceProductId !== false && $sourceProductId > 0) {
-                        // Resolve local product_id → central product_id via remote_product_id
-                        $productStmt = $pdo->prepare(
-                            "SELECT id FROM produtos
-                             WHERE company_id = :company_id
-                               AND (id = :product_id OR remote_product_id = :product_id)
-                             LIMIT 1",
-                        );
-                        $productStmt->execute(["company_id" => $readingCompanyId, "product_id" => $sourceProductId]);
-                        $resolvedProductId = $productStmt->fetchColumn();
-                        $readingProductId = $resolvedProductId !== false ? (int) $resolvedProductId : null;
-                    }
-                    $readingBarcode = isset($data["barcode"]) && $data["barcode"] !== "" ? (string) $data["barcode"] : null;
-                    $readingAt = isset($data["read_at"]) && preg_match('/^\d{4}-\d{2}-\d{2}/', (string) $data["read_at"])
-                        ? (string) $data["read_at"]
-                        : null;
-                    $readingAttempt = max(1, (int) ($data["attempt_number"] ?? 1));
-                    $insertReading = $pdo->prepare(
-                        "INSERT INTO leituras (company_id, carregamento_id, product_id, barcode, attempt_number, result, read_at)
-                         VALUES (:company_id, :carregamento_id, :product_id, :barcode, :attempt_number, :result, COALESCE(:read_at, NOW(3)))",
-                    );
+                $productStmt->execute([
+                    "company_id" => $readingCompanyId,
+                    "source_product_id" => (int) $sourceProductId,
+                ]);
+                $resolvedProductId = $productStmt->fetchColumn();
+                $readingProductId = $resolvedProductId !== false ? (int) $resolvedProductId : null;
+            }
+            if ($readingProductId === null && $readingBarcode !== null) {
+                $barcodeProduct = $pdo->prepare(
+                    "SELECT product_id FROM codigos_produtos
+                     WHERE company_id = :company_id AND barcode = :barcode LIMIT 1",
+                );
+                $barcodeProduct->execute([
+                    "company_id" => $readingCompanyId,
+                    "barcode" => $readingBarcode,
+                ]);
+                $resolvedProductId = $barcodeProduct->fetchColumn();
+                $readingProductId = $resolvedProductId !== false ? (int) $resolvedProductId : null;
+            }
+
+            $readingAtInput = trim((string) ($data["read_at"] ?? ""));
+            $readingAt = preg_match(
+                '/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?$/',
+                $readingAtInput,
+            ) === 1 ? str_replace("T", " ", $readingAtInput) : null;
+            $readingAttempt = max(1, (int) ($data["attempt_number"] ?? 1));
+            $findSyncedReading = $pdo->prepare(
+                "SELECT id, carregamento_id, result, barcode FROM leituras
+                 WHERE company_id = :company_id AND sync_event_uuid = :event_uuid
+                 LIMIT 1 FOR UPDATE",
+            );
+            $findSyncedReading->execute([
+                "company_id" => $readingCompanyId,
+                "event_uuid" => $eventUuid,
+            ]);
+            $existingSyncedReading = $findSyncedReading->fetch(PDO::FETCH_ASSOC);
+            $readingInserted = false;
+            if ($existingSyncedReading !== false) {
+                if (
+                    (int) $existingSyncedReading["carregamento_id"] !== $loadingId
+                    || (string) $existingSyncedReading["result"] !== $readingResult
+                    || (string) ($existingSyncedReading["barcode"] ?? "") !== (string) ($readingBarcode ?? "")
+                ) {
+                    throw new RuntimeException("O identificador do evento já está associado a outra leitura.");
+                }
+                $entityId = (int) $existingSyncedReading["id"];
+            } else {
+                $insertReading = $pdo->prepare(
+                    "INSERT INTO leituras
+                     (company_id, carregamento_id, sensor_event_id, sync_event_uuid, product_id, barcode, attempt_number, result, read_at)
+                     VALUES (:company_id, :carregamento_id, NULL, :event_uuid, :product_id, :barcode, :attempt_number, :result, COALESCE(:read_at, NOW(3)))",
+                );
+                try {
                     $insertReading->execute([
                         "company_id" => $readingCompanyId,
                         "carregamento_id" => $loadingId,
+                        "event_uuid" => $eventUuid,
                         "product_id" => $readingProductId,
                         "barcode" => $readingBarcode,
                         "attempt_number" => $readingAttempt,
@@ -425,14 +504,48 @@ try {
                         "read_at" => $readingAt,
                     ]);
                     $entityId = (int) $pdo->lastInsertId();
-                    if ($readingResult === "VALIDO") {
-                        $updateValidCount = $pdo->prepare(
-                            "UPDATE carregamentos SET leituras_validas = leituras_validas + 1
-                             WHERE id = :id AND company_id = :company_id",
-                        );
-                        $updateValidCount->execute(["id" => $loadingId, "company_id" => $readingCompanyId]);
+                    $readingInserted = true;
+                } catch (PDOException $exception) {
+                    if ((int) ($exception->errorInfo[1] ?? 0) !== 1062) {
+                        throw $exception;
                     }
+                    $findSyncedReading->execute([
+                        "company_id" => $readingCompanyId,
+                        "event_uuid" => $eventUuid,
+                    ]);
+                    $existingSyncedReading = $findSyncedReading->fetch(PDO::FETCH_ASSOC);
+                    if (
+                        $existingSyncedReading === false
+                        || (int) $existingSyncedReading["carregamento_id"] !== $loadingId
+                        || (string) $existingSyncedReading["result"] !== $readingResult
+                        || (string) ($existingSyncedReading["barcode"] ?? "") !== (string) ($readingBarcode ?? "")
+                    ) {
+                        throw $exception;
+                    }
+                    $entityId = (int) $existingSyncedReading["id"];
                 }
+            }
+
+            if ($readingInserted && $readingResult === "VALIDO") {
+                $updateValidCount = $pdo->prepare(
+                    "UPDATE carregamentos SET leituras_validas = leituras_validas + 1
+                     WHERE id = :id AND company_id = :company_id",
+                );
+                $updateValidCount->execute(["id" => $loadingId, "company_id" => $readingCompanyId]);
+            }
+            if ($readingResult === "EXCESSO") {
+                $excessAlert = "Quantidade excedida recebida da instalação industrial. Confirme a parada física e a remoção da unidade no PC industrial antes de retomar.";
+                $pauseLoading = $pdo->prepare(
+                    "UPDATE carregamentos
+                     SET state = 'PAUSADO', stop_reason = 'EXCESSO', operator_alert = :operator_alert
+                     WHERE id = :id AND company_id = :company_id
+                       AND state IN ('CARREGANDO', 'FINALIZANDO', 'PAUSADO')",
+                );
+                $pauseLoading->execute([
+                    "operator_alert" => $excessAlert,
+                    "id" => $loadingId,
+                    "company_id" => $readingCompanyId,
+                ]);
             }
         }
 

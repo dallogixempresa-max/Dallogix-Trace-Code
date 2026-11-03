@@ -7,10 +7,12 @@ require_once __DIR__ . "/temporizacao_leitor.php";
 require_once __DIR__ . "/../../src/Aplicacao/ClassificadorLeitura.php";
 require_once __DIR__ . "/../../src/Aplicacao/SolicitacaoLeitura.php";
 require_once __DIR__ . "/../../src/Aplicacao/ServicoLeituras.php";
+require_once __DIR__ . "/../../src/Aplicacao/ServicoComandoClp.php";
 require_once __DIR__ . "/../../src/Persistencia/RepositorioLeituras.php";
 
 use App\Aplicacao\ClassificadorLeitura;
 use App\Aplicacao\SolicitacaoLeitura;
+use App\Aplicacao\ServicoComandoClp;
 use App\Aplicacao\ServicoLeituras;
 use App\Persistencia\RepositorioLeituras;
 
@@ -393,19 +395,13 @@ if ($result === "EXCESSO") {
         $readingId,
         ["carregamento_id" => (int) $loadingId, "product_id" => $productId],
     );
-    // Pausa o carregamento imediatamente para forçar confirmação do operador
-    // antes de permitir continuar. O frontend exibe popup bloqueante quando
-    // receber stop_reason='EXCESSO' na resposta ou via polling do estado.
-    $excessoAlert = "Quantidade excedida: mais sacas passaram do que o previsto no romaneio. Remova a unidade excedente e confirme antes de continuar.";
-    $pauseExcesso = $pdo->prepare(
-        "UPDATE carregamentos
-         SET state = 'PAUSADO', stop_reason = 'EXCESSO', operator_alert = :operator_alert
-         WHERE id = :id AND state IN ('CARREGANDO', 'FINALIZANDO')",
+    // Registra a pausa lógica e enfileira PAUSAR_CARREGAMENTO pelo caminho
+    // normal do gateway, sem escrever diretamente nas saídas do CLP.
+    $excessStop = (new ServicoComandoClp($pdo))->solicitarParadaPorExcesso(
+        $usuarioAtor,
+        (int) $loadingId,
     );
-    $pauseExcesso->execute([
-        "id" => $loadingId,
-        "operator_alert" => $excessoAlert,
-    ]);
+    $excessoAlert = $excessStop["operator_alert"];
 }
 if (
     $result === "SEM_LEITURA" &&
@@ -455,7 +451,11 @@ responder_json(
             "evidence_status" => $evidenceStatus,
             "load_status" => $loadStatus,
             "excesso" => $result === "EXCESSO",
-            "stop_reason" => $result === "EXCESSO" ? "EXCESSO" : null,
+            "stop_reason" => $result === "EXCESSO" ? ($excessStop["stop_reason"] ?? "EXCESSO") : null,
+            "physical_stop_request_status" => $result === "EXCESSO"
+                ? ($excessStop["physical_stop_request_status"] ?? "NAO_CONFIRMADA") : null,
+            "command_request_id" => $result === "EXCESSO"
+                ? ($excessStop["command_request_id"] ?? null) : null,
             "operator_alert" => match ($result) {
                 "EXCESSO" => $excessoAlert ?? "Quantidade excedida: mais sacas passaram do que o previsto no romaneio. Remova a unidade excedente e confirme antes de continuar.",
                 "PRODUTO_INCORRETO" => "Código recebido, mas o produto não está previsto no romaneio. A passagem foi contada e a operação continua.",

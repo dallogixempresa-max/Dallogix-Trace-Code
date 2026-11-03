@@ -43,6 +43,25 @@ final class RepositorioComandosClp
         return $statement->fetch();
     }
 
+    /** Retorna a solicitação mais recente e mantém seu bloqueio na transação. */
+    public function ultimaSolicitacaoComando(int $loadingId, string $command): array|false
+    {
+        $lockClause = $this->connection->getAttribute(PDO::ATTR_DRIVER_NAME) === "sqlite"
+            ? ""
+            : " FOR UPDATE";
+        $statement = $this->connection->prepare(
+            "SELECT id, status, command FROM solicitacoes_comandos_clp
+             WHERE carregamento_id = :carregamento_id AND command = :command
+             ORDER BY id DESC LIMIT 1{$lockClause}",
+        );
+        $statement->execute([
+            "carregamento_id" => $loadingId,
+            "command" => $command,
+        ]);
+
+        return $statement->fetch();
+    }
+
     public function ultimaReversaoConfirmada(int $equipmentId, int $companyId): ?string
     {
         $statement = $this->connection->prepare(
@@ -113,7 +132,7 @@ final class RepositorioComandosClp
         int|string $equipmentId,
         int $loadingId,
         string $command,
-        int|string $requestedBy,
+        int|string|null $requestedBy,
     ): int {
         $statement = $this->connection->prepare(
             "INSERT INTO solicitacoes_comandos_clp

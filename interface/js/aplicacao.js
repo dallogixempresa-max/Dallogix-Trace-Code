@@ -613,11 +613,9 @@ function installScannerHidReceiver() {
           }
           if (reading?.result === "EXCESSO") {
             store.state.latestScannerReading = { ...store.state.latestScannerReading, result: reading.result };
-            // O carregamento já foi pausado pelo servidor com stop_reason='EXCESSO'.
-            // A tela de parada bloqueante (work-stop-confirmation) aparece assim
-            // que o estado atualizado chegar via loadActiveLoading — que já foi
-            // chamado dentro de registerScannerReading. Exibimos também uma
-            // notificação para garantir visibilidade imediata.
+            // O servidor grava a pausa lógica e solicita PAUSAR_CARREGAMENTO
+            // pelo gateway. O alerta diferencia comando pendente de parada não
+            // solicitada; a tela bloqueante exige confirmação física do operador.
             notificar(
               reading.operator_alert || "Quantidade excedida. O carregamento foi pausado. Remova a unidade e confirme.",
               "erro",

@@ -40,7 +40,7 @@ final class ServicoComandoClp
         );
     }
 
-    /** @param array{id:int|string, company_id:int|string|null} $user */
+    /** @param array{id:int|string|null, company_id:int|string|null} $user */
     public function solicitarOperacao(
         array $user,
         int $loadingId,
@@ -57,7 +57,7 @@ final class ServicoComandoClp
             throw new ExcecaoComandoClp("Usuário sem empresa vinculada.", 403);
         }
 
-        $this->connection->beginTransaction();
+        $ownsTransaction = $this->iniciarEscopoTransacao("trace_solicitar_operacao");
         try {
             $loading = $this->repositorio->localizarCarregamento($loadingId, (int) $user["company_id"]);
             if (!$loading) {
@@ -69,6 +69,12 @@ final class ServicoComandoClp
             $allowedStates = $command === "INICIAR_CARREGAMENTO"
                 ? ["PREPARANDO", "PAUSADO"]
                 : ["PREPARANDO", "CARREGANDO", "FINALIZANDO"];
+            $paradaPorExcesso = $command === "PAUSAR_CARREGAMENTO"
+                && $loading["state"] === "PAUSADO"
+                && $loading["stop_reason"] === "EXCESSO";
+            if ($paradaPorExcesso) {
+                $allowedStates[] = "PAUSADO";
+            }
             if ($command === "INICIAR_CARREGAMENTO" && !empty($loading["stop_reason"])) {
                 throw new ExcecaoComandoClp(
                     "Confirme a remoção da unidade e a parada física antes de retomar o carregamento.",
@@ -156,11 +162,9 @@ final class ServicoComandoClp
                 $loadingId,
                 $command,
             );
-            $this->connection->commit();
+            $this->concluirEscopoTransacao($ownsTransaction, "trace_solicitar_operacao");
         } catch (Throwable $exception) {
-            if ($this->connection->inTransaction()) {
-                $this->connection->rollBack();
-            }
+            $this->reverterEscopoTransacao($ownsTransaction, "trace_solicitar_operacao");
             if ($exception instanceof ExcecaoComandoClp || $exception instanceof ExcecaoDisponibilidadeClp) {
                 throw $exception;
             }
@@ -185,7 +189,139 @@ final class ServicoComandoClp
         ];
     }
 
-    /** @param array{id:int|string, company_id:int|string|null} $user */
+    /** @param array{id:int|string|null, company_id:int|string|null} $user
+     * @return array{command_request_id:?int,physical_stop_request_status:string,operator_alert:string,stop_reason:?string}
+     */
+    public function solicitarParadaPorExcesso(array $user, int $loadingId): array
+    {
+        if ($user["company_id"] === null) {
+            throw new ExcecaoComandoClp("Usuário sem empresa vinculada.", 403);
+        }
+
+        $ownsTransaction = $this->iniciarEscopoTransacao("trace_parada_excesso");
+        try {
+            $loading = $this->repositorio->localizarCarregamento($loadingId, (int) $user["company_id"]);
+            if (!$loading) {
+                throw new ExcecaoComandoClp("Carregamento não encontrado para esta empresa.", 404);
+            }
+            if (!in_array($loading["state"], ["CARREGANDO", "FINALIZANDO", "PAUSADO"], true)) {
+                throw new ExcecaoComandoClp("O carregamento não está em um estado que permita registrar a parada por excesso.", 409);
+            }
+            if (!empty($loading["stop_reason"]) && $loading["stop_reason"] !== "EXCESSO") {
+                $result = [
+                    "command_request_id" => null,
+                    "physical_stop_request_status" => "BLOQUEIO_EXISTENTE",
+                    "operator_alert" => (string) ($loading["operator_alert"] ?? "Já existe uma parada aguardando confirmação."),
+                    "stop_reason" => (string) $loading["stop_reason"],
+                ];
+                $this->concluirEscopoTransacao($ownsTransaction, "trace_parada_excesso");
+                return $result;
+            }
+
+            $operatorAlert = "Quantidade excedida. A solicitação de pausa física foi enviada ao gateway do CLP; remova a unidade e confirme somente quando a esteira estiver fisicamente parada.";
+            $pauseLoading = $this->connection->prepare(
+                "UPDATE carregamentos
+                 SET state = 'PAUSADO', stop_reason = 'EXCESSO', operator_alert = :operator_alert
+                 WHERE id = :id AND company_id = :company_id
+                   AND state IN ('CARREGANDO', 'FINALIZANDO', 'PAUSADO')",
+            );
+            $pauseLoading->execute([
+                "id" => $loadingId,
+                "company_id" => (int) $user["company_id"],
+                "operator_alert" => $operatorAlert,
+            ]);
+
+            $alreadyPausedForExcess = $loading["state"] === "PAUSADO"
+                && $loading["stop_reason"] === "EXCESSO";
+            $pendingPause = $this->repositorio->comandoPendente($loadingId, "PAUSAR_CARREGAMENTO");
+            $requestId = null;
+            $requestStatus = "PENDENTE";
+            if ($pendingPause) {
+                $requestId = (int) $pendingPause["id"];
+                $requestStatus = (string) $pendingPause["status"];
+            } elseif ($alreadyPausedForExcess) {
+                $lastPause = $this->repositorio->ultimaSolicitacaoComando($loadingId, "PAUSAR_CARREGAMENTO");
+                if ($lastPause && $lastPause["status"] === "APLICADO") {
+                    $requestId = (int) $lastPause["id"];
+                    $requestStatus = "APLICADO";
+                    $operatorAlert = "Quantidade excedida. O gateway confirmou a parada física. Remova a unidade e confirme somente quando a esteira estiver fisicamente parada.";
+                }
+            }
+            if (!$pendingPause && $requestStatus !== "APLICADO") {
+                try {
+                    $request = $this->solicitarOperacao($user, $loadingId, "PAUSAR_CARREGAMENTO");
+                    $requestId = (int) $request["command_request_id"];
+                } catch (ExcecaoComandoClp|ExcecaoDisponibilidadeClp $exception) {
+                    if ($exception->httpStatus >= 500) {
+                        throw $exception;
+                    }
+                    $requestStatus = "NAO_SOLICITADA";
+                    $operatorAlert = "Quantidade excedida. A parada automática pelo CLP não foi confirmada: "
+                        . $exception->getMessage()
+                        . " Pare a esteira pelo procedimento operacional e confirme somente após a parada física.";
+                }
+            }
+
+            $saveAlert = $this->connection->prepare(
+                "UPDATE carregamentos SET operator_alert = :operator_alert
+                 WHERE id = :id AND company_id = :company_id AND stop_reason = 'EXCESSO'",
+            );
+            $saveAlert->execute([
+                "operator_alert" => $operatorAlert,
+                "id" => $loadingId,
+                "company_id" => (int) $user["company_id"],
+            ]);
+
+            $this->concluirEscopoTransacao($ownsTransaction, "trace_parada_excesso");
+            return [
+                "command_request_id" => $requestId,
+                "physical_stop_request_status" => $requestStatus,
+                "operator_alert" => $operatorAlert,
+                "stop_reason" => "EXCESSO",
+            ];
+        } catch (Throwable $exception) {
+            $this->reverterEscopoTransacao($ownsTransaction, "trace_parada_excesso");
+            throw $exception;
+        }
+    }
+
+    /** Reavalia carregamentos ativos que já têm uma leitura excedente histórica. */
+    public function reconciliarParadasPorExcesso(): int
+    {
+        $statement = $this->connection->prepare(
+            "SELECT c.id, c.company_id FROM carregamentos c
+             WHERE c.state IN ('CARREGANDO', 'FINALIZANDO', 'PAUSADO')
+               AND c.stop_reason IS NULL
+               AND EXISTS (
+                   SELECT 1 FROM leituras l
+                   WHERE l.company_id = c.company_id AND l.carregamento_id = c.id
+                     AND l.result = 'EXCESSO'
+               )
+             ORDER BY c.id",
+        );
+        $statement->execute();
+        $loadings = $statement->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($loadings as $loading) {
+            try {
+                $this->solicitarParadaPorExcesso([
+                    "id" => null,
+                    "company_id" => (int) $loading["company_id"],
+                ], (int) $loading["id"]);
+            } catch (ExcecaoComandoClp $exception) {
+                if (!in_array($exception->httpStatus, [404, 409], true)) {
+                    throw $exception;
+                }
+                error_log(
+                    "Excesso ativo mudou antes da reconciliação do carregamento "
+                    . (int) $loading["id"] . ": " . $exception->getMessage(),
+                );
+            }
+        }
+
+        return count($loadings);
+    }
+
+    /** @param array{id:int|string|null, company_id:int|string|null} $user */
     public function solicitarReversao(
         array $user,
         int $loadingId,
@@ -456,7 +592,7 @@ final class ServicoComandoClp
      * Persiste uma solicitação física e sua trilha de auditoria na transação atual.
      * Regras de autorização, intertravamento e estado permanecem nos fluxos chamadores.
      *
-     * @param array{id:int|string, company_id:int|string|null} $user
+     * @param array{id:int|string|null, company_id:int|string|null} $user
      * @param array<string,mixed> $loading
      * @param array<string,mixed> $metadataAdicional
      */
@@ -524,5 +660,40 @@ final class ServicoComandoClp
                 "replaced_by" => $command,
             ],
         );
+    }
+
+    private function iniciarEscopoTransacao(string $savepoint): bool
+    {
+        if (!$this->connection->inTransaction()) {
+            $this->connection->beginTransaction();
+            return true;
+        }
+
+        $this->connection->exec("SAVEPOINT {$savepoint}");
+        return false;
+    }
+
+    private function concluirEscopoTransacao(bool $ownsTransaction, string $savepoint): void
+    {
+        if ($ownsTransaction) {
+            $this->connection->commit();
+            return;
+        }
+
+        $this->connection->exec("RELEASE SAVEPOINT {$savepoint}");
+    }
+
+    private function reverterEscopoTransacao(bool $ownsTransaction, string $savepoint): void
+    {
+        if (!$this->connection->inTransaction()) {
+            return;
+        }
+        if ($ownsTransaction) {
+            $this->connection->rollBack();
+            return;
+        }
+
+        $this->connection->exec("ROLLBACK TO SAVEPOINT {$savepoint}");
+        $this->connection->exec("RELEASE SAVEPOINT {$savepoint}");
     }
 }

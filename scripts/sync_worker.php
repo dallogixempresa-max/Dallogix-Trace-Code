@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 require_once __DIR__ . "/../servidor/configuracao/bootstrap.php";
 require_once __DIR__ . "/../servidor/src/Aplicacao/ServicoSincronizacao.php";
+require_once __DIR__ . "/../servidor/src/Aplicacao/ServicoComandoClp.php";
 require_once __DIR__ . "/../servidor/src/Aplicacao/ProvisionadorDispositivosLocais.php";
 require_once __DIR__ . "/../servidor/src/Aplicacao/ServicoSincronizacaoRemota.php";
 
 use App\Aplicacao\ServicoSincronizacao;
+use App\Aplicacao\ServicoComandoClp;
 use App\Aplicacao\ServicoSincronizacaoRemota;
 
 if ((string) (getenv("TRACE_LOCAL_SIMULATION") ?: "0") === "1") {
@@ -15,8 +17,26 @@ if ((string) (getenv("TRACE_LOCAL_SIMULATION") ?: "0") === "1") {
 }
 
 $batchSize = max(1, min(500, (int) (getenv("SYNC_BATCH_SIZE") ?: 50)));
-$summary = (new ServicoSincronizacao(db()))->processarLote($batchSize);
-$remoteSummary = (new ServicoSincronizacaoRemota(db()))->sincronizarConfiguracaoDaInstalacao();
+$connection = db();
+$sincronizacao = new ServicoSincronizacao($connection);
+if (trace_e_instalacao_local()) {
+    $paradasReconciliadas = (new ServicoComandoClp($connection))->reconciliarParadasPorExcesso();
+    if ($paradasReconciliadas > 0) {
+        fwrite(STDOUT, sprintf(
+            "sync-worker: paradas por excesso reconciliadas=%d\n",
+            $paradasReconciliadas,
+        ));
+    }
+    $leiturasReenfileiradas = $sincronizacao->reenfileirarLeiturasEnviadasUmaVez();
+    if ($leiturasReenfileiradas > 0) {
+        fwrite(STDOUT, sprintf(
+            "sync-worker: leituras históricas reenfileiradas=%d\n",
+            $leiturasReenfileiradas,
+        ));
+    }
+}
+$summary = $sincronizacao->processarLote($batchSize);
+$remoteSummary = (new ServicoSincronizacaoRemota($connection))->sincronizarConfiguracaoDaInstalacao();
 if ($summary["reserved"] > 0 || $summary["failed"] > 0) {
     fwrite(STDOUT, sprintf(
         "sync-worker: reservados=%d enviados=%d falhas=%d ignorados=%d\n",
