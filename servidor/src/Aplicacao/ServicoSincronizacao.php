@@ -512,12 +512,16 @@ final class ServicoSincronizacao
         $expectedSize = filter_var($data["size_bytes"] ?? null, FILTER_VALIDATE_INT);
         $evidenceNoReadCount = filter_var($data["evidence_no_read_count"] ?? 0, FILTER_VALIDATE_INT);
         $evidenceCount = filter_var($data["evidence_count"] ?? 0, FILTER_VALIDATE_INT);
+        $evidenceExcessCount = filter_var($data["evidence_excess_count"] ?? 0, FILTER_VALIDATE_INT);
+        $evidenceExcessEvidenceCount = filter_var($data["evidence_excess_evidence_count"] ?? 0, FILTER_VALIDATE_INT);
         if ($sourceManifestId === false || (int) $sourceManifestId <= 0
             || preg_match('/\A[a-f0-9]{64}\z/', $expectedHash) !== 1
             || $expectedSize === false || (int) $expectedSize < 5
             || (int) $expectedSize > self::TAMANHO_MAXIMO_RELATORIO
             || $evidenceNoReadCount === false || (int) $evidenceNoReadCount < 0
-            || $evidenceCount === false || (int) $evidenceCount < (int) $evidenceNoReadCount) {
+            || $evidenceCount === false || (int) $evidenceCount < (int) $evidenceNoReadCount
+            || $evidenceExcessCount === false || (int) $evidenceExcessCount < 0
+            || $evidenceExcessEvidenceCount === false || (int) $evidenceExcessEvidenceCount < (int) $evidenceExcessCount) {
             return ["ok" => false, "error" => "Metadados do PDF do romaneio inválidos.", "http_code" => 422];
         }
         if ($remoteManifestId === false || (int) $remoteManifestId <= 0) {
@@ -551,6 +555,8 @@ final class ServicoSincronizacao
                 "X-Trace-Report-SHA256" => $expectedHash,
                 "X-Trace-Report-No-Read-Count" => (string) (int) $evidenceNoReadCount,
                 "X-Trace-Report-Evidence-Count" => (string) (int) $evidenceCount,
+                "X-Trace-Report-Excess-Count" => (string) (int) $evidenceExcessCount,
+                "X-Trace-Report-Excess-Evidence-Count" => (string) (int) $evidenceExcessEvidenceCount,
             ],
         );
     }

@@ -451,11 +451,8 @@ try {
             );
         }
     }
-    $becameFinalizing = false;
     $excessStop = null;
     $automaticStop = false;
-    $targetStopRequestId = null;
-    $targetStopStatus = null;
     if (
         $plannedQuantity > 0 &&
         $detectedBags > $plannedQuantity &&
@@ -484,59 +481,34 @@ try {
                 "command_request_id" => $excessStop["command_request_id"] ?? null,
             ],
         );
-    } elseif ($loading["state"] === "CARREGANDO" && $plannedQuantity > 0 && $detectedBags >= $plannedQuantity) {
-        $transition = $pdo->prepare(
-            "UPDATE carregamentos SET state = 'FINALIZANDO'
-             WHERE id = :id AND company_id = :company_id AND state = 'CARREGANDO'",
+    } elseif ($loading["state"] === "CARREGANDO" && $plannedQuantity > 0 && $detectedBags === $plannedQuantity) {
+        $nearEndWarning = "Quantidade prevista atingida. A esteira continua; uma passagem adicional será excesso e solicitará a parada.";
+        $targetAlreadyRecorded = $pdo->prepare(
+            "SELECT 1 FROM logs_auditoria
+             WHERE company_id = :company_id AND action = 'QUANTIDADE_PLANEJADA_ATINGIDA'
+               AND entity_type = 'carregamento' AND entity_id = :loading_id LIMIT 1",
         );
-        $transition->execute([
-            "id" => $loadingId,
+        $targetAlreadyRecorded->execute([
             "company_id" => $device["company_id"],
+            "loading_id" => $loadingId,
         ]);
-        $becameFinalizing = $transition->rowCount() === 1;
-        if ($becameFinalizing) {
-            try {
-                $targetStop = (new ServicoComandoClp($pdo))->solicitarOperacao(
-                    ["id" => null, "company_id" => (int) $device["company_id"]],
-                    (int) $loadingId,
-                    "PAUSAR_CARREGAMENTO",
-                );
-                $targetStopRequestId = (int) $targetStop["command_request_id"];
-                $targetStopStatus = "PENDENTE";
-                $automaticStop = true;
-                $nearEndWarning = "Quantidade física prevista atingida. Parada da esteira solicitada ao gateway; aguarde a confirmação física e confira as leituras pendentes.";
-            } catch (\App\Aplicacao\ExcecaoComandoClp|\App\Aplicacao\ExcecaoDisponibilidadeClp $exception) {
-                $targetStopStatus = "NAO_SOLICITADA";
-                $nearEndWarning = "Quantidade física prevista atingida, mas a parada automática não foi solicitada. Pare a esteira pelo procedimento operacional e confira as leituras pendentes.";
-                error_log("Parada automática na meta não solicitada para o carregamento " . (int) $loadingId . ": " . $exception->getMessage());
-            }
-            $targetAlreadyRecorded = $pdo->prepare(
-                "SELECT 1 FROM logs_auditoria
-                 WHERE company_id = :company_id AND action = 'QUANTIDADE_PLANEJADA_ATINGIDA'
-                   AND entity_type = 'carregamento' AND entity_id = :loading_id LIMIT 1",
+        if (!$targetAlreadyRecorded->fetchColumn()) {
+            record_operational_event(
+                $pdo,
+                ["id" => null, "company_id" => $device["company_id"]],
+                "QUANTIDADE_PLANEJADA_ATINGIDA",
+                "carregamento",
+                (int) $loadingId,
+                [
+                    "planned_quantity" => $plannedQuantity,
+                    "detected_bags" => $detectedBags,
+                    "valid_readings" => null,
+                    "automatic_stop" => false,
+                    "physical_stop_request_status" => "NAO_SOLICITADA",
+                    "command_request_id" => null,
+                    "operator_action" => "CONTINUAR_ATE_EXCESSO",
+                ],
             );
-            $targetAlreadyRecorded->execute([
-                "company_id" => $device["company_id"],
-                "loading_id" => $loadingId,
-            ]);
-            if (!$targetAlreadyRecorded->fetchColumn()) {
-                record_operational_event(
-                    $pdo,
-                    ["id" => null, "company_id" => $device["company_id"]],
-                    "QUANTIDADE_PLANEJADA_ATINGIDA",
-                    "carregamento",
-                    (int) $loadingId,
-                    [
-                        "planned_quantity" => $plannedQuantity,
-                        "detected_bags" => $detectedBags,
-                        "valid_readings" => null,
-                        "automatic_stop" => $automaticStop,
-                        "physical_stop_request_status" => $targetStopStatus,
-                        "command_request_id" => $targetStopRequestId,
-                        "operator_action" => $automaticStop ? "AGUARDAR_PARADA_E_CONFERIR" : "PARAR_ESTEIRA_MANUALMENTE",
-                    ],
-                );
-            }
         }
     }
     $pdo->commit();
@@ -552,12 +524,12 @@ try {
                 "operator_warning" => $nearEndWarning,
                 "automatic_stop" => $automaticStop,
                 "stop_reason" => $excessStop["stop_reason"] ?? null,
-                "physical_stop_request_status" => $excessStop["physical_stop_request_status"] ?? $targetStopStatus,
-                "command_request_id" => $excessStop["command_request_id"] ?? $targetStopRequestId,
+                "physical_stop_request_status" => $excessStop["physical_stop_request_status"] ?? null,
+                "command_request_id" => $excessStop["command_request_id"] ?? null,
                 "operator_alert" => $excessStop["operator_alert"] ?? $nearEndWarning,
                 "load_status" => ($excessStop["stop_reason"] ?? null) === "EXCESSO"
                     ? "EM_ANDAMENTO"
-                    : (($loading["state"] === "FINALIZANDO" || $becameFinalizing)
+                    : ($loading["state"] === "FINALIZANDO"
                         ? "COMPLETO" : "EM_ANDAMENTO"),
                 "image_action" => $excessEvidenceRequested
                     ? "EVIDENCIA_EXCESSO_SOLICITADA"

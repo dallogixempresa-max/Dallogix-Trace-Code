@@ -364,7 +364,7 @@ function workControls(store) {
   const endNotice = excess
     ? `Atenção: ${numero(detectedBags - plannedTotal)} sacas passaram do total previsto.`
     : complete
-      ? "Quantidade física prevista atingida. Confira a parada da esteira e as leituras pendentes antes de encerrar."
+      ? "Quantidade prevista atingida. A esteira continua em operação; uma passagem adicional será excesso e solicitará a parada."
       : nearEnd
         ? "Atenção: o carregamento está próximo da quantidade prevista."
         : "";

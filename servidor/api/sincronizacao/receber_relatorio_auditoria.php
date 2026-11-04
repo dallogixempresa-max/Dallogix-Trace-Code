@@ -10,6 +10,8 @@ $remoteManifestId = filter_var($_SERVER["HTTP_X_TRACE_REMOTE_ROMANEIO_ID"] ?? nu
 $expectedHash = strtolower(trim((string) ($_SERVER["HTTP_X_TRACE_REPORT_SHA256"] ?? "")));
 $evidenceNoReadCount = filter_var($_SERVER["HTTP_X_TRACE_REPORT_NO_READ_COUNT"] ?? "0", FILTER_VALIDATE_INT);
 $evidenceCount = filter_var($_SERVER["HTTP_X_TRACE_REPORT_EVIDENCE_COUNT"] ?? "0", FILTER_VALIDATE_INT);
+$excessCount = filter_var($_SERVER["HTTP_X_TRACE_REPORT_EXCESS_COUNT"] ?? "0", FILTER_VALIDATE_INT);
+$excessEvidenceCount = filter_var($_SERVER["HTTP_X_TRACE_REPORT_EXCESS_EVIDENCE_COUNT"] ?? "0", FILTER_VALIDATE_INT);
 $contentType = strtolower(trim(explode(";", (string) ($_SERVER["CONTENT_TYPE"] ?? ""))[0]));
 $contentLength = filter_var($_SERVER["CONTENT_LENGTH"] ?? null, FILTER_VALIDATE_INT);
 $maximumBytes = 24 * 1024 * 1024;
@@ -21,6 +23,8 @@ if ($contentType !== "application/pdf"
     || preg_match('/\A[a-f0-9]{64}\z/', $expectedHash) !== 1
     || $evidenceNoReadCount === false || (int) $evidenceNoReadCount < 0
     || $evidenceCount === false || (int) $evidenceCount < (int) $evidenceNoReadCount
+    || $excessCount === false || (int) $excessCount < 0
+    || $excessEvidenceCount === false || (int) $excessEvidenceCount < (int) $excessCount
     || ($contentLength !== false && (int) $contentLength > $maximumBytes)) {
     responder_json(["error" => "Metadados do relatório de romaneio inválidos."], 422);
 }
@@ -69,10 +73,12 @@ if (file_put_contents($temporaryPath, $pdf, LOCK_EX) !== strlen($pdf)
     responder_json(["error" => "Não foi possível persistir o relatório recebido."], 503);
 }
 $evidenceManifest = json_encode([
-    "version" => 1,
+    "version" => 2,
     "pdf_sha256" => $expectedHash,
     "no_read_count" => (int) $evidenceNoReadCount,
     "evidence_count" => (int) $evidenceCount,
+    "excess_count" => (int) $excessCount,
+    "excess_evidence_count" => (int) $excessEvidenceCount,
 ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
 $manifestPath = $reportPath . ".evidence.json";
 if (is_link($manifestPath)) {
@@ -96,6 +102,8 @@ $metadata = json_encode([
     "size_bytes" => strlen($pdf),
     "evidence_no_read_count" => (int) $evidenceNoReadCount,
     "evidence_count" => (int) $evidenceCount,
+    "evidence_excess_count" => (int) $excessCount,
+    "evidence_excess_evidence_count" => (int) $excessEvidenceCount,
 ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
 
 $pdo->beginTransaction();
