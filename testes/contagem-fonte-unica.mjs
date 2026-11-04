@@ -40,6 +40,12 @@ test("relatório operacional conta só lidas; sem leitura vem na coluna própria
   assert.match(operacional, /SUM\(l\.result = .SEM_LEITURA.\) AS no_readings/);
 });
 
+test("PDF de auditoria: Movido conta só lidas e Sem leitura é coluna própria", () => {
+  assert.match(reportEndpoint, /AND l\.result = .VALIDO. AND l\.product_id = ri\.product_id/);
+  assert.match(reportEndpoint, /"Sem leitura"/);
+  assert.match(reportEndpoint, /AS no_read_quantity/);
+});
+
 test("card de produto na operação separa lidas de sem leitura", async () => {
   const monitoramento = await readFile(new URL("../servidor/src/Persistencia/RepositorioMonitoramento.php", import.meta.url), "utf8");
   assert.match(monitoramento, /leituras_validas AS \([\s\S]{0,300}?l\.result = 'VALIDO'/);

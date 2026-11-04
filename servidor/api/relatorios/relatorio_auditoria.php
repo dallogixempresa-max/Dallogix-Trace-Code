@@ -269,13 +269,16 @@ $lastLoad = $loadRows !== [] ? $loadRows[array_key_last($loadRows)] : [];
 $items = $pdo->prepare("SELECT p.name, COALESCE(MIN(pc.barcode), p.code, '—') AS barcode, SUM(ri.planned_quantity) AS planned_quantity,
     GREATEST(0, COALESCE((SELECT COUNT(*) FROM leituras l JOIN carregamentos c ON c.id = l.carregamento_id
       WHERE c.romaneio_id = ri.romaneio_id
-        AND l.result IN ('VALIDO', 'SEM_LEITURA')
-        AND (l.product_id = ri.product_id OR (l.product_id IS NULL AND l.result = 'SEM_LEITURA'
-          AND (SELECT COUNT(DISTINCT ri2.product_id) FROM romaneio_itens ri2
-               WHERE ri2.romaneio_id = ri.romaneio_id) = 1))), 0) - COALESCE((SELECT SUM(ret.quantity) FROM retornos ret
+        AND l.result = 'VALIDO' AND l.product_id = ri.product_id), 0) - COALESCE((SELECT SUM(ret.quantity) FROM retornos ret
       JOIN carregamentos c ON c.id = ret.carregamento_id
       JOIN leituras lr ON lr.id = ret.leitura_id
-      WHERE c.romaneio_id = ri.romaneio_id AND lr.product_id = ri.product_id), 0)) AS moved_quantity
+      WHERE c.romaneio_id = ri.romaneio_id AND lr.product_id = ri.product_id), 0)) AS moved_quantity,
+    (SELECT COUNT(*) FROM leituras l JOIN carregamentos c ON c.id = l.carregamento_id
+      WHERE c.romaneio_id = ri.romaneio_id
+        AND l.result = 'SEM_LEITURA'
+        AND (l.product_id = ri.product_id OR (l.product_id IS NULL
+          AND (SELECT COUNT(DISTINCT ri2.product_id) FROM romaneio_itens ri2
+               WHERE ri2.romaneio_id = ri.romaneio_id) = 1))) AS no_read_quantity
     FROM romaneio_itens ri JOIN produtos p ON p.id = ri.product_id
     LEFT JOIN codigos_produtos pc ON pc.product_id = p.id AND pc.company_id = p.company_id
     WHERE ri.romaneio_id = ?
@@ -513,7 +516,7 @@ if ($romaneio["status"] === "CANCELADO") {
 }
 $report->escreverTitulo("Conferência dos itens");
 $report->escreverTabela(
-    ["Produto", "Código", "Previsto", "Movido", "Status"],
+    ["Produto", "Código", "Previsto", "Movido", "Sem leitura", "Status"],
     array_map(static function (array $item): array {
         $planned = (int) $item["planned_quantity"];
         $moved = (int) $item["moved_quantity"];
@@ -522,6 +525,7 @@ $report->escreverTabela(
             $item["barcode"],
             $planned,
             $moved,
+            (int) $item["no_read_quantity"],
             $moved === $planned
                 ? "Concluído"
                 : ($moved < $planned
@@ -529,7 +533,7 @@ $report->escreverTabela(
                     : "Excesso"),
         ];
     }, $itemRows),
-    [205, 105, 65, 65, 75],
+    [185, 95, 60, 60, 65, 50],
 );
 // Nota sobre sacas sem identificação: só aparece quando há SEM_LEITURA com
 // product_id NULL, o que ocorre quando o romaneio tem múltiplos produtos e o
