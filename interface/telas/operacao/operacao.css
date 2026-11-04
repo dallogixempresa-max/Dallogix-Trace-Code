@@ -1,5 +1,5 @@
 /* Tela de operação: acompanhamento do romaneio e comandos da Dala. */
-@import url("/css/responsive.css?v=202611040001");
+@import url("/css/responsive.css?v=202611040002");
 
 /* A tela trabalha com três blocos claros: cabeçalho, acompanhamento e controle.
    Todas as regras ficam escopadas para não alterar as demais telas. */
@@ -1160,13 +1160,29 @@ body.work-page:has(.work-operation-screen) .work-reader-monitor-heading p {
     align-items: stretch;
   }
 
+  body.work-page:has(.work-operation-screen) .content:has(> .status-refresh-feedback) {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
   body.work-page:has(.work-operation-screen) .content:has(> #trace-inline-feedback) > #trace-inline-feedback {
     width: 100%;
     flex: 0 0 auto;
     margin: 0 0 10px;
   }
 
+  body.work-page:has(.work-operation-screen) .content:has(> .status-refresh-feedback) > .status-refresh-feedback {
+    width: 100%;
+    flex: 0 0 auto;
+    margin: 0 0 10px;
+  }
+
   body.work-page:has(.work-operation-screen) .content:has(> #trace-inline-feedback) > #screen-root {
+    width: 100%;
+    min-width: 0;
+  }
+
+  body.work-page:has(.work-operation-screen) .content:has(> .status-refresh-feedback) > #screen-root {
     width: 100%;
     min-width: 0;
   }
