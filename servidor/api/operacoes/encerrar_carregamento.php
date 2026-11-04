@@ -129,6 +129,78 @@ foreach ($divergenceRows as $divergence) {
         break;
     }
 }
+$loadingPlannedQuantityStatement = $pdo->prepare(
+    "SELECT COALESCE(SUM(ri.planned_quantity), 0)
+     FROM romaneio_itens ri
+     WHERE ri.romaneio_id = :romaneio_id
+       AND (ri.truck_id = :truck_id OR ri.truck_id IS NULL)",
+);
+$loadingPlannedQuantityStatement->execute([
+    "romaneio_id" => $loading["romaneio_id"],
+    "truck_id" => $loading["truck_id"],
+]);
+$loadingPlannedQuantity = (int) $loadingPlannedQuantityStatement->fetchColumn();
+$loadingDetectedQuantityStatement = $pdo->prepare(
+    "SELECT COUNT(*) FROM eventos_sensor
+     WHERE carregamento_id = :loading_id AND equipment_id = :equipment_id",
+);
+$loadingDetectedQuantityStatement->execute([
+    "loading_id" => $loadingId,
+    "equipment_id" => $loading["equipment_id"],
+]);
+$loadingDetectedQuantity = (int) $loadingDetectedQuantityStatement->fetchColumn();
+$excessReadingsStatement = $pdo->prepare(
+    "SELECT COUNT(*) FROM leituras WHERE carregamento_id = :loading_id AND result = 'EXCESSO'",
+);
+$excessReadingsStatement->execute(["loading_id" => $loadingId]);
+$excessReadingCount = (int) $excessReadingsStatement->fetchColumn();
+$excessEvidenceStatement = $pdo->prepare(
+    "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia
+     WHERE carregamento_id = :loading_id AND reason = 'EXCESSO'",
+);
+$excessEvidenceStatement->execute(["loading_id" => $loadingId]);
+$excessEvidenceCount = (int) $excessEvidenceStatement->fetchColumn();
+$hasExcess = $loadingDetectedQuantity > $loadingPlannedQuantity
+    || $excessReadingCount > 0
+    || $excessEvidenceCount > 0;
+$uncapturedExcessEvidenceStatement = $pdo->prepare(
+    "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia
+     WHERE carregamento_id = :loading_id AND reason = 'EXCESSO' AND status <> 'CAPTURADA'",
+);
+$uncapturedExcessEvidenceStatement->execute(["loading_id" => $loadingId]);
+$uncapturedExcessEvidence = (int) $uncapturedExcessEvidenceStatement->fetchColumn();
+$uncoveredExcessPassagesStatement = $pdo->prepare(
+    "SELECT COUNT(*) FROM (
+       SELECT l.sensor_event_id
+       FROM leituras l
+       WHERE l.carregamento_id = :reading_loading_id AND l.result = 'EXCESSO'
+       UNION
+       SELECT s.id AS sensor_event_id
+       FROM eventos_sensor s
+       WHERE s.carregamento_id = :event_loading_id AND s.equipment_id = :equipment_id
+         AND (SELECT COUNT(*) FROM eventos_sensor earlier
+              WHERE earlier.carregamento_id = :position_loading_id
+                AND earlier.equipment_id = :position_equipment_id
+                AND earlier.id <= s.id) > :planned_quantity
+     ) excess_passages
+     WHERE excess_passages.sensor_event_id IS NULL
+        OR NOT EXISTS (
+          SELECT 1 FROM solicitacoes_imagens_evidencia evidence
+          WHERE evidence.sensor_event_id = excess_passages.sensor_event_id
+            AND evidence.carregamento_id = :evidence_loading_id
+            AND evidence.reason = 'EXCESSO' AND evidence.status = 'CAPTURADA'
+        )",
+);
+$uncoveredExcessPassagesStatement->execute([
+    "reading_loading_id" => $loadingId,
+    "event_loading_id" => $loadingId,
+    "equipment_id" => $loading["equipment_id"],
+    "position_loading_id" => $loadingId,
+    "position_equipment_id" => $loading["equipment_id"],
+    "planned_quantity" => $loadingPlannedQuantity,
+    "evidence_loading_id" => $loadingId,
+]);
+$uncoveredExcessPassages = (int) $uncoveredExcessPassagesStatement->fetchColumn();
 if ($automatic) {
     $plannedQuantityStatement = $pdo->prepare(
         "SELECT COALESCE(SUM(ri.planned_quantity), 0)
@@ -190,13 +262,20 @@ if ($automatic) {
         ], 409);
     }
 }
-if ($hasDivergence && !in_array($user["role"], ["ADMIN_EMPRESA", "SUPERVISOR"], true)) {
+if (($hasDivergence || $hasExcess)
+    && !in_array($user["role"], ["ADMIN_EMPRESA", "SUPERVISOR"], true)) {
     $pdo->rollBack();
-    json_response(["error" => "Somente supervisores ou administradores podem finalizar uma divergência."], 403);
+    json_response(["error" => "Somente supervisores ou administradores podem autorizar divergência ou excesso."], 403);
 }
-if ($hasDivergence && $justification === "") {
+if (($hasDivergence || $hasExcess) && $justification === "") {
     $pdo->rollBack();
-    json_response(["error" => "Informe uma justificativa para finalizar com divergência."], 422);
+    json_response(["error" => "Informe uma justificativa para finalizar com divergência ou excesso."], 422);
+}
+if ($hasExcess && ($uncapturedExcessEvidence > 0 || $uncoveredExcessPassages > 0)) {
+    $pdo->rollBack();
+    json_response([
+        "error" => "Não finalize a carga com excesso antes de receber a foto Keyence de cada passagem excedente.",
+    ], 409);
 }
 
 try {
@@ -257,6 +336,22 @@ try {
                 "product_id" => (int) $divergence["product_id"],
                 "planned_quantity" => $planned,
                 "moved_quantity" => $moved,
+            ],
+        );
+    }
+    if ($hasExcess) {
+        record_operational_event(
+            $pdo,
+            $user,
+            "EXCESSO_FINALIZADO_COM_JUSTIFICATIVA",
+            "carregamento",
+            (int) $loadingId,
+            [
+                "sensor_detected" => $loadingDetectedQuantity,
+                "planned_quantity" => $loadingPlannedQuantity,
+                "excess_readings" => $excessReadingCount,
+                "captured_excess_photos" => $excessEvidenceCount - $uncapturedExcessEvidence,
+                "justification" => $justification,
             ],
         );
     }

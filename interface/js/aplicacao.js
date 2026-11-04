@@ -16,7 +16,7 @@ import { createMachineCommandQueue } from "./controladores/comandos-maquina.js?v
 import { criarRegistroTelas } from "./controladores/registro-telas.js?v=202611030005";
 import { criarTratadorAcoesNavegacao } from "./controladores/acoes-navegacao.js?v=202611030005";
 import { criarTratadorAcoesAdministracao } from "./controladores/acoes-administracao.js?v=202611030005";
-import { criarTratadorAcoesOperacionais } from "./controladores/acoes-operacionais.js?v=202611030005";
+import { criarTratadorAcoesOperacionais } from "./controladores/acoes-operacionais.js?v=202611040001";
 import { criarTratadorAcoesDiagnostico } from "./controladores/acoes-diagnostico.js?v=202611030005";
 import { criarTratadorAcoesCadastros } from "./controladores/acoes-cadastros.js?v=202611030005";
 import { criarTratadorAcoesInterface, instalarInteracoesGlobaisInterface } from "./controladores/acoes-interface.js?v=202611030005";

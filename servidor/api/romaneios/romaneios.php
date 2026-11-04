@@ -239,6 +239,58 @@ if ($_SERVER["REQUEST_METHOD"] === "PATCH") {
                 responder_json(["error" => "Aguarde o recebimento das imagens de falha antes de encerrar o romaneio."], 409);
             }
 
+            $unreviewedExcess = $pdo->prepare(
+                "SELECT COUNT(*) FROM carregamentos c
+                 WHERE c.romaneio_id = :romaneio_id AND c.company_id = :company_id
+                   AND (
+                     EXISTS (SELECT 1 FROM leituras l
+                             WHERE l.carregamento_id = c.id AND l.result = 'EXCESSO')
+                     OR EXISTS (SELECT 1 FROM solicitacoes_imagens_evidencia i
+                                WHERE i.carregamento_id = c.id AND i.reason = 'EXCESSO')
+                     OR (SELECT COUNT(*) FROM eventos_sensor s
+                         WHERE s.carregamento_id = c.id AND s.equipment_id = c.equipment_id)
+                        > (SELECT COALESCE(SUM(ri.planned_quantity), 0) FROM romaneio_itens ri
+                           WHERE ri.romaneio_id = c.romaneio_id
+                             AND (ri.truck_id = c.truck_id OR ri.truck_id IS NULL))
+                   )
+                   AND (
+                     COALESCE(TRIM(c.finish_justification), '') = ''
+                     OR NOT EXISTS (
+                       SELECT 1 FROM logs_auditoria a
+                       WHERE a.company_id = c.company_id
+                         AND a.action = 'EXCESSO_FINALIZADO_COM_JUSTIFICATIVA'
+                         AND a.entity_type = 'carregamento' AND a.entity_id = c.id
+                     )
+                   )",
+            );
+            $unreviewedExcess->execute([
+                "romaneio_id" => $romaneioId,
+                "company_id" => $companyId,
+            ]);
+            if ((int) $unreviewedExcess->fetchColumn() > 0) {
+                $pdo->rollBack();
+                responder_json([
+                    "error" => "O romaneio tem excesso sem justificativa aprovada no encerramento da carga.",
+                ], 409);
+            }
+
+            $uncapturedExcessEvidence = $pdo->prepare(
+                "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia i
+                 JOIN carregamentos c ON c.id = i.carregamento_id
+                 WHERE c.romaneio_id = :romaneio_id AND c.company_id = :company_id
+                   AND i.reason = 'EXCESSO' AND i.status <> 'CAPTURADA'",
+            );
+            $uncapturedExcessEvidence->execute([
+                "romaneio_id" => $romaneioId,
+                "company_id" => $companyId,
+            ]);
+            if ((int) $uncapturedExcessEvidence->fetchColumn() > 0) {
+                $pdo->rollBack();
+                responder_json([
+                    "error" => "Não encerre o romaneio enquanto faltar foto Keyence de uma passagem excedente.",
+                ], 409);
+            }
+
             $finish = $pdo->prepare(
                 "UPDATE romaneios SET status = 'FINALIZADO'
                  WHERE id = :id AND company_id = :company_id AND status = 'EM_ANDAMENTO'",
