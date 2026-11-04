@@ -61,7 +61,7 @@ test("passagens em trânsito continuam vinculadas durante PAUSADO e falhas sem l
   assert.match(equipmentGatewayApi, /state IN \('CARREGANDO', 'FINALIZANDO', 'PAUSADO'\)/);
   assert.match(keyenceWorkerApi, /state IN \('CARREGANDO', 'FINALIZANDO', 'PAUSADO'\)/);
   assert.match(sensorEventsApi, /state IN \('CARREGANDO', 'FINALIZANDO', 'PAUSADO'\)/);
-  assert.match(sensorEventsApi, /'SEM_LEITURA'/);
+  assert.match(sensorEventsApi, /["']SEM_LEITURA["']/);
   assert.match(readingsEndpoint, /\$loading\["state"\] === "PAUSADO" && !\$sensorEventId/);
 });
 

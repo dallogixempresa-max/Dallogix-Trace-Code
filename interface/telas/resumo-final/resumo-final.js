@@ -1,6 +1,6 @@
 import { button, esc } from "../../js/funcoes/html.js";
-import { dataHora, numero, relativo } from "../../js/funcoes/formato.js?v=202611030005";
-import { deviceBadge, emergencyPanel, pageHeader, physicalStateBadge, progress } from "../../js/funcoes/view.js?v=202611030005";
+import { dataHora, numero, relativo } from "../../js/funcoes/formato.js?v=202611040001";
+import { deviceBadge, emergencyPanel, pageHeader, physicalStateBadge, progress } from "../../js/funcoes/view.js?v=202611040001";
 import { rotuloEstado, rotuloOcorrencia, rotuloStatusSincronizacao } from "../../js/funcoes/rotulos.js";
 export function summary(store) {
   const data = store.state.summaryMonitoring || {
