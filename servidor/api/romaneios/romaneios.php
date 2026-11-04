@@ -36,10 +36,19 @@ if ($_SERVER["REQUEST_METHOD"] === "GET") {
                     COALESCE((SELECT SUM(ret.quantity) FROM retornos ret
                               JOIN carregamentos c3 ON c3.id = ret.carregamento_id
                               WHERE c3.romaneio_id = r.id AND c3.company_id = r.company_id), 0) AS returned_quantity,
-                    GREATEST(0,
-                      COALESCE((SELECT COUNT(*) FROM leituras l JOIN carregamentos c2 ON c2.id = l.carregamento_id WHERE c2.romaneio_id = r.id AND c2.company_id = r.company_id AND l.result IN ('VALIDO', 'SEM_LEITURA')), 0)
-                      - COALESCE((SELECT SUM(ret.quantity) FROM retornos ret JOIN carregamentos c4 ON c4.id = ret.carregamento_id WHERE c4.romaneio_id = r.id AND c4.company_id = r.company_id), 0)
-                    ) AS loaded_quantity,
+                    COALESCE((SELECT SUM(GREATEST(0,
+                      (SELECT COUNT(*) FROM leituras l JOIN carregamentos c2 ON c2.id = l.carregamento_id
+                        WHERE c2.romaneio_id = r.id AND c2.company_id = r.company_id
+                          AND l.result = 'VALIDO' AND l.product_id = ri.product_id)
+                      - COALESCE((SELECT SUM(ret.quantity) FROM retornos ret
+                                  JOIN carregamentos c4 ON c4.id = ret.carregamento_id
+                                  JOIN leituras lr ON lr.id = ret.leitura_id
+                                  WHERE c4.romaneio_id = r.id AND c4.company_id = r.company_id AND lr.product_id = ri.product_id), 0)
+                    ))
+                      FROM romaneio_itens ri
+                      WHERE ri.romaneio_id = r.id AND ri.company_id = r.company_id
+                        AND ri.id = (SELECT MIN(ri4.id) FROM romaneio_itens ri4
+                                     WHERE ri4.romaneio_id = r.id AND ri4.product_id = ri.product_id)), 0) AS loaded_quantity,
                     COALESCE((SELECT COUNT(*) FROM eventos_sensor s JOIN carregamentos c5 ON c5.id = s.carregamento_id WHERE c5.romaneio_id = r.id AND c5.company_id = r.company_id), 0) AS detected_quantity,
                     (SELECT COUNT(*) FROM carregamentos c6 WHERE c6.romaneio_id = r.id AND c6.company_id = r.company_id) AS loading_count,
                     (SELECT COUNT(*) FROM solicitacoes_imagens_evidencia i JOIN carregamentos c7 ON c7.id = i.carregamento_id WHERE c7.romaneio_id = r.id AND c7.company_id = r.company_id AND i.status IN ('PENDENTE','CAPTURANDO')) AS pending_evidence_count,
@@ -228,6 +237,58 @@ if ($_SERVER["REQUEST_METHOD"] === "PATCH") {
             if ((int) $pendingEvidence->fetchColumn() > 0) {
                 $pdo->rollBack();
                 responder_json(["error" => "Aguarde o recebimento das imagens de falha antes de encerrar o romaneio."], 409);
+            }
+
+            $unreviewedExcess = $pdo->prepare(
+                "SELECT COUNT(*) FROM carregamentos c
+                 WHERE c.romaneio_id = :romaneio_id AND c.company_id = :company_id
+                   AND (
+                     EXISTS (SELECT 1 FROM leituras l
+                             WHERE l.carregamento_id = c.id AND l.result = 'EXCESSO')
+                     OR EXISTS (SELECT 1 FROM solicitacoes_imagens_evidencia i
+                                WHERE i.carregamento_id = c.id AND i.reason = 'EXCESSO')
+                     OR (SELECT COUNT(*) FROM eventos_sensor s
+                         WHERE s.carregamento_id = c.id AND s.equipment_id = c.equipment_id)
+                        > (SELECT COALESCE(SUM(ri.planned_quantity), 0) FROM romaneio_itens ri
+                           WHERE ri.romaneio_id = c.romaneio_id
+                             AND (ri.truck_id = c.truck_id OR ri.truck_id IS NULL))
+                   )
+                   AND (
+                     COALESCE(TRIM(c.finish_justification), '') = ''
+                     OR NOT EXISTS (
+                       SELECT 1 FROM logs_auditoria a
+                       WHERE a.company_id = c.company_id
+                         AND a.action = 'EXCESSO_FINALIZADO_COM_JUSTIFICATIVA'
+                         AND a.entity_type = 'carregamento' AND a.entity_id = c.id
+                     )
+                   )",
+            );
+            $unreviewedExcess->execute([
+                "romaneio_id" => $romaneioId,
+                "company_id" => $companyId,
+            ]);
+            if ((int) $unreviewedExcess->fetchColumn() > 0) {
+                $pdo->rollBack();
+                responder_json([
+                    "error" => "O romaneio tem excesso sem justificativa aprovada no encerramento da carga.",
+                ], 409);
+            }
+
+            $uncapturedExcessEvidence = $pdo->prepare(
+                "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia i
+                 JOIN carregamentos c ON c.id = i.carregamento_id
+                 WHERE c.romaneio_id = :romaneio_id AND c.company_id = :company_id
+                   AND i.reason = 'EXCESSO' AND i.status <> 'CAPTURADA'",
+            );
+            $uncapturedExcessEvidence->execute([
+                "romaneio_id" => $romaneioId,
+                "company_id" => $companyId,
+            ]);
+            if ((int) $uncapturedExcessEvidence->fetchColumn() > 0) {
+                $pdo->rollBack();
+                responder_json([
+                    "error" => "Não encerre o romaneio enquanto faltar foto Keyence de uma passagem excedente.",
+                ], 409);
             }
 
             $finish = $pdo->prepare(

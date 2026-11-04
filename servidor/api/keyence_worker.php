@@ -54,7 +54,7 @@ if ($action === "STATUS") {
 if ($action === "PENDING_IMAGES") {
     expirar_solicitacoes_imagem_keyence($pdo, (int) $device["equipment_id"]);
     $statement = $pdo->prepare(
-        "SELECT r.id, r.sensor_event_id, r.status,
+        "SELECT r.id, r.sensor_event_id, r.status, r.reason,
                 CAST(ROUND(UNIX_TIMESTAMP(r.requested_at) * 1000) AS UNSIGNED) AS requested_at_epoch_ms,
                 s.device_detected_at,
                 CAST(ROUND(UNIX_TIMESTAMP(s.detected_at) * 1000) AS UNSIGNED) AS server_detected_at_epoch_ms
@@ -62,7 +62,7 @@ if ($action === "PENDING_IMAGES") {
          JOIN carregamentos c ON c.id = r.carregamento_id
          JOIN eventos_sensor s ON s.id = r.sensor_event_id AND s.carregamento_id = r.carregamento_id
          WHERE r.equipment_id = :equipment_id AND c.company_id = :company_id
-           AND r.reason = 'SEM_LEITURA'
+           AND r.reason IN ('SEM_LEITURA', 'EXCESSO')
            AND (r.status IN ('PENDENTE', 'ERRO') OR
                 (r.status = 'CAPTURADA' AND r.requested_at >= NOW(3) - INTERVAL 10 MINUTE))
          ORDER BY CASE WHEN r.status = 'CAPTURADA' THEN 1 ELSE 0 END,
@@ -154,9 +154,9 @@ try {
         "company_id" => $device["company_id"],
     ]);
     $capture = $requestStatement->fetch(PDO::FETCH_ASSOC);
-    if (!$capture || $capture["reason"] !== "SEM_LEITURA") {
+    if (!$capture || !in_array($capture["reason"], ["SEM_LEITURA", "EXCESSO"], true)) {
         $pdo->rollBack();
-        json_response(["error" => "Solicitação de evidência sem leitura não encontrada para esta Dala."], 404);
+        json_response(["error" => "Solicitação de evidência não encontrada para esta Dala."], 404);
     }
     if ($capture["status"] === "CAPTURADA") {
         $pdo->commit();
@@ -166,19 +166,23 @@ try {
         $pdo->rollBack();
         json_response(["error" => "A solicitação não está mais disponível para a imagem Keyence."], 409);
     }
+    $readingResults = $capture["reason"] === "EXCESSO" ? ["EXCESSO", "SEM_LEITURA"] : ["SEM_LEITURA"];
+    $readingPlaceholders = implode(",", array_fill(0, count($readingResults), "?"));
     $readingStatement = $pdo->prepare(
         "SELECT id FROM leituras
-         WHERE sensor_event_id = :sensor_event_id AND carregamento_id = :loading_id
-           AND company_id = :company_id AND result = 'SEM_LEITURA'
+         WHERE sensor_event_id = ? AND carregamento_id = ?
+           AND company_id = ? AND result IN ({$readingPlaceholders})
          LIMIT 1",
     );
     $readingStatement->execute([
-        "sensor_event_id" => (int) $capture["sensor_event_id"],
-        "loading_id" => (int) $capture["carregamento_id"],
-        "company_id" => (int) $capture["company_id"],
+        (int) $capture["sensor_event_id"],
+        (int) $capture["carregamento_id"],
+        (int) $capture["company_id"],
+        ...$readingResults,
     ]);
-    $readingId = (int) ($readingStatement->fetchColumn() ?: 0);
-    if ($readingId < 1) {
+    $readingIdValue = $readingStatement->fetchColumn();
+    $readingId = $readingIdValue === false ? null : (int) $readingIdValue;
+    if ($readingId === null && $capture["reason"] !== "EXCESSO") {
         $pdo->rollBack();
         json_response(["error" => "A passagem sem leitura ainda não está registrada no Trace."], 409);
     }
@@ -228,7 +232,7 @@ try {
 
     $image = $pdo->prepare(
         "INSERT INTO imagens (company_id, carregamento_id, equipment_id, reading_id, path, reason, captured_at)
-         VALUES (:company_id, :carregamento_id, :equipment_id, :reading_id, :path, 'SEM_LEITURA', {$capturedAtExpression})",
+         VALUES (:company_id, :carregamento_id, :equipment_id, :reading_id, :path, :reason, {$capturedAtExpression})",
     );
     $imageParameters = [
         "company_id" => $device["company_id"],
@@ -236,6 +240,7 @@ try {
         "equipment_id" => $device["equipment_id"],
         "reading_id" => $readingId,
         "path" => $storedPath,
+        "reason" => $capture["reason"],
     ];
     if ($capturedAtEpochMs !== null) {
         $imageParameters["captured_at_epoch_ms"] = $capturedAtEpochMs;
@@ -269,6 +274,7 @@ try {
             "equipment_id" => (int) $device["equipment_id"],
             "device_id" => (int) $device["id"],
             "source" => "KEYENCE_SR_X100W",
+            "reason" => (string) $capture["reason"],
             ...($sourceFileName !== "" ? ["source_file_name" => $sourceFileName] : []),
             "sha256" => $sha256,
             "bytes" => $bytes,

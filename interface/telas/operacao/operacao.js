@@ -1,8 +1,8 @@
 import { button, esc } from "../../js/funcoes/html.js";
-import { numero } from "../../js/funcoes/formato.js?v=202609201000";
-import { rotuloComando, rotuloEstado } from "../../js/funcoes/rotulos.js?v=202609240001";
-import { resolverComandoAtual } from "../../js/funcoes/estado-comando.js?v=202610130003";
-import { emergencyPanel, pageHeader } from "../../js/funcoes/view.js?v=202611030005";
+import { numero } from "../../js/funcoes/formato.js?v=202611040001";
+import { rotuloComando, rotuloEstado } from "../../js/funcoes/rotulos.js?v=202611040001";
+import { resolverComandoAtual } from "../../js/funcoes/estado-comando.js?v=202611040001";
+import { emergencyPanel, pageHeader } from "../../js/funcoes/view.js?v=202611040001";
 
 function equipmentLabel(store) {
   if (store.state.equipmentCode && store.state.equipmentCode !== "—") {
@@ -335,6 +335,7 @@ function workControls(store) {
   const itemCountLabel = `${numero(loadingItems.length)} ${loadingItems.length === 1 ? "item" : "itens"}`;
   const itemProgress = `<section class="panel work-items-panel"><div class="panel-heading"><div><h3>Itens do romaneio</h3></div><div class="work-items-summary"><small>${itemCountLabel}</small></div></div><div class="work-item-progress-list">${loadingItems.length ? loadingItems.map((item) => {
     const loaded = Number(item.loaded_quantity) || 0;
+    const noRead = Number(item.no_read_quantity) || 0;
     const planned = Number(item.planned_quantity) || 0;
     const remainingValue = item.remaining_quantity === null || item.remaining_quantity === undefined
       ? Math.max(0, planned - loaded)
@@ -351,7 +352,7 @@ function workControls(store) {
     const remainingText = planned > 0 && loaded > planned
       ? `Acima do previsto <strong>${numero(loaded - planned)}</strong>`
       : `Faltam validar <strong>${numero(remaining)}</strong>`;
-    return `<article class="work-item-progress-card"><div class="work-item-progress-heading"><div class="work-item-identity"><strong>${esc(item.name || "Produto")}</strong><code>${esc(item.code || "—")}</code></div><span class="badge ${status[1]}">${status[0]}</span></div><div class="work-item-progress-values"><strong>${numero(loaded)} <span>/ ${numero(planned)}</span></strong><span>${percent}%</span></div><div class="work-item-progress-track" role="progressbar" aria-label="Leituras válidas de ${esc(item.name || "produto")}" aria-valuemin="0" aria-valuemax="${planned}" aria-valuenow="${Math.min(loaded, planned)}"><i style="width:${percent}%"></i></div><div class="work-item-progress-foot"><span>Identificadas</span><span>${remainingText}</span></div></article>`;
+    return `<article class="work-item-progress-card"><div class="work-item-progress-heading"><div class="work-item-identity"><strong>${esc(item.name || "Produto")}</strong><code>${esc(item.code || "—")}</code></div><span class="badge ${status[1]}">${status[0]}</span></div><div class="work-item-progress-values"><strong>${numero(loaded)} <span>/ ${numero(planned)} lidas</span></strong><span>${percent}%</span></div>${noRead > 0 ? `<small class="work-item-no-read">${numero(noRead)} sem leitura de código (passou pelo sensor)</small>` : ""}<div class="work-item-progress-track" role="progressbar" aria-label="Leituras válidas de ${esc(item.name || "produto")}" aria-valuemin="0" aria-valuemax="${planned}" aria-valuenow="${Math.min(loaded, planned)}"><i style="width:${percent}%"></i></div><div class="work-item-progress-foot"><span>Identificadas</span><span>${remainingText}</span></div></article>`;
   }).join("") : '<p class="empty-cell">Nenhum item detalhado para este carregamento.</p>'}</div></section>`;
   const workTitle = store.state.romaneio && store.state.romaneio !== "—"
     ? `Romaneio #${store.state.romaneio}`
@@ -377,7 +378,10 @@ function workControls(store) {
   const noReadNotice = esteiraAtiva && unlinkedBags > 0
     ? `<p class="work-completion-notice excess" data-live="no-read-notice">${numero(unlinkedBags)} saca${unlinkedBags === 1 ? "" : "s"} detectada${unlinkedBags === 1 ? "" : "s"} sem código válido associado.</p>`
     : `<p class="work-completion-notice excess" data-live="no-read-notice" hidden></p>`;
-  const totalSummary = `<section class="work-live-summary" aria-label="Contagem e progresso do carregamento"><div class="work-live-summary-heading"><strong>Sacas detectadas pelo sensor</strong><span><b data-live="detected">${numero(detectedBags)}</b> / <b data-live="planned">${numero(plannedTotal)}</b> previstas · <span data-live="progress-percent">${totalPercent}%</span> · <b data-live="loaded">${numero(validReadings)}</b> códigos válidos</span></div><div class="progress work-live-progress" role="progressbar" aria-label="Progresso de sacas detectadas pelo sensor M2052" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${totalPercent}"><i data-live="progress-bar" style="width:${totalPercent}%"></i></div><div class="work-live-summary-foot"><span data-live="remaining-label">${remainingLabel}</span></div><p class="work-completion-notice ${endNoticeTone}" data-live="end-notice"${endNotice ? "" : " hidden"}>${endNotice}</p>${noReadNotice}${scannerMonitor}</section>`;
+  const excessEvidenceLabel = `${numero(store.state.excessEvidenceCaptured || 0)} de ${numero(store.state.excessEvidenceRequests || 0)} com foto` +
+    (Number(store.state.excessEvidencePending) > 0 ? ` · ${numero(store.state.excessEvidencePending)} pendente(s)` : "") +
+    (Number(store.state.excessEvidenceFailed) > 0 ? ` · ${numero(store.state.excessEvidenceFailed)} falha(s)` : "");
+  const totalSummary = `<section class="work-live-summary" aria-label="Contagem e progresso do carregamento"><div class="work-live-summary-heading"><strong>Sacas detectadas pelo sensor</strong><span><b data-live="detected">${numero(detectedBags)}</b> / <b data-live="planned">${numero(plannedTotal)}</b> previstas · <span data-live="progress-percent">${totalPercent}%</span></span></div><div class="work-live-summary-foot"><span>Scanner: <b data-live="scanner-readings">${numero(store.state.scannerReadings || 0)}</b> sacas com código · Excesso com foto: <b data-live="excess-evidence">${excessEvidenceLabel}</b></span></div><div class="progress work-live-progress" role="progressbar" aria-label="Progresso de sacas detectadas pelo sensor M2052" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${totalPercent}"><i data-live="progress-bar" style="width:${totalPercent}%"></i></div><div class="work-live-summary-foot"><span data-live="remaining-label">${remainingLabel}</span> · <b>${numero(validReadings)}</b> leituras válidas</div><p class="work-completion-notice ${endNoticeTone}" data-live="end-notice"${endNotice ? "" : " hidden"}>${endNotice}</p>${noReadNotice}${scannerMonitor}</section>`;
   const panelHeading = estadoOperacional === "EMERGENCIA"
     ? ""
     : `<div class="panel-heading"><div><span class="kicker">Comandos da máquina</span><h3>Operar Dala</h3></div>${summaryAction ? `<div class="work-machine-heading-actions">${summaryAction}</div>` : ""}</div>`;

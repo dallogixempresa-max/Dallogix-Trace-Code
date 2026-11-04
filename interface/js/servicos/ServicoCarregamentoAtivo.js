@@ -87,7 +87,7 @@ export class ServicoCarregamentoAtivo {
     return result.data;
   }
 
-  async finishLoading(loadingId, justification = "") {
+  async finishLoading(loadingId, justification = "", automatic = false) {
     if (!loadingId) {
       throw new Error("Nenhum carregamento ativo encontrado.");
     }
@@ -95,7 +95,7 @@ export class ServicoCarregamentoAtivo {
     const response = await this.api.fetch("/api/encerrar_carregamento.php", {
       method: "POST",
       headers: this.jsonHeaders(),
-      body: JSON.stringify({ carregamento_id: loadingId, justification }),
+      body: JSON.stringify({ carregamento_id: loadingId, justification, automatic }),
     });
     const result = await this.jsonResponse(response, "Não foi possível finalizar o carregamento.");
     this.state.operationalState = "FINALIZADO";
@@ -180,6 +180,11 @@ export class ServicoCarregamentoAtivo {
       this.state.returnMode = false;
       this.state.loaded = 0;
       this.state.detectedBags = 0;
+      this.state.scannerReadings = 0;
+      this.state.excessEvidenceRequests = 0;
+      this.state.excessEvidenceCaptured = 0;
+      this.state.excessEvidencePending = 0;
+      this.state.excessEvidenceFailed = 0;
       this.state.planned = 0;
       this.state.running = false;
       this.state.emergency = false;
@@ -221,6 +226,11 @@ export class ServicoCarregamentoAtivo {
     this.state.planned = Number(loading.planned_quantity) || 0;
     this.state.loaded = Number(loading.valid_readings) || 0;
     this.state.detectedBags = Number(loading.detected_bags) || 0;
+    this.state.scannerReadings = Number(loading.scanner_readings) || 0;
+    this.state.excessEvidenceRequests = Number(loading.excess_evidence_requests) || 0;
+    this.state.excessEvidenceCaptured = Number(loading.excess_evidence_captured) || 0;
+    this.state.excessEvidencePending = Number(loading.excess_evidence_pending) || 0;
+    this.state.excessEvidenceFailed = Number(loading.excess_evidence_failed) || 0;
     this.state.latestScannerReading = loading.last_scanner_read_at
       ? {
           barcode: String(loading.last_scanner_barcode || ""),

@@ -235,7 +235,7 @@ test("integra SCANNER, fila SEM_LEITURA, imagem do Keyence e limpeza depois do P
   assert.match(worker, /prazo_de_associacao_expirado/);
   assert.match(worker, /sem_solicitacao_compativel/);
   assert.match(worker, /api_rejeitou_imagem/);
-  assert.match(imageEndpoint, /r\.reason = 'SEM_LEITURA'/);
+  assert.match(imageEndpoint, /r\.reason IN \('SEM_LEITURA', 'EXCESSO'\)/);
   assert.match(imageEndpoint, /KEYENCE_IMAGEM_EVIDENCIA_RECEBIDA/);
   assert.match(imageEndpoint, /captured_at_epoch_ms/);
   assert.match(imageEndpoint, /sensor_detected_at_epoch_ms/);

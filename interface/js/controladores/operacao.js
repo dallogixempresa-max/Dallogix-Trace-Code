@@ -1,6 +1,6 @@
 import { esc } from "../funcoes/html.js";
-import { produtosDisponiveisParaRomaneio } from "../funcoes/romaneio.js?v=202610190001";
-import { renderStatusDala } from "../funcoes/status-dala.js?v=202610160004";
+import { produtosDisponiveisParaRomaneio } from "../funcoes/romaneio.js?v=202611040001";
+import { renderStatusDala } from "../funcoes/status-dala.js?v=202611040001";
 
 export function operationStructureSignature(state, clpAvailable) {
   const unselectedLoadings = state.selectedLoadingId
@@ -21,6 +21,11 @@ export function operationStructureSignature(state, clpAvailable) {
   return JSON.stringify([
     state.selectedLoadingId || null,
     state.loadingId || null,
+    state.scannerReadings || 0,
+    state.excessEvidenceRequests || 0,
+    state.excessEvidenceCaptured || 0,
+    state.excessEvidencePending || 0,
+    state.excessEvidenceFailed || 0,
     (state.activeLoadings || []).length,
     unselectedLoadings,
     state.emergency,

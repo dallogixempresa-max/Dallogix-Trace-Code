@@ -1,16 +1,16 @@
-import { OfflineOperationBuffer, secureRandomId } from "./OfflineOperationBuffer.js?v=202610190032";
-import { ClienteApi, erroRespostaHttp } from "../api/ClienteApi.js?v=202610140003";
-import { ServicoSincronizacao } from "../servicos/ServicoSincronizacao.js?v=202610290001";
-import { ServicoDalas } from "../servicos/ServicoDalas.js?v=202610190001";
-import { ServicoObservabilidade } from "../servicos/ServicoObservabilidade.js?v=202611030001";
-import { ServicoCarregamentoAtivo } from "../servicos/ServicoCarregamentoAtivo.js?v=202611030002";
-import { ServicoComandosMaquina } from "../servicos/ServicoComandosMaquina.js?v=202610190029";
-import { ServicoLeiturasOperacionais } from "../servicos/ServicoLeiturasOperacionais.js?v=202611030003";
-import { resolverComandoAtual } from "../funcoes/estado-comando.js?v=202610130003";
+import { OfflineOperationBuffer, secureRandomId } from "./OfflineOperationBuffer.js?v=202611040001";
+import { ClienteApi, erroRespostaHttp } from "../api/ClienteApi.js?v=202611040001";
+import { ServicoSincronizacao } from "../servicos/ServicoSincronizacao.js?v=202611040001";
+import { ServicoDalas } from "../servicos/ServicoDalas.js?v=202611040001";
+import { ServicoObservabilidade } from "../servicos/ServicoObservabilidade.js?v=202611040001";
+import { ServicoCarregamentoAtivo } from "../servicos/ServicoCarregamentoAtivo.js?v=202611040001";
+import { ServicoComandosMaquina } from "../servicos/ServicoComandosMaquina.js?v=202611040001";
+import { ServicoLeiturasOperacionais } from "../servicos/ServicoLeiturasOperacionais.js?v=202611040001";
+import { resolverComandoAtual } from "../funcoes/estado-comando.js?v=202611040001";
 import {
   buscarTodasPaginas,
   validarCursorPaginacao as validarCursorPaginacaoApi,
-} from "../funcoes/paginacao-api.js?v=202610190044";
+} from "../funcoes/paginacao-api.js?v=202611040001";
 
 const LIMITE_IDADE_MONITORAMENTO_OPERACIONAL_MS = 6000;
 
@@ -20,6 +20,11 @@ export class ArmazenamentoTrace {
       page: "manifests",
       loaded: 0,
       detectedBags: 0,
+      scannerReadings: 0,
+      excessEvidenceRequests: 0,
+      excessEvidenceCaptured: 0,
+      excessEvidencePending: 0,
+      excessEvidenceFailed: 0,
       latestScannerReading: null,
       planned: 0,
       running: false,
@@ -204,7 +209,7 @@ export class ArmazenamentoTrace {
   obterServicoRomaneios() {
     return this.obterServicoSobDemanda(
       "servicoRomaneios",
-      () => import("../servicos/ServicoRomaneios.js?v=202610290001"),
+      () => import("../servicos/ServicoRomaneios.js?v=202611040001"),
       ({ ServicoRomaneios }) => new ServicoRomaneios({
         api: this.api,
         state: this.state,
@@ -218,7 +223,7 @@ export class ArmazenamentoTrace {
   obterServicoCatalogoProdutos() {
     return this.obterServicoSobDemanda(
       "servicoCatalogoProdutos",
-      () => import("../servicos/ServicoCatalogoProdutos.js?v=202610190050"),
+      () => import("../servicos/ServicoCatalogoProdutos.js?v=202611040001"),
       ({ ServicoCatalogoProdutos }) => new ServicoCatalogoProdutos({
         api: this.api,
         state: this.state,
@@ -231,7 +236,7 @@ export class ArmazenamentoTrace {
   obterServicoAdministracaoContas() {
     return this.obterServicoSobDemanda(
       "servicoAdministracaoContas",
-      () => import("../servicos/ServicoAdministracaoContas.js?v=202610190050"),
+      () => import("../servicos/ServicoAdministracaoContas.js?v=202611040001"),
       ({ ServicoAdministracaoContas }) => new ServicoAdministracaoContas({
         api: this.api,
         state: this.state,
@@ -245,7 +250,7 @@ export class ArmazenamentoTrace {
   obterServicoInstalacoesIndustriais() {
     return this.obterServicoSobDemanda(
       "servicoInstalacoesIndustriais",
-      () => import("../servicos/ServicoInstalacoesIndustriais.js?v=202610290001"),
+      () => import("../servicos/ServicoInstalacoesIndustriais.js?v=202611040001"),
       ({ ServicoInstalacoesIndustriais }) => new ServicoInstalacoesIndustriais({
         api: this.api,
         state: this.state,
@@ -258,7 +263,7 @@ export class ArmazenamentoTrace {
   obterServicoAcoesDala() {
     return this.obterServicoSobDemanda(
       "servicoAcoesDala",
-      () => import("../servicos/ServicoAcoesDala.js?v=202610190051"),
+      () => import("../servicos/ServicoAcoesDala.js?v=202611040001"),
       ({ ServicoAcoesDala }) => new ServicoAcoesDala({
         api: this.api,
         state: this.state,
@@ -592,10 +597,11 @@ export class ArmazenamentoTrace {
   unlockMachine() {
     return this.servicoCarregamentoAtivo.unlockMachine();
   }
-  finishLoading(justification = "") {
+  finishLoading(justification = "", automatic = false) {
     return this.servicoCarregamentoAtivo.finishLoading(
       this.state.loadingId,
       justification,
+      automatic,
     );
   }
   async loadPendingReadings(page = this.state.pendingReadingsPage) {

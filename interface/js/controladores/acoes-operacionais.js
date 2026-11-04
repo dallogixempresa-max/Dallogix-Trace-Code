@@ -179,23 +179,30 @@ export function criarTratadorAcoesOperacionais({
       const hasItemDivergence = (store.state.loadingItems || []).some((item) =>
         Number(item.loaded_quantity || 0) !== Number(item.planned_quantity || 0),
       );
+      const hasExcess = Number(store.state.detectedBags || 0) > Number(store.state.planned || 0)
+        || Number(store.state.excessEvidenceRequests || 0) > 0;
+      const requiresSupervisorReview = hasItemDivergence || hasExcess;
       const canAuthorizeDivergence = ["ADMIN_EMPRESA", "SUPERVISOR"].includes(
         String(store.state.userRole || "").toUpperCase(),
       );
-      if (hasItemDivergence && !canAuthorizeDivergence) {
+      if (requiresSupervisorReview && !canAuthorizeDivergence) {
         notificarForaDaOperacao(
-          "Há produto sem identificação ou com quantidade divergente. Um supervisor ou administrador precisa encerrar o carregamento com justificativa.",
+          hasExcess
+            ? "Foi registrado excesso. Um supervisor ou administrador precisa conferir a foto e autorizar o encerramento com justificativa."
+            : "Há produto sem identificação ou com quantidade divergente. Um supervisor ou administrador precisa encerrar o carregamento com justificativa.",
           "aviso",
         );
         return;
       }
-      const justification = hasItemDivergence
+      const justification = requiresSupervisorReview
         ? await solicitarTexto(
-          "Justificativa obrigatória para finalizar com divergência:",
+          hasExcess
+            ? "Justificativa obrigatória após conferir a evidência do excesso:"
+            : "Justificativa obrigatória para finalizar com divergência:",
           { obrigatorio: true, multilinha: true },
         ) || ""
         : "";
-      if (hasItemDivergence && !justification.trim()) return;
+      if (requiresSupervisorReview && !justification.trim()) return;
       const result = await store.finishLoading(justification.trim());
       if (result?.romaneio_pronto_para_encerrar && result.romaneio_id) {
         await store.loadManifest(result.romaneio_id);

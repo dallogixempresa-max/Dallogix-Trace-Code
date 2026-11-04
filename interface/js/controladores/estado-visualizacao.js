@@ -1,8 +1,8 @@
-import { apresentacaoConectividadePc, apresentacaoStatusDispositivo, renderStatusDalaBinario, resumoStatusDispositivos } from "../../telas/configuracoes/configuracoes.js?v=202610300002";
-import { operationStructureSignature, renderDalaStatuses } from "./operacao.js?v=202611030002";
-import { numero, relativo, dataHora } from "../funcoes/formato.js?v=202609201000";
+import { apresentacaoConectividadePc, apresentacaoStatusDispositivo, renderStatusDalaBinario, resumoStatusDispositivos } from "../../telas/configuracoes/configuracoes.js?v=202611040001";
+import { operationStructureSignature, renderDalaStatuses } from "./operacao.js?v=202611040001";
+import { numero, relativo, dataHora } from "../funcoes/formato.js?v=202611040001";
 import { el } from "../funcoes/html.js";
-import { refreshCompanyStatusCards } from "../funcoes/view.js?v=202610290001";
+import { refreshCompanyStatusCards } from "../funcoes/view.js?v=202611040001";
 
 /** Mantém as regiões de estado sincronizadas sem recriar formulários ou a tela toda. */
 export function createLiveViewController({
@@ -48,6 +48,10 @@ export function createLiveViewController({
       planned: numero(planned),
       detected: numero(detectedBags),
       loaded: numero(validReadings),
+      "scanner-readings": numero(store.state.scannerReadings || 0),
+      "excess-evidence": `${numero(store.state.excessEvidenceCaptured || 0)} de ${numero(store.state.excessEvidenceRequests || 0)} com foto` +
+        (Number(store.state.excessEvidencePending) > 0 ? ` · ${numero(store.state.excessEvidencePending)} pendente(s)` : "") +
+        (Number(store.state.excessEvidenceFailed) > 0 ? ` · ${numero(store.state.excessEvidenceFailed)} falha(s)` : ""),
       "remaining-label": planned <= 0
         ? "Quantidade prevista não informada"
         : remaining === 0

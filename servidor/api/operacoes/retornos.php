@@ -49,9 +49,12 @@ try {
         $pdo->rollBack();
         json_response(["error" => "O carregamento não aceita novos retornos neste estado."], 409);
     }
+    // Retorna uma saca lida (VALIDO) ou uma passagem do sensor sem código
+    // (SEM_LEITURA ligada ao evento), para que a retirada após a meta fique registrada.
     $valid = $pdo->prepare("SELECT l.id, l.product_id, l.barcode FROM leituras l
         WHERE l.id = :reading_id AND l.carregamento_id = :loading_id AND l.company_id = :company_id
-          AND l.result = 'VALIDO' AND NOT EXISTS (SELECT 1 FROM retornos r WHERE r.leitura_id = l.id)
+          AND (l.result = 'VALIDO' OR (l.result = 'SEM_LEITURA' AND l.sensor_event_id IS NOT NULL))
+          AND NOT EXISTS (SELECT 1 FROM retornos r WHERE r.leitura_id = l.id)
         LIMIT 1 FOR UPDATE");
     $valid->execute(["reading_id" => $readingId, "loading_id" => $loadingId, "company_id" => $user["company_id"]]);
     $reading = $valid->fetch();

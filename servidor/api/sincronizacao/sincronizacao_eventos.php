@@ -224,6 +224,7 @@ try {
             "ROMANEIO_CRIADO",
             "ROMANEIO_ATUALIZADO",
             "ROMANEIO_CANCELADO",
+            "ROMANEIO_FINALIZADO",
             "CARREGAMENTO_PREPARADO",
             "CARREGAMENTO_DALA_DESVINCULADO",
             "CARREGAMENTO_DALA_VINCULADO",
@@ -350,6 +351,20 @@ try {
             }
         }
 
+        if ($action === "ROMANEIO_FINALIZADO") {
+            $sourceManifestId = filter_var($data["source_romaneio_id"] ?? $entityId, FILTER_VALIDATE_INT);
+            $remoteManifestId = filter_var($data["remote_romaneio_id"] ?? null, FILTER_VALIDATE_INT);
+            if ($sourceManifestId === false || (int) $sourceManifestId < 1) {
+                throw new RuntimeException("Identificador do romaneio finalizado é inválido.");
+            }
+            $manifestEventsRepository->finalizarRomaneio(
+                $companyId,
+                (int) $sourceManifestId,
+                $remoteManifestId !== false && $remoteManifestId !== null && (int) $remoteManifestId > 0
+                    ? (int) $remoteManifestId : null,
+            );
+        }
+
         if ($action === "ESTADO_CARREGAMENTO_ALTERADO") {
             $remoteLoadingId = filter_var($data["remote_carregamento_id"] ?? null, FILTER_VALIDATE_INT);
             $state = strtoupper(trim((string) ($data["state"] ?? "")));
@@ -376,11 +391,16 @@ try {
             );
             if ($loadingId !== null) {
                 $loadingEventsRepository->finalizar($companyId, $loadingId);
+                $manifestFinalized = array_key_exists("romaneio_finalizado", $data)
+                    ? filter_var($data["romaneio_finalizado"], FILTER_VALIDATE_BOOLEAN)
+                    : (array_key_exists("romaneio_pronto_para_encerrar", $data)
+                        ? filter_var($data["romaneio_pronto_para_encerrar"], FILTER_VALIDATE_BOOLEAN)
+                        : null);
                 $manifestEventsRepository->sincronizarStatusCarregamento(
                     $companyId,
                     $loadingId,
                     "FINALIZADO",
-                    filter_var($data["romaneio_finalizado"] ?? false, FILTER_VALIDATE_BOOLEAN),
+                    $manifestFinalized,
                 );
                 $entityId = $loadingId;
             }

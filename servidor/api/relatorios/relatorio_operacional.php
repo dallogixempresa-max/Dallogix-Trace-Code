@@ -60,8 +60,8 @@ $statement = $pdo->prepare(
             GROUP BY romaneio_id
         ), leituras_por_resultado AS (
             SELECT c.romaneio_id,
-                   SUM(l.result IN ('VALIDO', 'SEM_LEITURA')) AS loaded_quantity,
-                   SUM(l.result = 'SEM_LEITURA') AS no_readings,
+                   SUM(l.result = 'VALIDO') AS loaded_quantity,
+                   SUM(l.result = 'SEM_LEITURA' AND NOT EXISTS (SELECT 1 FROM retornos rt WHERE rt.leitura_id = l.id)) AS no_readings,
                    SUM(l.result = 'PRODUTO_INCORRETO') AS wrong_products
             FROM leituras l
             JOIN carregamentos c ON c.id = l.carregamento_id
