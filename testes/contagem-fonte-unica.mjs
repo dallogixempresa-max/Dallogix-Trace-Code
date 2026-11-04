@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const readingsEndpoint = await readFile(new URL("../servidor/api/operacoes/leituras.php", import.meta.url), "utf8");
@@ -37,7 +38,15 @@ test("telas contam só leituras VALIDO como lidas; sem leitura fica fora", () =>
 test("relatório operacional conta só lidas; sem leitura vem na coluna própria", async () => {
   const operacional = await readFile(new URL("../servidor/api/relatorios/relatorio_operacional.php", import.meta.url), "utf8");
   assert.match(operacional, /SUM\(l\.result = .VALIDO.\) AS loaded_quantity/);
-  assert.match(operacional, /SUM\(l\.result = .SEM_LEITURA.\) AS no_readings/);
+  assert.match(operacional, /SUM\(l\.result = .SEM_LEITURA. AND NOT EXISTS \(SELECT 1 FROM retornos rt WHERE rt\.leitura_id = l\.id\)\) AS no_readings/);
+});
+
+test("retirada de passagem sem código entra por retornos e sai da contagem sem leitura", () => {
+  const retornos = readFileSync(new URL("../servidor/api/operacoes/retornos.php", import.meta.url), "utf8");
+  const monitoramento = readFileSync(new URL("../servidor/src/Persistencia/RepositorioMonitoramento.php", import.meta.url), "utf8");
+  assert.match(retornos, /l\.result = .VALIDO. OR \(l\.result = .SEM_LEITURA. AND l\.sensor_event_id IS NOT NULL\)/);
+  assert.equal((monitoramento.match(/NOT EXISTS \(SELECT 1 FROM retornos r WHERE r\.leitura_id = l\.id\)/g) || []).length, 2);
+
 });
 
 test("PDF de auditoria: Movido conta só lidas e Sem leitura é coluna própria", () => {

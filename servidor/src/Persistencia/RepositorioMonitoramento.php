@@ -313,6 +313,7 @@ final class RepositorioMonitoramento
                 FROM leituras l
                 WHERE l.company_id = :product_no_read_company_id
                   AND l.result = 'SEM_LEITURA' AND l.product_id IS NOT NULL
+                  AND NOT EXISTS (SELECT 1 FROM retornos r WHERE r.leitura_id = l.id)
                   AND l.carregamento_id IN (" . implode(", ", $productNoReadPlaceholders) . ")
                 GROUP BY l.carregamento_id, l.product_id
             ), leituras_sem_produto AS (
@@ -320,6 +321,7 @@ final class RepositorioMonitoramento
                 FROM leituras l
                 WHERE l.company_id = :no_read_company_id
                   AND l.result = 'SEM_LEITURA' AND l.product_id IS NULL
+                  AND NOT EXISTS (SELECT 1 FROM retornos r WHERE r.leitura_id = l.id)
                   AND l.carregamento_id IN (" . implode(", ", $noReadPlaceholders) . ")
                 GROUP BY l.carregamento_id
             ), produtos_planejados AS (
