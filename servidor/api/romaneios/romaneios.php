@@ -36,10 +36,19 @@ if ($_SERVER["REQUEST_METHOD"] === "GET") {
                     COALESCE((SELECT SUM(ret.quantity) FROM retornos ret
                               JOIN carregamentos c3 ON c3.id = ret.carregamento_id
                               WHERE c3.romaneio_id = r.id AND c3.company_id = r.company_id), 0) AS returned_quantity,
-                    GREATEST(0,
-                      COALESCE((SELECT COUNT(*) FROM leituras l JOIN carregamentos c2 ON c2.id = l.carregamento_id WHERE c2.romaneio_id = r.id AND c2.company_id = r.company_id AND l.result IN ('VALIDO', 'SEM_LEITURA')), 0)
-                      - COALESCE((SELECT SUM(ret.quantity) FROM retornos ret JOIN carregamentos c4 ON c4.id = ret.carregamento_id WHERE c4.romaneio_id = r.id AND c4.company_id = r.company_id), 0)
-                    ) AS loaded_quantity,
+                    COALESCE((SELECT SUM(GREATEST(0,
+                      (SELECT COUNT(*) FROM leituras l JOIN carregamentos c2 ON c2.id = l.carregamento_id
+                        WHERE c2.romaneio_id = r.id AND c2.company_id = r.company_id
+                          AND l.result = 'VALIDO' AND l.product_id = ri.product_id)
+                      - COALESCE((SELECT SUM(ret.quantity) FROM retornos ret
+                                  JOIN carregamentos c4 ON c4.id = ret.carregamento_id
+                                  JOIN leituras lr ON lr.id = ret.leitura_id
+                                  WHERE c4.romaneio_id = r.id AND c4.company_id = r.company_id AND lr.product_id = ri.product_id), 0)
+                    ))
+                      FROM romaneio_itens ri
+                      WHERE ri.romaneio_id = r.id AND ri.company_id = r.company_id
+                        AND ri.id = (SELECT MIN(ri4.id) FROM romaneio_itens ri4
+                                     WHERE ri4.romaneio_id = r.id AND ri4.product_id = ri.product_id)), 0) AS loaded_quantity,
                     COALESCE((SELECT COUNT(*) FROM eventos_sensor s JOIN carregamentos c5 ON c5.id = s.carregamento_id WHERE c5.romaneio_id = r.id AND c5.company_id = r.company_id), 0) AS detected_quantity,
                     (SELECT COUNT(*) FROM carregamentos c6 WHERE c6.romaneio_id = r.id AND c6.company_id = r.company_id) AS loading_count,
                     (SELECT COUNT(*) FROM solicitacoes_imagens_evidencia i JOIN carregamentos c7 ON c7.id = i.carregamento_id WHERE c7.romaneio_id = r.id AND c7.company_id = r.company_id AND i.status IN ('PENDENTE','CAPTURANDO')) AS pending_evidence_count,

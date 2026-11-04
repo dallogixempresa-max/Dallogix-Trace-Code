@@ -269,11 +269,13 @@ final class RepositorioMonitoramento
         $readingPlaceholders = [];
         $returnReadingPlaceholders = [];
         $noReadPlaceholders = [];
+        $productNoReadPlaceholders = [];
         $plannedItemPlaceholders = [];
         $params = [
             "company_id" => $companyId,
             "reading_company_id" => $companyId,
             "no_read_company_id" => $companyId,
+            "product_no_read_company_id" => $companyId,
             "planned_items_company_id" => $companyId,
         ];
         foreach ($loadingIds as $index => $loadingId) {
@@ -288,6 +290,9 @@ final class RepositorioMonitoramento
             $params[$returnReadingName] = $loadingId;
             $noReadName = "no_read_loading_id_{$index}";
             $noReadPlaceholders[] = ":{$noReadName}";
+            $productNoReadName = "product_no_read_loading_id_{$index}";
+            $productNoReadPlaceholders[] = ":{$productNoReadName}";
+            $params[$productNoReadName] = $loadingId;
             $params[$noReadName] = $loadingId;
             $plannedItemName = "planned_item_loading_id_{$index}";
             $plannedItemPlaceholders[] = ":{$plannedItemName}";
@@ -299,8 +304,16 @@ final class RepositorioMonitoramento
                 SELECT l.carregamento_id, l.product_id, COUNT(*) AS loaded_quantity
                 FROM leituras l
                 WHERE l.company_id = :reading_company_id
-                  AND l.result IN ('VALIDO', 'SEM_LEITURA')
+                  AND l.result = 'VALIDO'
                   AND l.carregamento_id IN (" . implode(", ", $readingPlaceholders) . ")
+                GROUP BY l.carregamento_id, l.product_id
+            ), leituras_sem_leitura AS (
+                -- Passagens do sensor sem código decodificado, já vinculadas ao produto.
+                SELECT l.carregamento_id, l.product_id, COUNT(*) AS quantity
+                FROM leituras l
+                WHERE l.company_id = :product_no_read_company_id
+                  AND l.result = 'SEM_LEITURA' AND l.product_id IS NOT NULL
+                  AND l.carregamento_id IN (" . implode(", ", $productNoReadPlaceholders) . ")
                 GROUP BY l.carregamento_id, l.product_id
             ), leituras_sem_produto AS (
                 SELECT l.carregamento_id, COUNT(*) AS quantity
@@ -329,9 +342,10 @@ final class RepositorioMonitoramento
                    SUM(ri.planned_quantity) AS planned_quantity,
                    GREATEST(0,
                      COALESCE(lv.loaded_quantity, 0)
-                     + CASE WHEN pp.quantity = 1 THEN COALESCE(lsp.quantity, 0) ELSE 0 END
                      - COALESCE(ret.returned_quantity, 0)
-                   ) AS loaded_quantity
+                   ) AS loaded_quantity,
+                   COALESCE(lsl.quantity, 0)
+                     + CASE WHEN pp.quantity = 1 THEN COALESCE(lsp.quantity, 0) ELSE 0 END AS no_read_quantity
             FROM carregamentos c
             JOIN romaneio_itens ri
               ON ri.romaneio_id = c.romaneio_id
@@ -339,13 +353,16 @@ final class RepositorioMonitoramento
             JOIN produtos p ON p.id = ri.product_id
             LEFT JOIN leituras_validas lv
               ON lv.carregamento_id = c.id AND lv.product_id = ri.product_id
+            LEFT JOIN leituras_sem_leitura lsl
+              ON lsl.carregamento_id = c.id AND lsl.product_id = ri.product_id
             LEFT JOIN retornos_por_item ret
               ON ret.carregamento_id = c.id AND ret.product_id = ri.product_id
             LEFT JOIN leituras_sem_produto lsp ON lsp.carregamento_id = c.id
             LEFT JOIN produtos_planejados pp ON pp.carregamento_id = c.id
             WHERE c.company_id = :company_id
               AND c.id IN (" . implode(", ", $loadingPlaceholders) . ")
-            GROUP BY c.id, ri.product_id, p.name, p.code, lv.loaded_quantity, ret.returned_quantity
+            GROUP BY c.id, ri.product_id, p.name, p.code, lv.loaded_quantity, ret.returned_quantity,
+                     lsl.quantity, lsp.quantity, pp.quantity
             ORDER BY c.id DESC, ri.product_id",
             $params,
         );
@@ -360,6 +377,7 @@ final class RepositorioMonitoramento
                 "code" => $item["code"],
                 "planned_quantity" => $planned,
                 "loaded_quantity" => $loaded,
+                "no_read_quantity" => (int) $item["no_read_quantity"],
                 "remaining_quantity" => max(0, $planned - $loaded),
             ];
         }

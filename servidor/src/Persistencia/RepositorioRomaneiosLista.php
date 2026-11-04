@@ -57,24 +57,31 @@ final class RepositorioRomaneiosLista
                 FROM romaneio_itens ri
                 JOIN romaneios_paginados rp ON rp.id = ri.romaneio_id
                 GROUP BY ri.romaneio_id
+            ), moved AS (
+                -- Lidas por produto: só leituras VALIDO (código decodificado), descontadas
+                -- as devoluções do produto e sem deixar a linha negativa. Passagens
+                -- SEM_LEITURA ficam fora: são sacas que passaram pelo sensor sem código e
+                -- aparecem separadas, em no_read_quantity na tela de operação.
+                SELECT ri.romaneio_id, ri.product_id,
+                       GREATEST(0,
+                           (SELECT COUNT(*) FROM leituras l
+                            JOIN carregamentos c ON c.id = l.carregamento_id
+                            WHERE c.romaneio_id = ri.romaneio_id
+                              AND l.result = 'VALIDO' AND l.product_id = ri.product_id)
+                           - COALESCE((SELECT SUM(ret.quantity) FROM retornos ret
+                                       JOIN carregamentos c ON c.id = ret.carregamento_id
+                                       JOIN leituras lr ON lr.id = ret.leitura_id
+                                       WHERE c.romaneio_id = ri.romaneio_id AND lr.product_id = ri.product_id), 0)
+                       ) AS moved_quantity
+                FROM (
+                    SELECT DISTINCT ri0.romaneio_id, ri0.product_id
+                    FROM romaneio_itens ri0
+                    JOIN romaneios_paginados rp0 ON rp0.id = ri0.romaneio_id
+                ) ri
             ), loaded AS (
-                -- Conta leituras VALIDO em vez de ler carregamentos.leituras_validas:
-                -- o contador é por carregamento, enquanto o relatório de auditoria e o
-                -- encerramento precisam do mesmo número por produto e por resultado.
-                -- Ler o contador aqui faria o total da tela deixar de bater com a soma
-                -- da coluna Movido do PDF, que é o documento de rastreabilidade.
-                SELECT c.romaneio_id, COUNT(*) AS loaded_quantity
-                FROM leituras l
-                JOIN carregamentos c ON c.id = l.carregamento_id
-                JOIN romaneios_paginados rp ON rp.id = c.romaneio_id
-                WHERE l.result = 'VALIDO'
-                GROUP BY c.romaneio_id
-            ), returned AS (
-                SELECT c.romaneio_id, SUM(r.quantity) AS returned_quantity
-                FROM retornos r
-                JOIN carregamentos c ON c.id = r.carregamento_id
-                JOIN romaneios_paginados rp ON rp.id = c.romaneio_id
-                GROUP BY c.romaneio_id
+                SELECT romaneio_id, SUM(moved_quantity) AS loaded_quantity
+                FROM moved
+                GROUP BY romaneio_id
             ), occurrences AS (
                 SELECT c.romaneio_id, COUNT(*) AS occurrences_count
                 FROM ocorrencias o
@@ -89,7 +96,7 @@ final class RepositorioRomaneiosLista
                     WHERE rt.romaneio_id = rp.id ORDER BY rt.id LIMIT 1) AS driver_name,
                    COUNT(DISTINCT rt.id) AS trucks_count,
                    COALESCE(planned.planned_quantity, 0) AS planned_quantity,
-                   GREATEST(0, COALESCE(loaded.loaded_quantity, 0) - COALESCE(returned.returned_quantity, 0)) AS loaded_quantity,
+                   COALESCE(loaded.loaded_quantity, 0) AS loaded_quantity,
                    COALESCE(occurrences.occurrences_count, 0) AS ocorrencias_count,
                    ca.id AS active_loading_id,
                    ca.state AS active_state,
@@ -98,12 +105,12 @@ final class RepositorioRomaneiosLista
             LEFT JOIN romaneio_caminhoes rt ON rt.romaneio_id = rp.id
             LEFT JOIN planned ON planned.romaneio_id = rp.id
             LEFT JOIN loaded ON loaded.romaneio_id = rp.id
-            LEFT JOIN returned ON returned.romaneio_id = rp.id
             LEFT JOIN occurrences ON occurrences.romaneio_id = rp.id
             LEFT JOIN carregamento_ativo ca
               ON ca.romaneio_id = rp.id AND ca.rn = 1
             GROUP BY rp.id, rp.number, rp.scheduled_date, rp.status, rp.expedidor,
-                     ca.id, ca.state, ca.equipment_code
+                     ca.id, ca.state, ca.equipment_code,
+                     planned.planned_quantity, loaded.loaded_quantity, occurrences.occurrences_count
             ORDER BY rp.scheduled_date DESC, rp.id DESC",
         );
         $this->bindParameters($statement, $params);

@@ -1,7 +1,7 @@
 import { button, esc } from "../../js/funcoes/html.js";
-import { numero } from "../../js/funcoes/formato.js?v=202609201000";
-import { rotuloComando, rotuloEstado } from "../../js/funcoes/rotulos.js?v=202609240001";
-import { resolverComandoAtual } from "../../js/funcoes/estado-comando.js?v=202610130003";
+import { numero } from "../../js/funcoes/formato.js?v=202611030005";
+import { rotuloComando, rotuloEstado } from "../../js/funcoes/rotulos.js?v=202611030005";
+import { resolverComandoAtual } from "../../js/funcoes/estado-comando.js?v=202611030005";
 import { emergencyPanel, pageHeader } from "../../js/funcoes/view.js?v=202611030005";
 
 function equipmentLabel(store) {
@@ -335,6 +335,7 @@ function workControls(store) {
   const itemCountLabel = `${numero(loadingItems.length)} ${loadingItems.length === 1 ? "item" : "itens"}`;
   const itemProgress = `<section class="panel work-items-panel"><div class="panel-heading"><div><h3>Itens do romaneio</h3></div><div class="work-items-summary"><small>${itemCountLabel}</small></div></div><div class="work-item-progress-list">${loadingItems.length ? loadingItems.map((item) => {
     const loaded = Number(item.loaded_quantity) || 0;
+    const noRead = Number(item.no_read_quantity) || 0;
     const planned = Number(item.planned_quantity) || 0;
     const remainingValue = item.remaining_quantity === null || item.remaining_quantity === undefined
       ? Math.max(0, planned - loaded)
@@ -351,7 +352,7 @@ function workControls(store) {
     const remainingText = planned > 0 && loaded > planned
       ? `Acima do previsto <strong>${numero(loaded - planned)}</strong>`
       : `Faltam validar <strong>${numero(remaining)}</strong>`;
-    return `<article class="work-item-progress-card"><div class="work-item-progress-heading"><div class="work-item-identity"><strong>${esc(item.name || "Produto")}</strong><code>${esc(item.code || "—")}</code></div><span class="badge ${status[1]}">${status[0]}</span></div><div class="work-item-progress-values"><strong>${numero(loaded)} <span>/ ${numero(planned)}</span></strong><span>${percent}%</span></div><div class="work-item-progress-track" role="progressbar" aria-label="Leituras válidas de ${esc(item.name || "produto")}" aria-valuemin="0" aria-valuemax="${planned}" aria-valuenow="${Math.min(loaded, planned)}"><i style="width:${percent}%"></i></div><div class="work-item-progress-foot"><span>Identificadas</span><span>${remainingText}</span></div></article>`;
+    return `<article class="work-item-progress-card"><div class="work-item-progress-heading"><div class="work-item-identity"><strong>${esc(item.name || "Produto")}</strong><code>${esc(item.code || "—")}</code></div><span class="badge ${status[1]}">${status[0]}</span></div><div class="work-item-progress-values"><strong>${numero(loaded)} <span>/ ${numero(planned)} lidas</span></strong><span>${percent}%</span></div>${noRead > 0 ? `<small class="work-item-no-read">${numero(noRead)} sem leitura de código (passou pelo sensor)</small>` : ""}<div class="work-item-progress-track" role="progressbar" aria-label="Leituras válidas de ${esc(item.name || "produto")}" aria-valuemin="0" aria-valuemax="${planned}" aria-valuenow="${Math.min(loaded, planned)}"><i style="width:${percent}%"></i></div><div class="work-item-progress-foot"><span>Identificadas</span><span>${remainingText}</span></div></article>`;
   }).join("") : '<p class="empty-cell">Nenhum item detalhado para este carregamento.</p>'}</div></section>`;
   const workTitle = store.state.romaneio && store.state.romaneio !== "—"
     ? `Romaneio #${store.state.romaneio}`

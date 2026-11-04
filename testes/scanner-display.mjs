@@ -50,7 +50,7 @@ test("visor chama o dispositivo de leitor e início não exige comando de deslig
   assert.doesNotMatch(machineCommandService, /\$reversalCommand !== "REVERSAO_DESATIVAR"/);
   const commandGate = clpFlow.find((node) => node.id === "command-safe-gate")?.func || "";
   assert.match(commandGate, /response\.reversal_command === 'REVERSAO_ATIVAR'/);
-  assert.match(commandGate, /simulated\.reversal_active === true/);
+  assert.match(commandGate, /if \(command === 'REVERSAO_ATIVAR'\) simulated\.reversal_active = true;/);
 });
 
 test("leitor continua recebendo evento pendente durante finalização do carregamento", () => {
