@@ -34,6 +34,12 @@ test("telas contam só leituras VALIDO como lidas; sem leitura fica fora", () =>
   assert.doesNotMatch(manifestList, /SUM\(c\.leituras_validas\) AS loaded_quantity/);
 });
 
+test("relatório operacional conta só lidas; sem leitura vem na coluna própria", async () => {
+  const operacional = await readFile(new URL("../servidor/api/relatorios/relatorio_operacional.php", import.meta.url), "utf8");
+  assert.match(operacional, /SUM\(l\.result = .VALIDO.\) AS loaded_quantity/);
+  assert.match(operacional, /SUM\(l\.result = .SEM_LEITURA.\) AS no_readings/);
+});
+
 test("card de produto na operação separa lidas de sem leitura", async () => {
   const monitoramento = await readFile(new URL("../servidor/src/Persistencia/RepositorioMonitoramento.php", import.meta.url), "utf8");
   assert.match(monitoramento, /leituras_validas AS \([\s\S]{0,300}?l\.result = 'VALIDO'/);
