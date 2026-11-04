@@ -487,35 +487,6 @@ if ($result === "EXCESSO") {
         ],
     );
 }
-$productQuotaStop = null;
-$currentPassages = $loadingValidCount + $loadingSemLeituraCount + ($result === "VALIDO" ? 1 : 0);
-$loadingTargetReachedOnCurrentPass = $loadingPlannedQuantity > 0 && (
-    ($physicalEventPosition !== null && $physicalEventPosition >= $loadingPlannedQuantity)
-    || ($physicalEventPosition === null && $currentPassages >= $loadingPlannedQuantity)
-);
-if ($productQuotaReached && !$loadingTargetReachedOnCurrentPass) {
-    $productQuotaStop = (new ServicoComandoClp($pdo))->solicitarParadaAoAtingirMetaProduto(
-        $usuarioAtor,
-        (int) $loadingId,
-    );
-    record_operational_event(
-        $pdo,
-        $usuarioAtor,
-        "COTA_PRODUTO_ATINGIDA",
-        "leitura",
-        $readingId,
-        [
-            "carregamento_id" => (int) $loadingId,
-            "product_id" => $productId,
-            "planned_quantity" => $productPlannedQuantity,
-            "loaded_quantity" => $productValidCount + 1,
-            "stop_reason" => $productQuotaStop["stop_reason"] ?? "COTA_PRODUTO_ATINGIDA",
-            "operator_alert" => $productQuotaStop["operator_alert"] ?? null,
-            "physical_stop_request_status" => $productQuotaStop["physical_stop_request_status"] ?? "NAO_CONFIRMADA",
-            "command_request_id" => $productQuotaStop["command_request_id"] ?? null,
-        ],
-    );
-}
 if ($sensorEventId && ($noRead || $result === "EXCESSO")) {
     $evidenceReason = $result === "EXCESSO" ? "EXCESSO" : "SEM_LEITURA";
     $evidenceRequest = $pdo->prepare(
@@ -551,7 +522,7 @@ if ($sensorEventId && ($noRead || $result === "EXCESSO")) {
     $evidenceStatus = "IMAGEM_PENDENTE_INCIDENTE";
 }
 $loadStatus = $loading["state"] === "FINALIZANDO" ? "COMPLETO" : "EM_ANDAMENTO";
-$stopDetails = $excessStop ?? $wrongProductStop ?? $productQuotaStop;
+$stopDetails = $excessStop ?? $wrongProductStop;
 $pdo->commit();
 responder_json(
     [
@@ -573,7 +544,7 @@ responder_json(
             "operator_alert" => match ($result) {
                 "EXCESSO" => $excessoAlert ?? "Quantidade excedida: mais sacas passaram do que o previsto no romaneio. Remova a unidade excedente e confirme antes de continuar.",
                 "PRODUTO_INCORRETO" => $wrongProductStop["operator_alert"] ?? "Produto fora do romaneio. Remova a unidade e confirme a parada física antes de continuar.",
-                default => $productQuotaStop["operator_alert"] ?? $loading["operator_alert"] ?? null,
+                default => $loading["operator_alert"] ?? null,
             },
         ],
     ],
