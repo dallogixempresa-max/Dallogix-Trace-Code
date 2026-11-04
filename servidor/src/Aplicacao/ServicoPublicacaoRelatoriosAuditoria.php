@@ -191,12 +191,22 @@ final class ServicoPublicacaoRelatoriosAuditoria
             || !hash_equals($snapshot["sha256"], (string) ($evidenceManifest["pdf_sha256"] ?? "")))) {
             throw new RuntimeException("Manifesto de evidências ausente ou incompatível com o PDF.");
         }
+        $reportData = [
+            "source_romaneio_id" => $romaneioId,
+            "report_path" => $snapshot["relative_path"],
+            "sha256" => $snapshot["sha256"],
+            "size_bytes" => $snapshot["size_bytes"],
+            "evidence_no_read_count" => (int) (is_array($evidenceManifest) ? ($evidenceManifest["no_read_count"] ?? 0) : 0),
+            "evidence_count" => (int) (is_array($evidenceManifest) ? ($evidenceManifest["evidence_count"] ?? 0) : 0),
+            "evidence_excess_count" => (int) (is_array($evidenceManifest) ? ($evidenceManifest["excess_count"] ?? 0) : 0),
+            "evidence_excess_evidence_count" => (int) (is_array($evidenceManifest) ? ($evidenceManifest["excess_evidence_count"] ?? 0) : 0),
+        ];
         $existing = $this->connection->prepare(
-            "SELECT 1 FROM fila_sincronizacao
+            "SELECT id, status, payload FROM fila_sincronizacao
              WHERE company_id = :company_id AND aggregate_type = 'romaneio' AND aggregate_id = :romaneio_id
                AND JSON_UNQUOTE(JSON_EXTRACT(payload, '$.action')) = :action
                AND JSON_UNQUOTE(JSON_EXTRACT(payload, '$.data.sha256')) = :sha256
-             LIMIT 1",
+             LIMIT 1 FOR UPDATE",
         );
         $existing->execute([
             "company_id" => $companyId,
@@ -204,8 +214,52 @@ final class ServicoPublicacaoRelatoriosAuditoria
             "action" => self::ACAO,
             "sha256" => $snapshot["sha256"],
         ]);
-        if ($existing->fetchColumn() !== false) {
-            return false;
+        $existingRow = $existing->fetch(PDO::FETCH_ASSOC);
+        if ($existingRow !== false) {
+            $existingPayload = json_decode((string) $existingRow["payload"], true);
+            if (!is_array($existingPayload) || !is_array($existingPayload["data"] ?? null)) {
+                throw new RuntimeException("Evento anterior do relatório está inválido.");
+            }
+            $existingData = $existingPayload["data"];
+            $metadataMatches = true;
+            foreach ([
+                "evidence_no_read_count",
+                "evidence_count",
+                "evidence_excess_count",
+                "evidence_excess_evidence_count",
+            ] as $key) {
+                $metadataMatches = $metadataMatches
+                    && array_key_exists($key, $existingData)
+                    && (int) $existingData[$key] === (int) $reportData[$key];
+            }
+            if ($metadataMatches) {
+                return false;
+            }
+            if ($existingRow["status"] === "PROCESSANDO") {
+                return false;
+            }
+            $this->copiarSnapshot(
+                $relativeReportPath,
+                $snapshot["relative_path"],
+                $snapshot["sha256"],
+            );
+            $existingPayload["data"] = array_merge($existingData, $reportData);
+            $updatedPayload = json_encode(
+                $existingPayload,
+                JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR,
+            );
+            $requeue = $this->connection->prepare(
+                "UPDATE fila_sincronizacao
+                 SET payload = :payload, status = 'PENDENTE', attempts = 0, transient_attempts = 0,
+                     last_error = NULL, available_at = NOW(), processing_started_at = NULL
+                 WHERE id = :id AND company_id = :company_id AND status <> 'PROCESSANDO'",
+            );
+            $requeue->execute([
+                "payload" => $updatedPayload,
+                "id" => (int) $existingRow["id"],
+                "company_id" => $companyId,
+            ]);
+            return $requeue->rowCount() === 1;
         }
         $this->copiarSnapshot(
             $relativeReportPath,
@@ -222,14 +276,7 @@ final class ServicoPublicacaoRelatoriosAuditoria
             self::ACAO,
             "romaneio",
             $romaneioId,
-            [
-                "source_romaneio_id" => $romaneioId,
-                "report_path" => $snapshot["relative_path"],
-                "sha256" => $snapshot["sha256"],
-                "size_bytes" => $snapshot["size_bytes"],
-                "evidence_no_read_count" => (int) (is_array($evidenceManifest) ? ($evidenceManifest["no_read_count"] ?? 0) : 0),
-                "evidence_count" => (int) (is_array($evidenceManifest) ? ($evidenceManifest["evidence_count"] ?? 0) : 0),
-            ],
+            $reportData,
         );
         return true;
     }

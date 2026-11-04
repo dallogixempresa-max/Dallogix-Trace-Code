@@ -115,6 +115,24 @@ $romaneio = $manifest->fetch();
 if (!$romaneio) {
     $respondJson(["error" => "Romaneio não encontrado."], 404);
 }
+$downloadAuditPdf = static function (string $pdfBytes) use ($apiClient, $pdo, $user, $romaneioId, $romaneio): never {
+    if (is_array($apiClient)) {
+        api_v1_registrar_download_pdf($pdo, $apiClient, (int) $romaneioId);
+    } else {
+        record_operational_event($pdo, $user, "RELATORIO_AUDITORIA_BAIXADO", "romaneio", (int) $romaneioId, []);
+    }
+    header_remove("Content-Type");
+    header("Content-Type: application/pdf");
+    header(
+        'Content-Disposition: attachment; filename="romaneio-' .
+            preg_replace("/[^A-Za-z0-9_-]/", "-", (string) $romaneio["number"]) .
+            '-auditoria.pdf"',
+    );
+    header("Cache-Control: no-store");
+    // nosemgrep: php.lang.security.injection.echoed-request.echoed-request -- Resposta binária application/pdf previamente validada; escapar corromperia o arquivo.
+    echo $pdfBytes;
+    exit();
+};
 if (!in_array($romaneio["status"], ["FINALIZADO", "CANCELADO"], true)) {
     $respondJson(
         [
@@ -130,6 +148,68 @@ $loads = $pdo->prepare('SELECT c.id, c.state, c.started_at, c.finished_at, e.nam
 $loads->execute(["id" => $romaneioId]);
 $loadRows = $loads->fetchAll();
 $loadIds = array_map(static fn(array $row): int => (int) $row["id"], $loadRows);
+// Um PDF publicado pelo PC já contém as fotos Keyence originais. O Central não
+// recebe os arquivos de imagem separadamente, então precisa servir esse PDF
+// validado antes de exigir evidências locais que só existem no PC industrial.
+$publishedNoReadCount = 0;
+$publishedExcessCount = 0;
+if ($loadIds !== []) {
+    $publishedPlaceholders = implode(",", array_fill(0, count($loadIds), "?"));
+    $publishedNoReadQuery = $pdo->prepare(
+        "SELECT COUNT(*) FROM leituras
+         WHERE carregamento_id IN ({$publishedPlaceholders}) AND result = 'SEM_LEITURA'",
+    );
+    $publishedNoReadQuery->execute($loadIds);
+    $publishedNoReadCount = (int) $publishedNoReadQuery->fetchColumn();
+    $publishedExcessQuery = $pdo->prepare(
+        "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia
+         WHERE carregamento_id IN ({$publishedPlaceholders}) AND reason = 'EXCESSO'",
+    );
+    $publishedExcessQuery->execute($loadIds);
+    $publishedExcessCount = (int) $publishedExcessQuery->fetchColumn();
+}
+$publishedStorageRoot = realpath(__DIR__ . "/../../../armazenamento");
+if ($publishedStorageRoot !== false) {
+    $publishedRelativePath = "company_" . (int) $user["company_id"] . "/reports/romaneio-" . (int) $romaneioId . "-auditoria.pdf";
+    $publishedReport = trace_image_storage_path($publishedStorageRoot, $publishedRelativePath);
+    $publishedManifest = $publishedReport === null ? null : $publishedReport . ".evidence.json";
+    if ($publishedReport !== null && $publishedManifest !== null
+        && !is_link($publishedReport) && !is_link($publishedManifest) && is_file($publishedManifest)) {
+        $publishedManifestBytes = file_get_contents($publishedManifest);
+        $publishedManifestData = is_string($publishedManifestBytes) ? json_decode($publishedManifestBytes, true) : null;
+        $publishedHash = hash_file("sha256", $publishedReport);
+        $publishedVersion = is_array($publishedManifestData) ? ($publishedManifestData["version"] ?? null) : null;
+        $publishedCountsMatch = is_array($publishedManifestData)
+            && (int) ($publishedManifestData["no_read_count"] ?? -1) === $publishedNoReadCount
+            && (int) ($publishedManifestData["evidence_count"] ?? -1) >= $publishedNoReadCount;
+        $publishedExcessMatches = is_array($publishedManifestData)
+            && (int) ($publishedManifestData["excess_count"] ?? 0) === $publishedExcessCount
+            && (int) ($publishedManifestData["excess_evidence_count"] ?? 0) >= $publishedExcessCount;
+        $publishedEvidenceValid = $publishedCountsMatch
+            && (($publishedVersion === 2 && $publishedExcessMatches)
+                // Compatibilidade com relatórios já recebidos sem contagem de excesso.
+                || ($publishedVersion === 1 && $publishedExcessCount === 0))
+            && is_string($publishedHash)
+            && hash_equals((string) ($publishedManifestData["pdf_sha256"] ?? ""), $publishedHash);
+        if ($publishedEvidenceValid) {
+            $publishedPdfBytes = file_get_contents($publishedReport);
+            if (!is_string($publishedPdfBytes) || !str_starts_with($publishedPdfBytes, "%PDF-")) {
+                $respondJson(["error" => "O PDF publicado está inválido; as evidências foram preservadas."], 503);
+            }
+            try {
+                $reportPublisher->enfileirar(
+                    (int) $user["company_id"],
+                    (int) $romaneioId,
+                    $publishedRelativePath,
+                );
+            } catch (Throwable $exception) {
+                registrar_log_erro($exception, "relatorio_auditoria_sync");
+                $respondJson(["error" => "O PDF foi preservado, mas não entrou na fila de sincronização. Refaça o download para tentar novamente."], 503);
+            }
+            $downloadAuditPdf($publishedPdfBytes);
+        }
+    }
+}
 if ($loadIds !== []) {
     expirar_solicitacoes_imagem_keyence($pdo, null, $loadIds);
     $pendingCaptures = $pdo->prepare(
