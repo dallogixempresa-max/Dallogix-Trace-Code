@@ -1,8 +1,8 @@
-import { apresentacaoConectividadePc, apresentacaoStatusDispositivo, renderStatusDalaBinario, resumoStatusDispositivos } from "../../telas/configuracoes/configuracoes.js?v=202611040001";
-import { operationStructureSignature, renderDalaStatuses } from "./operacao.js?v=202611040001";
-import { numero, relativo, dataHora } from "../funcoes/formato.js?v=202611040001";
+import { apresentacaoConectividadePc, apresentacaoStatusDispositivo, renderStatusDalaBinario, resumoStatusDispositivos } from "../../telas/configuracoes/configuracoes.js?v=202611040002";
+import { operationStructureSignature, renderDalaStatuses } from "./operacao.js?v=202611040002";
+import { numero, relativo, dataHora } from "../funcoes/formato.js?v=202611040002";
 import { el } from "../funcoes/html.js";
-import { refreshCompanyStatusCards } from "../funcoes/view.js?v=202611040001";
+import { refreshCompanyStatusCards } from "../funcoes/view.js?v=202611040002";
 
 /** Mantém as regiões de estado sincronizadas sem recriar formulários ou a tela toda. */
 export function createLiveViewController({
@@ -192,16 +192,21 @@ export function createLiveViewController({
   }
 
   function refreshStatusRefreshFeedback(root, { stale = false, staleForMs = 0 } = {}) {
-    let feedback = root.querySelector("[data-status-refresh-feedback]");
+    const feedbackHost = root.parentElement || root;
+    let feedback = [...feedbackHost.children].find((child) =>
+      child.hasAttribute("data-status-refresh-feedback"),
+    ) || root.querySelector("[data-status-refresh-feedback]");
     if (!feedback && stale) {
       feedback = document.createElement("p");
       feedback.className = "form-feedback status-refresh-feedback";
       feedback.dataset.statusRefreshFeedback = "1";
       feedback.setAttribute("role", "status");
       feedback.setAttribute("aria-live", "polite");
-      root.prepend(feedback);
     }
     if (!feedback) return;
+    if (feedback.parentElement !== feedbackHost) {
+      feedbackHost.insertBefore(feedback, root);
+    }
     feedback.textContent = stale ? statusRefreshMessage(staleForMs) : "";
     feedback.hidden = !stale;
   }

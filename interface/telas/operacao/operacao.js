@@ -1,8 +1,8 @@
 import { button, esc } from "../../js/funcoes/html.js";
-import { numero } from "../../js/funcoes/formato.js?v=202611040001";
-import { rotuloComando, rotuloEstado } from "../../js/funcoes/rotulos.js?v=202611040001";
-import { resolverComandoAtual } from "../../js/funcoes/estado-comando.js?v=202611040001";
-import { emergencyPanel, pageHeader } from "../../js/funcoes/view.js?v=202611040001";
+import { numero } from "../../js/funcoes/formato.js?v=202611040002";
+import { rotuloComando, rotuloEstado } from "../../js/funcoes/rotulos.js?v=202611040002";
+import { resolverComandoAtual } from "../../js/funcoes/estado-comando.js?v=202611040002";
+import { emergencyPanel, pageHeader } from "../../js/funcoes/view.js?v=202611040002";
 
 function equipmentLabel(store) {
   if (store.state.equipmentCode && store.state.equipmentCode !== "—") {
