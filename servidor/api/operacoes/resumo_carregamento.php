@@ -56,6 +56,37 @@ $data["sacas_retornadas"] = $count(
     ["id" => $loadingId],
 );
 $data["leituras_liquidas"] = max(0, $data["leituras_validas"] - $data["sacas_retornadas"]);
+$data["leituras_scanner"] = $count(
+    $pdo,
+    "SELECT COUNT(*) FROM leituras
+     WHERE carregamento_id = :id AND barcode IS NOT NULL
+       AND result IN ('VALIDO', 'PRODUTO_INCORRETO', 'EXCESSO')",
+    ["id" => $loadingId],
+);
+$data["excessos_detectados"] = $count(
+    $pdo,
+    "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia
+     WHERE carregamento_id = :id AND reason = 'EXCESSO'",
+    ["id" => $loadingId],
+);
+$data["excessos_com_foto"] = $count(
+    $pdo,
+    "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia
+     WHERE carregamento_id = :id AND reason = 'EXCESSO' AND status = 'CAPTURADA'",
+    ["id" => $loadingId],
+);
+$data["fotos_excesso_pendentes"] = $count(
+    $pdo,
+    "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia
+     WHERE carregamento_id = :id AND reason = 'EXCESSO' AND status IN ('PENDENTE', 'CAPTURANDO')",
+    ["id" => $loadingId],
+);
+$data["fotos_excesso_com_erro"] = $count(
+    $pdo,
+    "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia
+     WHERE carregamento_id = :id AND reason = 'EXCESSO' AND status = 'ERRO'",
+    ["id" => $loadingId],
+);
 $data["sem_leitura"] = $count(
     $pdo,
     "SELECT COUNT(*) FROM leituras WHERE carregamento_id = :id AND result = 'SEM_LEITURA'",

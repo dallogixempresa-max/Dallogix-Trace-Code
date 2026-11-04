@@ -516,20 +516,21 @@ if ($productQuotaReached && !$loadingTargetReachedOnCurrentPass) {
         ],
     );
 }
-if (
-    $noRead &&
-    $sensorEventId
-) {
+if ($sensorEventId && ($noRead || $result === "EXCESSO")) {
+    $evidenceReason = $result === "EXCESSO" ? "EXCESSO" : "SEM_LEITURA";
     $evidenceRequest = $pdo->prepare(
         'INSERT INTO solicitacoes_imagens_evidencia (sensor_event_id, carregamento_id, equipment_id, reason, requested_at)
          VALUES (:sensor_event_id, :carregamento_id, :equipment_id, :reason, NOW(3))
-         ON DUPLICATE KEY UPDATE reason = VALUES(reason), status = IF(status = \'ERRO\', \'PENDENTE\', status), requested_at = VALUES(requested_at)',
+         ON DUPLICATE KEY UPDATE
+           reason = IF(reason = \'EXCESSO\' OR VALUES(reason) = \'EXCESSO\', \'EXCESSO\', \'SEM_LEITURA\'),
+           status = IF(status = \'ERRO\', \'PENDENTE\', status),
+           requested_at = VALUES(requested_at)',
     );
     $evidenceRequest->execute([
         "sensor_event_id" => $sensorEventId,
         "carregamento_id" => $loadingId,
         "equipment_id" => $loading["equipment_id"],
-        "reason" => "SEM_LEITURA",
+        "reason" => $evidenceReason,
     ]);
     $evidenceIdStatement = $pdo->prepare(
         "SELECT id FROM solicitacoes_imagens_evidencia WHERE sensor_event_id = :sensor_event_id LIMIT 1",
@@ -542,10 +543,10 @@ if (
     record_operational_event(
         $pdo,
         $usuarioAtor,
-        "IMAGEM_EVIDENCIA_SOLICITADA",
+        $evidenceReason === "EXCESSO" ? "EXCESSO_EVIDENCIA_SOLICITADA" : "IMAGEM_EVIDENCIA_SOLICITADA",
         "evidence_request",
         $evidenceRequestId,
-        ["sensor_event_id" => $sensorEventId, "reason" => "SEM_LEITURA", "reading_result" => $result],
+        ["sensor_event_id" => $sensorEventId, "reason" => $evidenceReason, "reading_result" => $result],
     );
     $evidenceStatus = "IMAGEM_PENDENTE_INCIDENTE";
 }

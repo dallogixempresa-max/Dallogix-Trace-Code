@@ -21,6 +21,11 @@ export function operationStructureSignature(state, clpAvailable) {
   return JSON.stringify([
     state.selectedLoadingId || null,
     state.loadingId || null,
+    state.scannerReadings || 0,
+    state.excessEvidenceRequests || 0,
+    state.excessEvidenceCaptured || 0,
+    state.excessEvidencePending || 0,
+    state.excessEvidenceFailed || 0,
     (state.activeLoadings || []).length,
     unselectedLoadings,
     state.emergency,

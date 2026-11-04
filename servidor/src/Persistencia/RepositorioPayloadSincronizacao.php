@@ -78,7 +78,7 @@ final class RepositorioPayloadSincronizacao
             return $payload;
         }
 
-        if (in_array($action, ["ROMANEIO_CRIADO", "ROMANEIO_ATUALIZADO", "ROMANEIO_CANCELADO"], true)) {
+        if (in_array($action, ["ROMANEIO_CRIADO", "ROMANEIO_ATUALIZADO", "ROMANEIO_CANCELADO", "ROMANEIO_FINALIZADO"], true)) {
             $manifest = $this->buscarRomaneio($companyId, $entityId);
             if ($manifest !== null) {
                 $payload["data"] = array_merge($data, $manifest);

@@ -6,10 +6,10 @@ import { confirmarAcao, limparNotificacao, notificar, solicitarTexto } from "./c
 import { setFormFeedback } from "./componentes/form-feedback.js?v=202611030005";
 import { ServicoEmergencia } from "./servicos/ServicoEmergencia.js?v=202611030005";
 import { ServicoOperacao } from "./servicos/ServicoOperacao.js?v=202611030005";
-import { ArmazenamentoTrace } from "./classes/ArmazenamentoTrace.js?v=202611030005";
+import { ArmazenamentoTrace } from "./classes/ArmazenamentoTrace.js?v=202611040001";
 import { FORM_ACTIONS } from "./constantes/acoes.js?v=202611030005";
-import { changeOperationLoading, linhaItemRomaneio } from "./controladores/operacao.js?v=202611030005";
-import { createOperationalRealtimeController } from "./controladores/tempo-real.js?v=202611030005";
+import { changeOperationLoading, linhaItemRomaneio } from "./controladores/operacao.js?v=202611040001";
+import { createOperationalRealtimeController } from "./controladores/tempo-real.js?v=202611040001";
 import { createPageRefreshController } from "./controladores/page-refresh.js?v=202611030005";
 import { createDalaStatusRealtimeController } from "./controladores/status-dalas-tempo-real.js?v=202611030005";
 import { createMachineCommandQueue } from "./controladores/comandos-maquina.js?v=202611030005";
@@ -23,7 +23,7 @@ import { criarTratadorAcoesInterface, instalarInteracoesGlobaisInterface } from 
 import { criarTratadorAcoesRelatorios } from "./controladores/acoes-relatorios.js?v=202611030005";
 import { criarDelegacaoAcoes, criarDespachanteAcoes } from "./controladores/despachante-acoes.js?v=202611030005";
 import { criarCarregadorPaginas } from "./controladores/carregador-paginas.js?v=202611030005";
-import { createLiveViewController } from "./controladores/estado-visualizacao.js?v=202611030005";
+import { createLiveViewController } from "./controladores/estado-visualizacao.js?v=202611040001";
 import { createHidScannerCapture, isScannerNoReadMarker } from "./controladores/captura-leitor-hid.js?v=202611030005";
 import { createLocalConnectivityController } from "./controladores/conectividade-local.js?v=202611030005";
 import { bindManifestCreationForm, bindManifestEditForm } from "./controladores/formulario-romaneio.js?v=202611030005";
@@ -79,11 +79,11 @@ const registroTelas = criarRegistroTelas({
   division: () =>
     import("../telas/divisao-carga/divisao-carga.js?v=202611030005").then(({ division }) => division),
   work: () =>
-    import("../telas/operacao/operacao.js?v=202611030005").then(({ work }) => work),
+    import("../telas/operacao/operacao.js?v=202611040001").then(({ work }) => work),
   occurrences: () =>
     import("../telas/ocorrencias/ocorrencias.js?v=202611030005").then(({ occurrences }) => occurrences),
   summary: () =>
-    import("../telas/resumo-final/resumo-final.js?v=202611030005").then(({ summary }) => summary),
+    import("../telas/resumo-final/resumo-final.js?v=202611040001").then(({ summary }) => summary),
   products: () =>
     import("../telas/produtos/produtos.js?v=202611030005").then(({ products }) => products),
   alerts: () =>
@@ -273,6 +273,73 @@ async function executarComandoDeOperacao(node, action) {
   }
 }
 
+let automaticFinishInFlight = false;
+let automaticFinishAttemptedLoadingId = null;
+async function finalizarAutomaticamenteSePronto() {
+  const loadingId = Number(store.state.loadingId) || null;
+  const planned = Number(store.state.planned) || 0;
+  const items = Array.isArray(store.state.loadingItems) ? store.state.loadingItems : [];
+  if (automaticFinishAttemptedLoadingId !== loadingId) automaticFinishAttemptedLoadingId = null;
+  if (
+    currentInstallationMode !== "local"
+    || currentPage !== "work"
+    || automaticFinishInFlight
+    || !loadingId
+    || store.state.commandInFlight === true
+    || ["PENDENTE", "PROCESSANDO"].includes(String(store.state.plcCommand?.status || "").toUpperCase())
+    || ["PENDENTE", "PROCESSANDO"].includes(String(store.state.commandIntent?.status || "").toUpperCase())
+    || store.state.operationalState !== "PAUSADO"
+    || store.state.stopReason
+    || planned < 1
+    || Number(store.state.detectedBags) !== planned
+    || Number(store.state.loaded) !== planned
+    || items.length === 0
+    || !items.every((item) => Number(item.planned_quantity) > 0
+      && Number(item.loaded_quantity) === Number(item.planned_quantity))
+    || automaticFinishAttemptedLoadingId === loadingId
+  ) return;
+
+  automaticFinishInFlight = true;
+  try {
+    await store.loadSummaryMonitoring();
+    if (currentPage !== "work" || Number(store.state.loadingId) !== loadingId) return;
+    const summary = store.state.summaryMonitoring?.carregamento || {};
+    const ready = Number(summary.sacas_detectadas) === planned
+      && Number(summary.leituras_scanner) === planned
+      && Number(summary.leituras_liquidas) === planned
+      && Number(summary.leituras_validas) === planned
+      && Number(summary.sacas_retornadas) === 0
+      && Number(summary.sem_leitura) === 0
+      && Number(summary.produtos_incorretos) === 0
+      && Number(summary.excessos_detectados) === 0
+      && Number(summary.leituras_pendentes_sensor) === 0
+      && Number(summary.imagens_pendentes) === 0
+      && summary.sensor_outbox_pendentes !== null
+      && summary.sensor_outbox_pendentes !== undefined
+      && Number(summary.sensor_outbox_pendentes) === 0;
+    if (!ready) return;
+
+    automaticFinishAttemptedLoadingId = loadingId;
+    const result = await store.finishLoading("", true);
+    if (currentPage !== "work") return;
+    if (result?.romaneio_pronto_para_encerrar && result.romaneio_id) {
+      await store.loadManifest(result.romaneio_id);
+      await navigate("manifest", `?id=${encodeURIComponent(result.romaneio_id)}`);
+      return;
+    }
+    await store.loadActiveLoading(null);
+    render();
+  } catch (error) {
+    automaticFinishAttemptedLoadingId = loadingId;
+    store.state.commandFeedback = error?.message
+      || "Não foi possível concluir automaticamente. Confira o resumo da carga para finalizar manualmente.";
+    logFrontend.aviso("romaneio.finalizacao-automatica", error, { carregamento_id: loadingId });
+    if (currentPage === "work") render();
+  } finally {
+    automaticFinishInFlight = false;
+  }
+}
+
 const workRealtime = createOperationalRealtimeController({
   store,
   getPage: () => currentPage,
@@ -286,6 +353,7 @@ const workRealtime = createOperationalRealtimeController({
   },
   workStructureSignature: () => workStructureSignature(),
   getViewSignature: () => workViewSignature,
+  tryAutomaticFinish: finalizarAutomaticamenteSePronto,
 });
 const statusScreensRealtime = createPageRefreshController({
   getPage: () => currentPage,
@@ -419,7 +487,7 @@ const conectividadeLocal = createLocalConnectivityController({
   refreshSettingsView: () => refreshSettingsStatusView(),
   render: () => render(),
   logWarning: (...args) => logFrontend.aviso(...args),
-  serviceWorkerUrl: "/service-worker.js?v=202611030005",
+  serviceWorkerUrl: "/service-worker.js?v=202611040001",
 });
 
 function waitForDocumentStyles() {

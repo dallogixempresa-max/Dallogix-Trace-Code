@@ -25,7 +25,7 @@ if ($action === "FINALIZE_EXPIRED") {
         // O mesmo lock do carregamento usado pela leitura do scanner serializa
         // a associação do código e o timeout, evitando dois resultados no saco.
         $loadingStatement = $pdo->prepare(
-            "SELECT id FROM carregamentos
+            "SELECT id, romaneio_id, truck_id FROM carregamentos
              WHERE equipment_id = :equipment_id AND company_id = :company_id
                AND state IN ('CARREGANDO', 'FINALIZANDO', 'PAUSADO')
              ORDER BY id DESC LIMIT 1 FOR UPDATE",
@@ -34,11 +34,24 @@ if ($action === "FINALIZE_EXPIRED") {
             "equipment_id" => $device["equipment_id"],
             "company_id" => $device["company_id"],
         ]);
-        $loadingId = $loadingStatement->fetchColumn();
-        if ($loadingId === false) {
+        $loading = $loadingStatement->fetch(PDO::FETCH_ASSOC);
+        if ($loading === false) {
             $pdo->commit();
             json_response(["data" => ["finalized" => 0, "reason" => "no_active_loading"]]);
         }
+        $loadingId = (int) $loading["id"];
+
+        $plannedStatement = $pdo->prepare(
+            "SELECT COALESCE(SUM(ri.planned_quantity), 0)
+             FROM romaneio_itens ri
+             WHERE ri.romaneio_id = :romaneio_id
+               AND (ri.truck_id = :truck_id OR ri.truck_id IS NULL)",
+        );
+        $plannedStatement->execute([
+            "romaneio_id" => (int) $loading["romaneio_id"],
+            "truck_id" => $loading["truck_id"],
+        ]);
+        $plannedQuantity = (int) $plannedStatement->fetchColumn();
 
         $deviceDeadlineMs = (int) round(microtime(true) * 1000) - $timeoutMs;
         $timeoutMicroseconds = $timeoutMs * 1000;
@@ -63,15 +76,30 @@ if ($action === "FINALIZE_EXPIRED") {
 
         $finalized = [];
         foreach ($events->fetchAll(PDO::FETCH_COLUMN) as $sensorEventId) {
+            $positionStatement = $pdo->prepare(
+                "SELECT COUNT(*) FROM eventos_sensor
+                 WHERE carregamento_id = :loading_id AND equipment_id = :equipment_id
+                   AND id <= :sensor_event_id",
+            );
+            $positionStatement->execute([
+                "loading_id" => (int) $loadingId,
+                "equipment_id" => $device["equipment_id"],
+                "sensor_event_id" => (int) $sensorEventId,
+            ]);
+            $physicalExcess = $plannedQuantity > 0
+                && (int) $positionStatement->fetchColumn() > $plannedQuantity;
+            $readingResult = $physicalExcess ? "EXCESSO" : "SEM_LEITURA";
+            $evidenceReason = $physicalExcess ? "EXCESSO" : "SEM_LEITURA";
             $reading = $pdo->prepare(
                 "INSERT INTO leituras
                  (company_id, carregamento_id, sensor_event_id, product_id, barcode, attempt_number, result, read_at)
-                 VALUES (:company_id, :loading_id, :sensor_event_id, NULL, NULL, 1, 'SEM_LEITURA', NOW(3))",
+                 VALUES (:company_id, :loading_id, :sensor_event_id, NULL, NULL, 1, :result, NOW(3))",
             );
             $reading->execute([
                 "company_id" => $device["company_id"],
                 "loading_id" => (int) $loadingId,
                 "sensor_event_id" => (int) $sensorEventId,
+                "result" => $readingResult,
             ]);
             $readingId = (int) $pdo->lastInsertId();
 
@@ -83,7 +111,9 @@ if ($action === "FINALIZE_EXPIRED") {
             $occurrence->execute([
                 "company_id" => $device["company_id"],
                 "loading_id" => (int) $loadingId,
-                "description" => "Saco detectado pelo sensor sem código de barras válido após o tempo de leitura.",
+                "description" => $physicalExcess
+                    ? "Saco excedente detectado pelo sensor sem código de barras válido após o tempo de leitura."
+                    : "Saco detectado pelo sensor sem código de barras válido após o tempo de leitura.",
             ]);
             $occurrenceId = (int) $pdo->lastInsertId();
             $actor = ["id" => null, "company_id" => $device["company_id"]];
@@ -96,7 +126,7 @@ if ($action === "FINALIZE_EXPIRED") {
                 [
                     "carregamento_id" => (int) $loadingId,
                     "sensor_event_id" => (int) $sensorEventId,
-                    "result" => "SEM_LEITURA",
+                    "result" => $readingResult,
                     "source" => "sensor_timeout",
                     "read_at" => date("Y-m-d H:i:s.v"),
                 ],
@@ -117,9 +147,9 @@ if ($action === "FINALIZE_EXPIRED") {
             $evidenceRequest = $pdo->prepare(
                 "INSERT INTO solicitacoes_imagens_evidencia
                  (sensor_event_id, carregamento_id, equipment_id, reason, requested_at)
-                 VALUES (:sensor_event_id, :loading_id, :equipment_id, 'SEM_LEITURA', NOW(3))
+                 VALUES (:sensor_event_id, :loading_id, :equipment_id, :reason, NOW(3))
                  ON DUPLICATE KEY UPDATE
-                   reason = VALUES(reason),
+                   reason = IF(reason = 'EXCESSO', reason, VALUES(reason)),
                    status = IF(status = 'ERRO', 'PENDENTE', status),
                    requested_at = VALUES(requested_at)",
             );
@@ -127,6 +157,7 @@ if ($action === "FINALIZE_EXPIRED") {
                 "sensor_event_id" => (int) $sensorEventId,
                 "loading_id" => (int) $loadingId,
                 "equipment_id" => $device["equipment_id"],
+                "reason" => $evidenceReason,
             ]);
             $evidenceId = $pdo->prepare(
                 "SELECT id FROM solicitacoes_imagens_evidencia WHERE sensor_event_id = :sensor_event_id LIMIT 1",
@@ -139,15 +170,16 @@ if ($action === "FINALIZE_EXPIRED") {
             record_operational_event(
                 $pdo,
                 $actor,
-                "EVIDENCIA_SEM_LEITURA_SOLICITADA",
+                $physicalExcess ? "EXCESSO_EVIDENCIA_SOLICITADA" : "EVIDENCIA_SEM_LEITURA_SOLICITADA",
                 "evidence_request",
                 $evidenceRequestId,
-                ["sensor_event_id" => (int) $sensorEventId, "reason" => "SEM_LEITURA"],
+                ["sensor_event_id" => (int) $sensorEventId, "reason" => $evidenceReason],
             );
             $finalized[] = [
                 "sensor_event_id" => (int) $sensorEventId,
                 "reading_id" => $readingId,
                 "evidence_request_id" => $evidenceRequestId,
+                "result" => $readingResult,
             ];
         }
         $pdo->commit();
@@ -349,6 +381,40 @@ try {
         "equipment_id" => $equipmentId,
     ]);
     $detectedBags = (int) $detected->fetchColumn();
+    $excessEvidenceRequested = false;
+    if ($plannedQuantity > 0 && $detectedBags > $plannedQuantity) {
+        $evidenceRequest = $pdo->prepare(
+            "INSERT INTO solicitacoes_imagens_evidencia
+             (sensor_event_id, carregamento_id, equipment_id, reason, requested_at)
+             VALUES (:sensor_event_id, :loading_id, :equipment_id, 'EXCESSO', NOW(3))
+             ON DUPLICATE KEY UPDATE
+               reason = 'EXCESSO',
+               status = IF(status = 'ERRO', 'PENDENTE', status),
+               requested_at = VALUES(requested_at)",
+        );
+        $evidenceRequest->execute([
+            "sensor_event_id" => $eventId,
+            "loading_id" => $loadingId,
+            "equipment_id" => $equipmentId,
+        ]);
+        $evidenceId = $pdo->prepare(
+            "SELECT id FROM solicitacoes_imagens_evidencia WHERE sensor_event_id = :sensor_event_id LIMIT 1",
+        );
+        $evidenceId->execute(["sensor_event_id" => $eventId]);
+        $evidenceRequestId = (int) $evidenceId->fetchColumn();
+        if ($evidenceRequestId < 1) {
+            throw new RuntimeException("Solicitação de foto do excesso não foi criada para a passagem detectada.");
+        }
+        $excessEvidenceRequested = true;
+        record_operational_event(
+            $pdo,
+            ["id" => null, "company_id" => $device["company_id"]],
+            "EXCESSO_EVIDENCIA_SOLICITADA",
+            "evidence_request",
+            $evidenceRequestId,
+            ["sensor_event_id" => $eventId, "reason" => "EXCESSO", "detected_bags" => $detectedBags, "planned_quantity" => $plannedQuantity],
+        );
+    }
     $nearEndWarning = null;
     $remainingQuantity = $plannedQuantity - $detectedBags;
     $warningThreshold = $plannedQuantity > 0
@@ -474,8 +540,8 @@ try {
         }
     }
     $pdo->commit();
-    // O sensor apenas correlaciona o saco à leitura. A imagem só é solicitada
-    // quando o Trace confirma uma falha de leitura.
+    // A passagem acima da meta já solicita evidência; as demais fotos dependem
+    // da classificação recebida do leitor.
     json_response(
         [
             "data" => [
@@ -493,7 +559,9 @@ try {
                     ? "EM_ANDAMENTO"
                     : (($loading["state"] === "FINALIZANDO" || $becameFinalizing)
                         ? "COMPLETO" : "EM_ANDAMENTO"),
-                "image_action" => "AGUARDANDO_RESULTADO_LEITURA",
+                "image_action" => $excessEvidenceRequested
+                    ? "EVIDENCIA_EXCESSO_SOLICITADA"
+                    : "AGUARDANDO_RESULTADO_LEITURA",
                 "scanner_correlated" => false,
             ],
         ],

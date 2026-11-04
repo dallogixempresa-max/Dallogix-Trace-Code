@@ -159,7 +159,9 @@ final class RepositorioRomaneiosEventos
         $hasOtherActiveLoading = (int) $active->fetchColumn() > 0;
 
         $status = match (strtoupper(trim($state))) {
-            "FINALIZADO" => ($manifestFinalized === true || !$hasOtherActiveLoading) ? "FINALIZADO" : "EM_ANDAMENTO",
+            "FINALIZADO" => $manifestFinalized === false
+                ? "EM_ANDAMENTO"
+                : (($manifestFinalized === true || !$hasOtherActiveLoading) ? "FINALIZADO" : "EM_ANDAMENTO"),
             "AGUARDANDO" => $hasOtherActiveLoading ? "EM_ANDAMENTO" : "AGUARDANDO",
             default => "EM_ANDAMENTO",
         };
@@ -172,6 +174,22 @@ final class RepositorioRomaneiosEventos
             "id" => $manifestId,
             "company_id" => $companyId,
         ]);
+    }
+
+    public function finalizarRomaneio(int $companyId, int $sourceManifestId, ?int $remoteManifestId): void
+    {
+        $manifestId = $this->localizarRomaneio(
+            $companyId,
+            $sourceManifestId,
+            $remoteManifestId !== null && $remoteManifestId > 0 ? $remoteManifestId : null,
+        );
+        if ($manifestId < 1) {
+            throw new RuntimeException("Não foi possível localizar o romaneio finalizado da instalação.");
+        }
+        $this->connection->prepare(
+            "UPDATE romaneios SET status = 'FINALIZADO'
+             WHERE id = :id AND company_id = :company_id AND status <> 'CANCELADO'",
+        )->execute(["id" => $manifestId, "company_id" => $companyId]);
     }
 
     private function localizarRomaneio(int $companyId, int $sourceId, ?int $knownRemoteId): int

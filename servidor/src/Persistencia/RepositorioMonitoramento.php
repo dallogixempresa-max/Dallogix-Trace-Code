@@ -201,6 +201,24 @@ final class RepositorioMonitoramento
                 JOIN carregamentos_ativos ca
                   ON ca.id = se.carregamento_id AND ca.equipment_id = se.equipment_id
                 GROUP BY se.carregamento_id, se.equipment_id
+            ), leituras_scanner AS (
+                SELECT l.carregamento_id, COUNT(*) AS scanner_readings
+                FROM leituras l
+                JOIN carregamentos_ativos ca
+                  ON ca.id = l.carregamento_id AND ca.company_id = l.company_id
+                WHERE l.barcode IS NOT NULL
+                  AND l.result IN ('VALIDO', 'PRODUTO_INCORRETO', 'EXCESSO')
+                GROUP BY l.carregamento_id
+            ), evidencias_excesso AS (
+                SELECT r.carregamento_id,
+                       COUNT(*) AS excess_evidence_requests,
+                       SUM(CASE WHEN r.status = 'CAPTURADA' THEN 1 ELSE 0 END) AS excess_evidence_captured,
+                       SUM(CASE WHEN r.status IN ('PENDENTE', 'CAPTURANDO') THEN 1 ELSE 0 END) AS excess_evidence_pending,
+                       SUM(CASE WHEN r.status = 'ERRO' THEN 1 ELSE 0 END) AS excess_evidence_failed
+                FROM solicitacoes_imagens_evidencia r
+                JOIN carregamentos_ativos ca ON ca.id = r.carregamento_id
+                WHERE r.reason = 'EXCESSO'
+                GROUP BY r.carregamento_id
             ), leituras_recentes AS (
                 SELECT l.carregamento_id, l.barcode, l.result, l.read_at,
                        ROW_NUMBER() OVER (
@@ -225,6 +243,11 @@ final class RepositorioMonitoramento
                    COALESCE(qr.planned_quantity, 0) AS planned_quantity,
                    COALESCE(ca.leituras_validas, 0) AS valid_readings,
                    COALESCE(ed.detected_bags, 0) AS detected_bags,
+                   COALESCE(lsr.scanner_readings, 0) AS scanner_readings,
+                   COALESCE(ee.excess_evidence_requests, 0) AS excess_evidence_requests,
+                   COALESCE(ee.excess_evidence_captured, 0) AS excess_evidence_captured,
+                   COALESCE(ee.excess_evidence_pending, 0) AS excess_evidence_pending,
+                   COALESCE(ee.excess_evidence_failed, 0) AS excess_evidence_failed,
                    lr.barcode AS last_scanner_barcode,
                    lr.result AS last_scanner_result,
                    lr.read_at AS last_scanner_read_at,
@@ -237,6 +260,8 @@ final class RepositorioMonitoramento
             LEFT JOIN quantidades_romaneio qr ON qr.carregamento_id = ca.id
             LEFT JOIN eventos_detectados ed
               ON ed.carregamento_id = ca.id AND ed.equipment_id = ca.equipment_id
+            LEFT JOIN leituras_scanner lsr ON lsr.carregamento_id = ca.id
+            LEFT JOIN evidencias_excesso ee ON ee.carregamento_id = ca.id
             LEFT JOIN leituras_recentes lr
               ON lr.carregamento_id = ca.id AND lr.rn = 1
             LEFT JOIN alertas_fim_carga afp

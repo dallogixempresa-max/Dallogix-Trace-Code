@@ -3,7 +3,7 @@ import { ClienteApi, erroRespostaHttp } from "../api/ClienteApi.js?v=20261103000
 import { ServicoSincronizacao } from "../servicos/ServicoSincronizacao.js?v=202611030005";
 import { ServicoDalas } from "../servicos/ServicoDalas.js?v=202611030005";
 import { ServicoObservabilidade } from "../servicos/ServicoObservabilidade.js?v=202611030005";
-import { ServicoCarregamentoAtivo } from "../servicos/ServicoCarregamentoAtivo.js?v=202611030005";
+import { ServicoCarregamentoAtivo } from "../servicos/ServicoCarregamentoAtivo.js?v=202611040001";
 import { ServicoComandosMaquina } from "../servicos/ServicoComandosMaquina.js?v=202611030005";
 import { ServicoLeiturasOperacionais } from "../servicos/ServicoLeiturasOperacionais.js?v=202611030005";
 import { resolverComandoAtual } from "../funcoes/estado-comando.js?v=202611030005";
@@ -20,6 +20,11 @@ export class ArmazenamentoTrace {
       page: "manifests",
       loaded: 0,
       detectedBags: 0,
+      scannerReadings: 0,
+      excessEvidenceRequests: 0,
+      excessEvidenceCaptured: 0,
+      excessEvidencePending: 0,
+      excessEvidenceFailed: 0,
       latestScannerReading: null,
       planned: 0,
       running: false,
@@ -592,10 +597,11 @@ export class ArmazenamentoTrace {
   unlockMachine() {
     return this.servicoCarregamentoAtivo.unlockMachine();
   }
-  finishLoading(justification = "") {
+  finishLoading(justification = "", automatic = false) {
     return this.servicoCarregamentoAtivo.finishLoading(
       this.state.loadingId,
       justification,
+      automatic,
     );
   }
   async loadPendingReadings(page = this.state.pendingReadingsPage) {

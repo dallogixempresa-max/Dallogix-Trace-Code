@@ -10,6 +10,7 @@ export function createOperationalRealtimeController({
   setFreshness = () => {},
   workStructureSignature,
   getViewSignature,
+  tryAutomaticFinish = async () => {},
 }) {
   let eventSource = null;
   let fallbackTimer = null;
@@ -95,6 +96,10 @@ export function createOperationalRealtimeController({
       const failed = results.find((result) => result.status === "rejected");
       if (failed) recordFailure(failed.reason);
       else recordSuccess();
+      if (!failed && currentPage === "work") {
+        await tryAutomaticFinish();
+        if (!isCurrent(token)) return false;
+      }
       refreshCurrentView(currentPage);
       publishFreshness(currentPage);
       return !failed;

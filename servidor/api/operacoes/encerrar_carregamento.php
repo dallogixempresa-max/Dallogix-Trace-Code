@@ -17,6 +17,7 @@ $loadingId = filter_var(
     FILTER_VALIDATE_INT,
 );
 $justification = trim((string) ($payload["justification"] ?? ""));
+$automatic = filter_var($payload["automatic"] ?? false, FILTER_VALIDATE_BOOLEAN);
 if (!$loadingId) {
     json_response(["error" => "Carregamento obrigatório."], 422);
 }
@@ -29,7 +30,8 @@ register_shutdown_function(static function () use ($pdo): void {
     }
 });
 $statement = $pdo->prepare(
-    "SELECT c.id, c.equipment_id, c.state, c.stop_reason, c.romaneio_id, c.truck_id, r.number AS romaneio_number
+    "SELECT c.id, c.equipment_id, c.state, c.stop_reason, c.romaneio_id, c.truck_id,
+            r.number AS romaneio_number, r.status AS romaneio_status
      FROM carregamentos c JOIN romaneios r ON r.id = c.romaneio_id
      WHERE c.id = :id AND c.company_id = :company_id LIMIT 1 FOR UPDATE",
 );
@@ -127,6 +129,67 @@ foreach ($divergenceRows as $divergence) {
         break;
     }
 }
+if ($automatic) {
+    $plannedQuantityStatement = $pdo->prepare(
+        "SELECT COALESCE(SUM(ri.planned_quantity), 0)
+         FROM romaneio_itens ri
+         WHERE ri.romaneio_id = :romaneio_id
+           AND (ri.truck_id = :truck_id OR ri.truck_id IS NULL)",
+    );
+    $plannedQuantityStatement->execute([
+        "romaneio_id" => $loading["romaneio_id"],
+        "truck_id" => $loading["truck_id"],
+    ]);
+    $plannedQuantity = (int) $plannedQuantityStatement->fetchColumn();
+    $detectedQuantityStatement = $pdo->prepare(
+        "SELECT COUNT(*) FROM eventos_sensor
+         WHERE carregamento_id = :loading_id AND equipment_id = :equipment_id",
+    );
+    $detectedQuantityStatement->execute([
+        "loading_id" => $loadingId,
+        "equipment_id" => $loading["equipment_id"],
+    ]);
+    $detectedQuantity = (int) $detectedQuantityStatement->fetchColumn();
+    $nonValidReadings = $pdo->prepare(
+        "SELECT COUNT(*) FROM leituras WHERE carregamento_id = :loading_id AND result <> 'VALIDO'",
+    );
+    $nonValidReadings->execute(["loading_id" => $loadingId]);
+    $scannerEventsRead = $pdo->prepare(
+        "SELECT COUNT(*) FROM leituras
+         WHERE carregamento_id = :loading_id AND result = 'VALIDO'
+           AND sensor_event_id IS NOT NULL",
+    );
+    $scannerEventsRead->execute(["loading_id" => $loadingId]);
+    $targetStopAcknowledged = $pdo->prepare(
+        "SELECT q.id FROM logs_auditoria a
+         JOIN solicitacoes_comandos_clp q
+           ON q.id = CAST(JSON_UNQUOTE(JSON_EXTRACT(a.metadata, '$.command_request_id')) AS UNSIGNED)
+         WHERE a.company_id = :company_id AND a.action = 'QUANTIDADE_PLANEJADA_ATINGIDA'
+           AND a.entity_type = 'carregamento' AND a.entity_id = :loading_id
+           AND q.carregamento_id = :command_loading_id AND q.company_id = :command_company_id
+           AND q.command = 'PAUSAR_CARREGAMENTO' AND q.status = 'APLICADO'
+         ORDER BY a.id DESC LIMIT 1",
+    );
+    $targetStopAcknowledged->execute([
+        "company_id" => $user["company_id"],
+        "loading_id" => $loadingId,
+        "command_loading_id" => $loadingId,
+        "command_company_id" => $user["company_id"],
+    ]);
+    if (
+        $hasDivergence
+        || $plannedQuantity < 1
+        || $detectedQuantity !== $plannedQuantity
+        || (int) $nonValidReadings->fetchColumn() !== 0
+        || (int) $scannerEventsRead->fetchColumn() !== $plannedQuantity
+        || !$targetStopAcknowledged->fetchColumn()
+    ) {
+        $pdo->rollBack();
+        json_response([
+            "error" => "A finalização automática exige a meta exata lida pelo scanner e a parada da esteira confirmada pelo CLP.",
+        ], 409);
+    }
+}
 if ($hasDivergence && !in_array($user["role"], ["ADMIN_EMPRESA", "SUPERVISOR"], true)) {
     $pdo->rollBack();
     json_response(["error" => "Somente supervisores ou administradores podem finalizar uma divergência."], 403);
@@ -207,6 +270,91 @@ try {
         "company_id" => $user["company_id"],
     ]);
     $romaneioProntoParaEncerrar = (int) $remaining->fetchColumn() === 0;
+    $romaneioFinalizado = false;
+    if ($romaneioProntoParaEncerrar && !$hasDivergence) {
+        $manifestLoadings = $pdo->prepare(
+            "SELECT id, truck_id, state, finish_justification
+             FROM carregamentos
+             WHERE romaneio_id = :romaneio_id AND company_id = :company_id
+             ORDER BY id FOR UPDATE",
+        );
+        $manifestLoadings->execute([
+            "romaneio_id" => $loading["romaneio_id"],
+            "company_id" => $user["company_id"],
+        ]);
+        $allLoadingsExact = true;
+        $plannedForTruck = $pdo->prepare(
+            "SELECT COALESCE(SUM(ri.planned_quantity), 0)
+             FROM romaneio_itens ri
+             WHERE ri.romaneio_id = :romaneio_id
+               AND (ri.truck_id = :truck_id OR ri.truck_id IS NULL)",
+        );
+        $detectedForLoading = $pdo->prepare(
+            "SELECT COUNT(*) FROM eventos_sensor WHERE carregamento_id = :loading_id",
+        );
+        $validForLoading = $pdo->prepare(
+            "SELECT COUNT(*) FROM leituras WHERE carregamento_id = :loading_id AND result = 'VALIDO'",
+        );
+        $returnsForLoading = $pdo->prepare(
+            "SELECT COALESCE(SUM(quantity), 0) FROM retornos WHERE carregamento_id = :loading_id",
+        );
+        foreach ($manifestLoadings->fetchAll(PDO::FETCH_ASSOC) as $manifestLoading) {
+            $manifestLoadingId = (int) $manifestLoading["id"];
+            $plannedForTruck->execute([
+                "romaneio_id" => $loading["romaneio_id"],
+                "truck_id" => $manifestLoading["truck_id"],
+            ]);
+            $plannedForLoading = (int) $plannedForTruck->fetchColumn();
+            $detectedForLoading->execute(["loading_id" => $manifestLoadingId]);
+            $detectedForManifestLoading = (int) $detectedForLoading->fetchColumn();
+            $validForLoading->execute(["loading_id" => $manifestLoadingId]);
+            $validForManifestLoading = (int) $validForLoading->fetchColumn();
+            $returnsForLoading->execute(["loading_id" => $manifestLoadingId]);
+            $returnedForManifestLoading = (int) $returnsForLoading->fetchColumn();
+            if (
+                $manifestLoading["state"] !== "FINALIZADO"
+                || trim((string) ($manifestLoading["finish_justification"] ?? "")) !== ""
+                || $plannedForLoading < 1
+                || $detectedForManifestLoading !== $plannedForLoading
+                || max(0, $validForManifestLoading - $returnedForManifestLoading) !== $plannedForLoading
+            ) {
+                $allLoadingsExact = false;
+                break;
+            }
+        }
+        $pendingManifestEvidence = $pdo->prepare(
+            "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia i
+             JOIN carregamentos c ON c.id = i.carregamento_id
+             WHERE c.romaneio_id = :romaneio_id AND c.company_id = :company_id
+               AND i.status IN ('PENDENTE', 'CAPTURANDO')",
+        );
+        $pendingManifestEvidence->execute([
+            "romaneio_id" => $loading["romaneio_id"],
+            "company_id" => $user["company_id"],
+        ]);
+        if ($allLoadingsExact && (int) $pendingManifestEvidence->fetchColumn() === 0
+            && $loading["romaneio_status"] === "EM_ANDAMENTO") {
+            $finishManifest = $pdo->prepare(
+                "UPDATE romaneios SET status = 'FINALIZADO'
+                 WHERE id = :romaneio_id AND company_id = :company_id AND status = 'EM_ANDAMENTO'",
+            );
+            $finishManifest->execute([
+                "romaneio_id" => $loading["romaneio_id"],
+                "company_id" => $user["company_id"],
+            ]);
+            $romaneioFinalizado = $finishManifest->rowCount() === 1;
+            if ($romaneioFinalizado) {
+                record_operational_event(
+                    $pdo,
+                    $user,
+                    "ROMANEIO_FINALIZADO",
+                    "romaneio",
+                    (int) $loading["romaneio_id"],
+                    ["number" => (string) $loading["romaneio_number"], "automatic" => true],
+                );
+            }
+        }
+    }
     record_operational_event(
         $pdo,
         $user,
@@ -216,6 +364,7 @@ try {
         [
             "romaneio_id" => (int) $loading["romaneio_id"],
             "romaneio_pronto_para_encerrar" => $romaneioProntoParaEncerrar,
+            "romaneio_finalizado" => $romaneioFinalizado,
         ],
     );
     // Sacas que passaram pelo sensor sem leitura e sem product_id: ocorrem quando
@@ -234,6 +383,7 @@ try {
             "romaneio_id" => (int) $loading["romaneio_id"],
             "romaneio_number" => (string) $loading["romaneio_number"],
             "romaneio_pronto_para_encerrar" => $romaneioProntoParaEncerrar,
+            "romaneio_finalizado" => $romaneioFinalizado,
             "leituras_sem_produto" => $leiturasSemProduto,
         ],
     ]);
