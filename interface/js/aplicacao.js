@@ -691,7 +691,7 @@ function installScannerHidReceiver() {
           }
           if (reading?.product_quota_reached) {
             notificar(
-              reading.operator_alert || "Meta do produto atingida. A esteira foi pausada para evitar excedente.",
+              "Cota do produto atingida. Uma nova passagem identificada deste produto será excesso e solicitará a parada da esteira.",
               "aviso",
             );
           }
