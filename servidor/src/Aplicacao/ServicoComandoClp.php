@@ -72,7 +72,7 @@ final class ServicoComandoClp
                 : ["PREPARANDO", "CARREGANDO", "FINALIZANDO"];
             $paradaPorDivergencia = $command === "PAUSAR_CARREGAMENTO"
                 && $loading["state"] === "PAUSADO"
-                && in_array($loading["stop_reason"], ["EXCESSO", "PRODUTO_INCORRETO", "COTA_PRODUTO_ATINGIDA"], true);
+                && in_array($loading["stop_reason"], ["EXCESSO", "PRODUTO_INCORRETO", "COTA_PRODUTO_ATINGIDA", "COTA_ROMANEIO_ATINGIDA"], true);
             if ($paradaPorDivergencia) {
                 $allowedStates[] = "PAUSADO";
             }
@@ -200,6 +200,12 @@ final class ServicoComandoClp
         return $this->solicitarParadaPorDivergencia($user, $loadingId, "COTA_PRODUTO_ATINGIDA");
     }
 
+    /** @param array{id:int|string|null, company_id:int|string|null} $user */
+    public function solicitarParadaAoAtingirMetaRomaneio(array $user, int $loadingId): array
+    {
+        return $this->solicitarParadaPorDivergencia($user, $loadingId, "COTA_ROMANEIO_ATINGIDA");
+    }
+
     /** @param array{id:int|string|null, company_id:int|string|null} $user
      * @return array{command_request_id:?int,physical_stop_request_status:string,operator_alert:string,stop_reason:?string}
      */
@@ -212,11 +218,13 @@ final class ServicoComandoClp
         $savepoint = match ($reason) {
             "EXCESSO" => "trace_parada_excesso",
             "COTA_PRODUTO_ATINGIDA" => "trace_parada_meta_produto",
+            "COTA_ROMANEIO_ATINGIDA" => "trace_parada_meta_romaneio",
             default => "trace_parada_produto",
         };
         $label = match ($reason) {
             "EXCESSO" => "Quantidade excedida",
             "COTA_PRODUTO_ATINGIDA" => "Meta do produto atingida",
+            "COTA_ROMANEIO_ATINGIDA" => "Quantidade do romaneio atingida",
             default => "Produto fora do romaneio",
         };
         $ownsTransaction = $this->iniciarEscopoTransacao($savepoint);
@@ -234,6 +242,7 @@ final class ServicoComandoClp
                 if ($reason === "EXCESSO") {
                     $existingLabel = match ($existingReason) {
                         "COTA_PRODUTO_ATINGIDA" => "meta do produto atingida",
+                        "COTA_ROMANEIO_ATINGIDA" => "quantidade do romaneio atingida",
                         "PRODUTO_INCORRETO" => "produto fora do romaneio",
                         default => "parada de segurança",
                     };
@@ -259,9 +268,11 @@ final class ServicoComandoClp
                 return $result;
             }
 
-            $operatorAlert = $reason === "COTA_PRODUTO_ATINGIDA"
+            $operatorAlert = $reason === "COTA_ROMANEIO_ATINGIDA"
+                ? "$label. A parada da esteira foi solicitada ao gateway. Confirme a parada física e confira as leituras e fotos antes de finalizar."
+                : ($reason === "COTA_PRODUTO_ATINGIDA"
                 ? "$label. A parada da esteira foi solicitada ao gateway para evitar excedente. Confirme a parada física antes de continuar com outro produto."
-                : "$label. A solicitação de pausa física foi enviada ao gateway do CLP; remova a unidade e confirme somente quando a esteira estiver fisicamente parada.";
+                : "$label. A solicitação de pausa física foi enviada ao gateway do CLP; remova a unidade e confirme somente quando a esteira estiver fisicamente parada.");
             $pauseLoading = $this->connection->prepare(
                 "UPDATE carregamentos
                  SET state = 'PAUSADO', stop_reason = :stop_reason, operator_alert = :operator_alert
@@ -290,9 +301,11 @@ final class ServicoComandoClp
                 if ($lastPause && $lastPause["status"] === "APLICADO") {
                     $requestId = (int) $lastPause["id"];
                     $requestStatus = "APLICADO";
-                    $operatorAlert = $reason === "COTA_PRODUTO_ATINGIDA"
+                    $operatorAlert = $reason === "COTA_ROMANEIO_ATINGIDA"
+                        ? "$label. O gateway confirmou a parada. Confira a parada física, as leituras e as fotos antes de finalizar."
+                        : ($reason === "COTA_PRODUTO_ATINGIDA"
                         ? "$label. O gateway confirmou a parada física. Confirme a parada antes de continuar com outro produto."
-                        : "$label. O gateway confirmou a parada física. Remova a unidade e confirme somente quando a esteira estiver fisicamente parada.";
+                        : "$label. O gateway confirmou a parada física. Remova a unidade e confirme somente quando a esteira estiver fisicamente parada.");
                 }
             }
             if (!$pendingPause && $requestStatus !== "APLICADO") {
@@ -304,13 +317,17 @@ final class ServicoComandoClp
                         throw $exception;
                     }
                     $requestStatus = "NAO_SOLICITADA";
-                    $operatorAlert = $reason === "COTA_PRODUTO_ATINGIDA"
+                    $operatorAlert = $reason === "COTA_ROMANEIO_ATINGIDA"
+                        ? "$label. A parada automática pelo CLP não foi confirmada: "
+                            . $exception->getMessage()
+                            . " Pare a esteira pelo procedimento operacional, confirme a parada física e confira as leituras e fotos antes de finalizar."
+                        : ($reason === "COTA_PRODUTO_ATINGIDA"
                         ? "$label. A parada automática pelo CLP não foi confirmada: "
                             . $exception->getMessage()
                             . " Pare a esteira pelo procedimento operacional e confirme a parada física antes de continuar."
                         : "$label. A parada automática pelo CLP não foi confirmada: "
                             . $exception->getMessage()
-                            . " Pare a esteira pelo procedimento operacional e confirme somente após a parada física.";
+                            . " Pare a esteira pelo procedimento operacional e confirme somente após a parada física.");
                 }
             }
 

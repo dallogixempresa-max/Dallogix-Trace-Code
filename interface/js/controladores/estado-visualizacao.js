@@ -1,8 +1,8 @@
-import { apresentacaoConectividadePc, apresentacaoStatusDispositivo, renderStatusDalaBinario, resumoStatusDispositivos } from "../../telas/configuracoes/configuracoes.js?v=202611050001";
-import { operationStructureSignature, renderDalaStatuses } from "./operacao.js?v=202611050001";
-import { numero, relativo, dataHora } from "../funcoes/formato.js?v=202611050001";
+import { apresentacaoConectividadePc, apresentacaoStatusDispositivo, renderStatusDalaBinario, resumoStatusDispositivos } from "../../telas/configuracoes/configuracoes.js?v=202611050002";
+import { operationStructureSignature, renderDalaStatuses } from "./operacao.js?v=202611050002";
+import { numero, relativo, dataHora } from "../funcoes/formato.js?v=202611050002";
 import { el } from "../funcoes/html.js";
-import { refreshCompanyStatusCards } from "../funcoes/view.js?v=202611050001";
+import { refreshCompanyStatusCards } from "../funcoes/view.js?v=202611050002";
 
 /** Mantém as regiões de estado sincronizadas sem recriar formulários ou a tela toda. */
 export function createLiveViewController({
@@ -97,7 +97,7 @@ export function createLiveViewController({
       endNotice.textContent = excess
         ? `Atenção: ${numero(detectedBags - planned)} sacas passaram do total previsto.`
         : complete
-          ? "Quantidade prevista atingida. A esteira continua em operação; uma passagem adicional será excesso e solicitará a parada."
+          ? "Quantidade prevista atingida. Parada automática solicitada; confira a parada física, as leituras e as fotos antes de finalizar."
           : nearEnd
             ? "Atenção: o carregamento está próximo da quantidade prevista."
             : "";

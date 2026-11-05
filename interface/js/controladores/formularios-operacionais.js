@@ -1,4 +1,4 @@
-import { setFormFeedback } from "../componentes/form-feedback.js?v=202611050001";
+import { setFormFeedback } from "../componentes/form-feedback.js?v=202611050002";
 
 function desabilitarBotaoEnviar(form, disabled) {
   const button = form.querySelector('button[type="submit"]');
@@ -74,10 +74,13 @@ function confirmarRemocaoDeParada({ root, store, render, notify, setFeedback }) 
         if (form.dataset.submitting === "1") return;
         const stopReason = store.state.stopReason;
         const quotaConfirmation = stopReason === "COTA_PRODUTO_ATINGIDA";
+        const manifestQuotaConfirmation = stopReason === "COTA_ROMANEIO_ATINGIDA";
         if (!confirmation?.checked) {
           setFeedback(
             form,
-            quotaConfirmation
+            manifestQuotaConfirmation
+              ? "Confirme a parada física antes de conferir as leituras e finalizar."
+              : quotaConfirmation
               ? "Confirme a parada física antes de continuar com outro produto."
               : "Confirme a remoção da unidade e a parada física antes de continuar.",
             "error",
@@ -93,7 +96,9 @@ function confirmarRemocaoDeParada({ root, store, render, notify, setFeedback }) 
         setFeedback(form, "Registrando confirmação…");
         try {
           await store.confirmStopRemoval();
-          notify(quotaConfirmation
+          notify(manifestQuotaConfirmation
+            ? "Parada confirmada. Confira as leituras e as fotos antes de finalizar."
+            : quotaConfirmation
             ? "Parada confirmada. Você pode continuar o carregamento com outro produto."
             : "Confirmação registrada. A operação continua pausada; use Ligar esteira quando estiver pronta.");
           render();

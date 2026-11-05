@@ -237,6 +237,8 @@ try {
             "REMOCAO_UNIDADE_E_PARADA_FISICA_CONFIRMADAS",
             "COTA_PRODUTO_ATINGIDA",
             "PARADA_FISICA_META_PRODUTO_CONFIRMADA",
+            "QUANTIDADE_PLANEJADA_ATINGIDA",
+            "PARADA_FISICA_META_ROMANEIO_CONFIRMADA",
         ], true);
         $eventKey = strtolower($eventUuid);
         $replay = array_key_exists($eventKey, $knownEventActions);
@@ -406,7 +408,7 @@ try {
             }
         }
 
-        if (in_array($action, ["REMOCAO_UNIDADE_E_PARADA_FISICA_CONFIRMADAS", "PARADA_FISICA_META_PRODUTO_CONFIRMADA"], true)) {
+        if (in_array($action, ["REMOCAO_UNIDADE_E_PARADA_FISICA_CONFIRMADAS", "PARADA_FISICA_META_PRODUTO_CONFIRMADA", "PARADA_FISICA_META_ROMANEIO_CONFIRMADA"], true)) {
             $sourceLoadingId = (int) ($data["carregamento_id"] ?? $entityId);
             $remoteLoadingId = filter_var($data["remote_carregamento_id"] ?? null, FILTER_VALIDATE_INT);
             $loadingId = $resolveLoadingId(
@@ -418,7 +420,7 @@ try {
                 throw new RuntimeException("Não foi possível localizar o carregamento da confirmação da parada.");
             }
             $stopReason = strtoupper(trim((string) ($data["stop_reason"] ?? "")));
-            if (in_array($stopReason, ["PRODUTO_INCORRETO", "EXCESSO", "COTA_PRODUTO_ATINGIDA"], true)) {
+            if (in_array($stopReason, ["PRODUTO_INCORRETO", "EXCESSO", "COTA_PRODUTO_ATINGIDA", "COTA_ROMANEIO_ATINGIDA"], true)) {
                 $clearStop = $pdo->prepare(
                     "UPDATE carregamentos SET stop_reason = NULL, operator_alert = NULL
                      WHERE id = :id AND company_id = :company_id AND state = 'PAUSADO'
@@ -433,7 +435,8 @@ try {
             $entityId = $loadingId;
         }
 
-        if (in_array($action, ["EXCESSO_DETECTADO", "PARADA_PRODUTO_INCORRETO", "COTA_PRODUTO_ATINGIDA"], true)) {
+        if (in_array($action, ["EXCESSO_DETECTADO", "PARADA_PRODUTO_INCORRETO", "COTA_PRODUTO_ATINGIDA", "QUANTIDADE_PLANEJADA_ATINGIDA"], true)
+            && ($action !== "QUANTIDADE_PLANEJADA_ATINGIDA" || ($data["stop_reason"] ?? null) === "COTA_ROMANEIO_ATINGIDA")) {
             $sourceLoadingId = (int) ($data["carregamento_id"] ?? $data["source_carregamento_id"] ?? $entityId);
             $remoteLoadingId = filter_var($data["remote_carregamento_id"] ?? null, FILTER_VALIDATE_INT);
             $loadingId = $resolveLoadingId(
@@ -448,10 +451,11 @@ try {
             $defaultReason = match ($action) {
                 "PARADA_PRODUTO_INCORRETO" => "PRODUTO_INCORRETO",
                 "COTA_PRODUTO_ATINGIDA" => "COTA_PRODUTO_ATINGIDA",
+                "QUANTIDADE_PLANEJADA_ATINGIDA" => "COTA_ROMANEIO_ATINGIDA",
                 default => "EXCESSO",
             };
             $stopReason = strtoupper(trim((string) ($data["stop_reason"] ?? $defaultReason)));
-            if (!in_array($stopReason, ["PRODUTO_INCORRETO", "EXCESSO", "COTA_PRODUTO_ATINGIDA"], true)) {
+            if (!in_array($stopReason, ["PRODUTO_INCORRETO", "EXCESSO", "COTA_PRODUTO_ATINGIDA", "COTA_ROMANEIO_ATINGIDA"], true)) {
                 $stopReason = $defaultReason;
             }
             $operatorAlert = trim((string) ($data["operator_alert"] ?? ""));
@@ -459,6 +463,7 @@ try {
                 $operatorAlert = match ($stopReason) {
                     "PRODUTO_INCORRETO" => "Produto fora do romaneio. Verifique a parada física no PC industrial, remova a unidade e confirme antes de retomar.",
                     "COTA_PRODUTO_ATINGIDA" => "Meta do produto atingida. Confirme a parada física antes de continuar com outro produto.",
+                    "COTA_ROMANEIO_ATINGIDA" => "Quantidade prevista atingida. Confirme a parada física e confira as leituras e fotos antes de finalizar.",
                     default => "Quantidade excedida detectada pelo sensor. Verifique a parada física no PC industrial, remova a unidade excedente e confirme antes de retomar.",
                 };
             }

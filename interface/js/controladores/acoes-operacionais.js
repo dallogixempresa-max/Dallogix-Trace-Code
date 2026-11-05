@@ -1,4 +1,4 @@
-import { podeFinalizarCarregamento } from "../funcoes/regras-carregamento.js?v=202611050001";
+import { podeFinalizarCarregamento, divergenciaCobertaPorSemLeitura } from "../funcoes/regras-carregamento.js?v=202611050002";
 
 const ACOES_COMANDO_MAQUINA = new Set([
   "start-machine",
@@ -181,7 +181,7 @@ export function criarTratadorAcoesOperacionais({
       );
       const hasExcess = Number(store.state.detectedBags || 0) > Number(store.state.planned || 0)
         || Number(store.state.excessEvidenceRequests || 0) > 0;
-      const requiresSupervisorReview = hasItemDivergence || hasExcess;
+      const requiresSupervisorReview = (hasItemDivergence && !divergenciaCobertaPorSemLeitura(store.state)) || hasExcess;
       const canAuthorizeDivergence = ["ADMIN_EMPRESA", "SUPERVISOR"].includes(
         String(store.state.userRole || "").toUpperCase(),
       );
