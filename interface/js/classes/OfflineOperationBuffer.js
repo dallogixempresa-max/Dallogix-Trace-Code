@@ -1,6 +1,6 @@
-import { agora } from "../funcoes/relogio.js?v=202611040003";
-import { ClienteApi } from "../api/ClienteApi.js?v=202611040003";
-import { logFrontend } from "../utilitarios/LogFrontend.js?v=202611040003";
+import { agora } from "../funcoes/relogio.js?v=202611050001";
+import { ClienteApi } from "../api/ClienteApi.js?v=202611050001";
+import { logFrontend } from "../utilitarios/LogFrontend.js?v=202611050001";
 
 export const MAX_OFFLINE_OPERATIONS_PER_OWNER = 20;
 

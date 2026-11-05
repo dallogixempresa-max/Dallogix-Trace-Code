@@ -1,4 +1,4 @@
-import { podeFinalizarCarregamento } from "../funcoes/regras-carregamento.js?v=202611040003";
+import { podeFinalizarCarregamento } from "../funcoes/regras-carregamento.js?v=202611050001";
 
 const ACOES_COMANDO_MAQUINA = new Set([
   "start-machine",

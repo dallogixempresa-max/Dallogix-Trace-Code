@@ -1,13 +1,13 @@
 import { button, esc } from "../../js/funcoes/html.js";
-import { data, numero } from "../../js/funcoes/formato.js?v=202611040003";
-import { agora } from "../../js/funcoes/relogio.js?v=202611040003";
-import { rotuloComando, rotuloEstado, rotuloStatusComando, rotuloStatusRomaneio } from "../../js/funcoes/rotulos.js?v=202611040003";
+import { data, numero } from "../../js/funcoes/formato.js?v=202611050001";
+import { agora } from "../../js/funcoes/relogio.js?v=202611050001";
+import { rotuloComando, rotuloEstado, rotuloStatusComando, rotuloStatusRomaneio } from "../../js/funcoes/rotulos.js?v=202611050001";
 import {
   pageHeader,
   manifestsTable,
   emergencyPanel,
   statuses,
-} from "../../js/funcoes/view.js?v=202611040003";
+} from "../../js/funcoes/view.js?v=202611050001";
 
 export function manifestView(store) {
   const manifest = store.state.manifestDetail;
@@ -17,7 +17,7 @@ export function manifestView(store) {
   const status = String(manifest.status || "").toUpperCase();
   const activeLoadingId = Number(manifest.active_loading_id) || null;
   const canManage = ["ADMIN_EMPRESA", "SUPERVISOR"].includes(store.state.userRole);
-  const canPrepare = canManage && !activeLoadingId && ["IMPORTADO", "AGUARDANDO"].includes(status);
+  const canPrepare = ["ADMIN_EMPRESA", "SUPERVISOR", "USUARIO"].includes(store.state.userRole) && !activeLoadingId && ["IMPORTADO", "AGUARDANDO"].includes(status);
   const loadingCount = Number(manifest.loading_count) || 0;
   const pendingEvidenceCount = Number(manifest.pending_evidence_count) || 0;
   const canFinishManifest = ["ADMIN_EMPRESA", "SUPERVISOR", "USUARIO"].includes(store.state.userRole) && status === "EM_ANDAMENTO" && !activeLoadingId && loadingCount > 0;
