@@ -472,7 +472,7 @@ try {
             [
                 "carregamento_id" => (int) $loadingId,
                 "sensor_event_id" => $eventId,
-                "event_uuid" => $eventUuid,
+                "sensor_event_uuid" => $eventUuid,
                 "planned_quantity" => $plannedQuantity,
                 "detected_bags" => $detectedBags,
                 "stop_reason" => $excessStop["stop_reason"] ?? "EXCESSO",

@@ -75,6 +75,7 @@ test("fila durável do M2052 é reprocessada após reinício e fechamento aguard
   assert.match(enqueue, /outbox\.enqueue\(event\)/);
   assert.match(replay, /outbox\.list\(\)/);
   assert.match(retry, /outbox\.acknowledge\(eventUuid\)/);
+  assert.match(retry, /retryMessage\.headers = \{ 'X-Device-Token': String\(source\.traceToken \|\| ''\)/);
   assert.doesNotMatch(retry, /attempt >= 3/);
   assert.match(heartbeat, /sensor_event_outbox_pending = count/);
   assert.match(finishLoadingApi, /NOT EXISTS \(SELECT 1 FROM leituras l WHERE l\.sensor_event_id = s\.id\)/);
@@ -84,6 +85,13 @@ test("fila durável do M2052 é reprocessada após reinício e fechamento aguard
   assert.match(operationalRealtime, /store\.loadSummaryMonitoring\(\)/);
   assert.match(loadingFinishRules, /outboxPending !== null/);
   assert.match(loadingFinishRules, /Number\(outboxPending\) === 0/);
+});
+
+test("evento de excesso usa UUID próprio na auditoria e mantém a referência da passagem", () => {
+  const excessBranchStart = sensorEventsApi.indexOf('"EXCESSO_DETECTADO"');
+  const excessBranch = sensorEventsApi.slice(excessBranchStart, excessBranchStart + 700);
+  assert.match(excessBranch, /"sensor_event_uuid"\s*=>\s*\$eventUuid/);
+  assert.doesNotMatch(excessBranch, /(?<!sensor_)"event_uuid"\s*=>\s*\$eventUuid/);
 });
 
 test("AutoID HID entrega sequências de teclado ao Trace sem tornar o visor editável", () => {
