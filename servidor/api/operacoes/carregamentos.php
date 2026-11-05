@@ -129,11 +129,11 @@ if (is_file(dirname(__DIR__, 3) . "/armazenamento/.maintenance")) {
     responder_json(["error" => "Atualização do sistema em andamento; tente preparar o carregamento novamente em instantes."], 503);
 }
 exigir_csrf();
-if (!in_array($usuarioAtor["role"], ["ADMIN_EMPRESA", "SUPERVISOR"], true)) {
+if (!in_array($usuarioAtor["role"], ["ADMIN_EMPRESA", "SUPERVISOR", "USUARIO"], true)) {
     responder_json(
         [
             "error" =>
-            "A preparação do carregamento é permitida somente para administração ou supervisão.",
+            "A preparação do carregamento é permitida somente para administração, supervisão ou operação.",
         ],
         403,
     );

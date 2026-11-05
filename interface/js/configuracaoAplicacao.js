@@ -23,8 +23,8 @@ export const ROLE_PAGES = Object.freeze({
     "work", "occurrences", "products", "alerts", "emergency", "dala",
   ],
   USUARIO: [
-    "dashboard", "manifests", "manifest", "dala", "work", "occurrences",
-    "alerts", "emergency",
+    "dashboard", "manifests", "manifest", "division", "dala", "work",
+    "occurrences", "alerts", "emergency",
   ],
 });
 
