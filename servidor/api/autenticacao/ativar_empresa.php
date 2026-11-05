@@ -208,13 +208,15 @@ try {
     $localUserId = 0;
     if ($localUser) {
         $updateUser = $pdo->prepare(
-            "UPDATE usuarios SET company_id = :company_id, name = :name, password_hash = :password_hash,
+            "UPDATE usuarios SET company_id = :company_id, remote_user_id = :remote_user_id,
+                name = :name, password_hash = :password_hash,
                 role = 'ADMIN_EMPRESA', active = 1, must_change_password = 0,
                 auth_version = auth_version + 1
              WHERE id = :id",
         );
         $updateUser->execute([
             "company_id" => $localCompanyId,
+            "remote_user_id" => (int) $remoteUser["id"],
             "name" => $remoteUser["name"] ?? "Administrador da empresa",
             "password_hash" => $passwordHash,
             "id" => $localUser["id"],
@@ -222,11 +224,12 @@ try {
         $localUserId = (int) $localUser["id"];
     } else {
         $insertUser = $pdo->prepare(
-            "INSERT INTO usuarios (company_id, name, email, password_hash, role, active, must_change_password)
-             VALUES (:company_id, :name, :email, :password_hash, 'ADMIN_EMPRESA', 1, 0)",
+            "INSERT INTO usuarios (company_id, remote_user_id, name, email, password_hash, role, active, must_change_password)
+             VALUES (:company_id, :remote_user_id, :name, :email, :password_hash, 'ADMIN_EMPRESA', 1, 0)",
         );
         $insertUser->execute([
             "company_id" => $localCompanyId,
+            "remote_user_id" => (int) $remoteUser["id"],
             "name" => $remoteUser["name"] ?? "Administrador da empresa",
             "email" => $email,
             "password_hash" => $passwordHash,
