@@ -1,11 +1,12 @@
+import { randomUUID } from "node:crypto";
 import { createServer as createHttpServer } from "node:http";
 import { execFile as execFileCallback } from "node:child_process";
 import { createServer as createTcpServer, isIP } from "node:net";
-import { mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
+import { link, mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { createFtpReceiver } from "./ftp-receiver.mjs";
-import { groupImageFrames, isAllowedSourceAddress, isKeyenceNoReadFrame, matchPendingImage, nextUnreservedSensorEventId, parseBarcodeFrame, parseLinuxDefaultGateway, scanEventId, sha256 } from "./keyence-core.mjs";
+import { isAllowedSourceAddress, isKeyenceNoReadFrame, matchUniquePendingImage, nextUnreservedSensorEventId, parseBarcodeFrame, parseLinuxDefaultGateway, scanEventId, sha256 } from "./keyence-core.mjs";
 import { importArchivedImages } from "./image-archive.mjs";
 
 const SERVICE_NAME = "keyence-worker";
@@ -21,6 +22,7 @@ const READER_PROBE_INTERVAL_MS = 5000;
 const FTP_CONTROL_PORT = boundedInteger(process.env.KEYENCE_FTP_PORT, 2121, 1, 65535);
 const FTP_PASSIVE_START = boundedInteger(process.env.KEYENCE_FTP_PASSIVE_START, 21100, 1024, 65535);
 const FTP_PASSIVE_END = boundedInteger(process.env.KEYENCE_FTP_PASSIVE_END, 21109, FTP_PASSIVE_START, 65535);
+const FTP_MINIMUM_FREE_BYTES = boundedInteger(process.env.KEYENCE_FTP_MINIMUM_FREE_BYTES, 268435456, 0, 2147483648);
 const FTP_USER = process.env.KEYENCE_FTP_USER || "trace-keyence";
 const FTP_PASSWORD = process.env.KEYENCE_FTP_PASSWORD || "";
 const FTP_PASV_ADDRESS = process.env.KEYENCE_FTP_PASV_ADDRESS || "";
@@ -36,7 +38,7 @@ const IMAGE_MATCH_WINDOW_MS = boundedInteger(process.env.KEYENCE_IMAGE_MATCH_WIN
 const IMAGE_UNMATCHED_GRACE_MS = boundedInteger(process.env.KEYENCE_IMAGE_UNMATCHED_GRACE_MS, 300000, 5000, 86400000);
 const IMAGE_ARCHIVE_MATCH_WINDOW_MS = boundedInteger(process.env.KEYENCE_IMAGE_ARCHIVE_MATCH_WINDOW_MS, 1500, 500, 10000);
 const IMAGE_SETTLE_MS = boundedInteger(process.env.KEYENCE_IMAGE_SETTLE_MS, 800, 0, 10000);
-const IMAGE_BURST_WINDOW_MS = boundedInteger(process.env.KEYENCE_IMAGE_BURST_WINDOW_MS, 100, 0, 1000);
+const IMAGE_PROCESS_POLL_MS = 1000;
 const IMAGE_ARCHIVE_POLL_MS = boundedInteger(process.env.KEYENCE_IMAGE_ARCHIVE_POLL_MS, 2000, 500, 10000);
 const IMAGE_MAX_AGE_MS = boundedInteger(process.env.KEYENCE_IMAGE_MAX_AGE_MS, 300000, 30000, 86400000);
 const POLL_MS = boundedInteger(process.env.KEYENCE_POLL_MS, 500, 100, 5000);
@@ -60,9 +62,14 @@ let activeLoading = null;
 let activeLoadingCheckedAt = 0;
 let lastError = "";
 let unmatchedImageCount = 0;
+let oldestUnmatchedImageAgeMs = 0;
+let ftpImageReceivedCount = 0;
+let ftpLastImageReceivedAt = null;
+let ftpTransferErrorCode = null;
 let imageArchiveAvailable = null;
 let lastImageArchivePollAt = 0;
-const loggedAmbiguousImageGroups = new Set();
+let lastImageProcessAttemptAt = 0;
+const loggedUnmatchedImages = new Set();
 let pollTimer = null;
 let processingImages = false;
 let scanQueuePromise = null;
@@ -301,7 +308,9 @@ async function uploadImage(file, request, capturedAtEpochMs) {
   form.append("action", "UPLOAD_IMAGE");
   form.append("request_id", String(request.id));
   form.append("captured_at_epoch_ms", String(Math.round(capturedAtEpochMs)));
-  const sourceName = file.split(/[\\/]/).at(-1)?.match(/-archive-([A-Za-z0-9._-]{1,80})$/i)?.[1];
+  const basename = file.split(/[\\/]/).at(-1) || "";
+  const sourceName = basename.match(/-archive-([A-Za-z0-9._-]{1,120})$/i)?.[1]
+    || basename.match(/-ftp-([A-Za-z0-9._-]{1,120})\.jpg$/i)?.[1];
   if (sourceName) form.append("source_file_name", sourceName);
   form.append("file", new Blob([bytes], { type: "image/jpeg" }), "keyence-evidence.jpg");
   const result = await apiRequest("/api/keyence_worker.php", { formBody: form, timeoutMs: 20000 });
@@ -316,15 +325,12 @@ async function uploadImage(file, request, capturedAtEpochMs) {
   });
 }
 
-async function removeImageGroup(group, keepName = "") {
-  for (const frame of group.frames) {
-    if (frame.name === keepName) continue;
-    try {
-      await unlink(join(INBOX_DIR, frame.name));
-      unmatchedImageCount = Math.max(0, unmatchedImageCount - 1);
-    } catch (error) {
-      if (error.code !== "ENOENT") throw error;
-    }
+async function removeImageFile(name) {
+  try {
+    await unlink(join(INBOX_DIR, name));
+    unmatchedImageCount = Math.max(0, unmatchedImageCount - 1);
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
   }
 }
 
@@ -357,8 +363,86 @@ async function quarantineImageGroup(group, reason, details = {}) {
   }
 }
 
+async function restoreRetryableQuarantine() {
+  const retryableReasons = new Set([
+    "prazo_de_associacao_expirado",
+    "sem_solicitacao_compativel",
+    // Older releases overwrote this manifest reason with the HTTP error text.
+    "Horário de captura fora da janela aceita.",
+  ]);
+  let manifests = [];
+  try {
+    manifests = (await readdir(QUARANTINE_DIR)).filter((name) => name.endsWith(".json"));
+  } catch (error) {
+    if (error.code === "ENOENT") return;
+    throw error;
+  }
+
+  for (const manifestName of manifests) {
+    const manifestPath = join(QUARANTINE_DIR, manifestName);
+    let manifest;
+    try {
+      manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    } catch (error) {
+      log("error", "Manifesto de quarentena Keyence inválido; preservado sem alteração.", {
+        manifest: manifestName,
+        reason: String(error?.message || error).slice(0, 180),
+      });
+      continue;
+    }
+    if (!retryableReasons.has(manifest?.reason) || manifest?.requeued_at || !Array.isArray(manifest?.files)) continue;
+
+    const restored = [];
+    for (const name of manifest.files) {
+      if (typeof name !== "string"
+        || !/^\d{13}--[a-f0-9]{64}-[a-f0-9]{8}(?:-archive(?:-[A-Za-z0-9._-]{1,120})?|-ftp-[A-Za-z0-9._-]{1,120}\.jpg)?\.jpg$/i.test(name)) continue;
+      const source = join(QUARANTINE_DIR, name);
+      const destination = join(INBOX_DIR, name);
+      try {
+        await link(source, destination);
+        restored.push(name);
+        await unlink(source).catch((error) => {
+          if (error.code !== "ENOENT") {
+            log("warn", "Imagem Keyence recuperada, mas a cópia de quarentena foi mantida.", { image: name });
+          }
+        });
+      } catch (error) {
+        if (error.code === "ENOENT") continue;
+        if (error.code === "EEXIST") {
+          const [sourceBytes, destinationBytes] = await Promise.all([readFile(source), readFile(destination)]);
+          if (sha256(sourceBytes) !== sha256(destinationBytes)) {
+            log("error", "Conflito ao recuperar imagem Keyence; ambos os arquivos foram preservados.", { image: name });
+            continue;
+          }
+          await unlink(source);
+          restored.push(name);
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    const updatedManifest = {
+      ...manifest,
+      requeued_at: new Date().toISOString(),
+      requeued_files: restored,
+    };
+    const temporary = `${manifestPath}.${randomUUID()}.tmp`;
+    await writeFile(temporary, JSON.stringify(updatedManifest, null, 2), { flag: "wx", mode: 0o600 });
+    await rename(temporary, manifestPath);
+    if (restored.length > 0) {
+      log("warn", "Imagens Keyence sem associação foram recuperadas para nova tentativa.", {
+        image_count: restored.length,
+        original_reason: manifest.reason,
+      });
+    }
+  }
+}
+
 async function processImageQueue() {
   if (processingImages || shuttingDown || !ftpReachable || !DEVICE_TOKEN) return;
+  if (Date.now() - lastImageProcessAttemptAt < IMAGE_PROCESS_POLL_MS) return;
+  lastImageProcessAttemptAt = Date.now();
   processingImages = true;
   try {
     if (IMAGE_ARCHIVE_DIR && Date.now() - lastImageArchivePollAt >= IMAGE_ARCHIVE_POLL_MS) {
@@ -379,94 +463,87 @@ async function processImageQueue() {
       }
     }
 
-    let names = (await readdir(INBOX_DIR))
-      .filter((name) => /^\d{13}--[a-f0-9]{64}-[a-f0-9]{8}(?:-archive(?:-[A-Za-z0-9._-]{1,80})?)?\.jpg$/i.test(name))
+    const names = (await readdir(INBOX_DIR))
+      .filter((name) => /^\d{13}--[a-f0-9]{64}-[a-f0-9]{8}(?:-archive(?:-[A-Za-z0-9._-]{1,120})?|-ftp-[A-Za-z0-9._-]{1,120}\.jpg)?\.jpg$/i.test(name))
       .sort();
-    for (const name of names) {
-      const receivedAt = Number(name.slice(0, 13));
-      if (Number.isFinite(receivedAt) && Date.now() - receivedAt > IMAGE_MAX_AGE_MS) {
-        await quarantineImageGroup({ frames: [{ name, receivedAt }] }, "prazo_de_associacao_expirado", {
-          sha256: name.slice(15, 79),
-        });
-      }
-    }
-    names = names.filter((name) => Date.now() - Number(name.slice(0, 13)) <= IMAGE_MAX_AGE_MS);
     unmatchedImageCount = names.length;
+    const oldestReceivedAt = names.reduce((oldest, name) => Math.min(oldest, Number(name.slice(0, 13))), Date.now());
+    oldestUnmatchedImageAgeMs = names.length > 0 ? Math.max(0, Date.now() - oldestReceivedAt) : 0;
     if (names.length === 0) return;
     const requests = await pendingImages();
     const reserved = new Set();
-    const groups = groupImageFrames(names.map((name) => ({
-      name,
-      receivedAt: Number(name.slice(0, 13)),
-      archived: /-archive(?:-|\.jpg$)/i.test(name),
-    })), IMAGE_BURST_WINDOW_MS);
-    for (const group of groups) {
-      const receivedAt = Number(group.representative.receivedAt);
+    const pendingRequests = requests.filter((request) => ["PENDENTE", "ERRO"].includes(request.status));
+    for (const name of names) {
+      const receivedAt = Number(name.slice(0, 13));
       if (!Number.isFinite(receivedAt)) continue;
-      if (group.frames.some((frame) => Date.now() - Number(frame.receivedAt) < IMAGE_SETTLE_MS)) continue;
-      const timestampField = group.frames.some((frame) => frame.archived)
+      if (Date.now() - receivedAt < IMAGE_SETTLE_MS) continue;
+      const archived = /-archive-/i.test(name);
+      const timestampField = archived
         ? "image_expected_at_epoch_ms"
         : "requested_at_epoch_ms";
       const matchWindowMs = timestampField === "image_expected_at_epoch_ms"
         ? IMAGE_ARCHIVE_MATCH_WINDOW_MS
         : IMAGE_MATCH_WINDOW_MS;
-      const match = matchPendingImage(receivedAt, requests, matchWindowMs, timestampField);
-      const groupKey = group.frames.map((frame) => frame.name).join("|");
+      const match = matchUniquePendingImage(receivedAt, pendingRequests, matchWindowMs, timestampField);
+      const imageHash = name.slice(15, 79).toLowerCase();
+      const groupKey = name;
       if (!match.request) {
-        if (match.reason === "solicitacoes_ambiguas") {
-          if (!loggedAmbiguousImageGroups.has(groupKey)) {
-            loggedAmbiguousImageGroups.add(groupKey);
-            log("warn", "Imagem Keyence ambígua; preservada na fila sem anexar a uma falha incorreta.", {
-              image_count: group.frames.length,
-              candidate_requests: requests.filter((request) => {
-                const timestamp = Number(request[timestampField]);
-                return Number.isFinite(timestamp) && Math.abs(receivedAt - timestamp) <= matchWindowMs;
-              }).length,
-            });
-          }
-        } else if (Date.now() - receivedAt > Math.max(matchWindowMs + IMAGE_SETTLE_MS, IMAGE_UNMATCHED_GRACE_MS)) {
-          await quarantineImageGroup(group, "sem_solicitacao_compativel", {
-            sha256: group.representative.name.slice(15, 79),
+        const capturedDuplicate = match.reason === "sem_solicitacao_compativel"
+          ? requests.find((request) => request.status === "CAPTURADA"
+          && String(request.image_sha256 || "").toLowerCase() === imageHash
+          && Number.isFinite(Number(request[timestampField]))
+          && Math.abs(receivedAt - Number(request[timestampField])) <= matchWindowMs)
+          : null;
+        if (capturedDuplicate) {
+          await removeImageFile(name);
+          loggedUnmatchedImages.delete(groupKey);
+          log("info", "Reenvio FTP idêntico confirmado pela impressão digital; cópia redundante removida.", {
+            sensor_event_id: Number(capturedDuplicate.sensor_event_id),
           });
-          loggedAmbiguousImageGroups.delete(groupKey);
+          continue;
+        }
+        const ageMs = Math.max(0, Date.now() - receivedAt);
+        if (ageMs >= IMAGE_UNMATCHED_GRACE_MS && !loggedUnmatchedImages.has(groupKey)) {
+          loggedUnmatchedImages.add(groupKey);
+          const candidateCount = requests.filter((request) => {
+            const timestamp = Number(request[timestampField]);
+            return Number.isFinite(timestamp) && Math.abs(receivedAt - timestamp) <= matchWindowMs;
+          }).length;
+          log("warn", "Imagem Keyence mantida na fila: não há correspondência única e segura.", {
+            age_ms: ageMs,
+            reason: match.reason,
+            candidate_requests: candidateCount,
+            image_sha256: imageHash,
+          });
         }
         continue;
       }
-      if (match.request.status === "CAPTURADA") {
-        await removeImageGroup(group);
-        loggedAmbiguousImageGroups.delete(groupKey);
-        log("info", "Imagem Keyence repetida descartada; esta passagem já tem evidência.", {
-          sensor_event_id: Number(match.request.sensor_event_id),
-          image_count: group.frames.length,
-        });
-        continue;
-      }
       if (reserved.has(Number(match.request.id))) {
-        await removeImageGroup(group);
-        log("info", "Quadro adicional da mesma passagem descartado após selecionar uma evidência.", {
-          sensor_event_id: Number(match.request.sensor_event_id),
-          image_count: group.frames.length,
-        });
+        if (!loggedUnmatchedImages.has(groupKey)) {
+          loggedUnmatchedImages.add(groupKey);
+          log("warn", "Imagem Keyence mantida na fila até atualizar o estado da solicitação já reservada.", {
+            sensor_event_id: Number(match.request.sensor_event_id),
+          });
+        }
         continue;
       }
       reserved.add(Number(match.request.id));
       try {
-        await uploadImage(join(INBOX_DIR, group.representative.name), match.request, receivedAt);
+        await uploadImage(join(INBOX_DIR, name), match.request, receivedAt);
         unmatchedImageCount = Math.max(0, unmatchedImageCount - 1);
-        await removeImageGroup(group, group.representative.name);
-        loggedAmbiguousImageGroups.delete(groupKey);
+        loggedUnmatchedImages.delete(groupKey);
       } catch (error) {
         if (error.status === 404 || error.status === 409) {
-          // Outro processo pode ter reservado a mesma solicitação durante o envio.
-          // Deixe o grupo na fila até o próximo ciclo, quando o estado ficará claro.
+          // Uma solicitação concorrente pode ter concluído o vínculo. Reavalie
+          // no próximo ciclo; não descarte a imagem com base apenas no horário.
           continue;
         }
         setError(error);
-        if (Number(error.status) >= 400 && Number(error.status) < 500 && error.status !== 429) {
-          await quarantineImageGroup(group, "api_rejeitou_imagem", {
+        if (error.status === 413 || error.status === 422) {
+          await quarantineImageGroup({ frames: [{ name, receivedAt }] }, "api_rejeitou_imagem", {
             request_id: Number(match.request.id),
             http_status: error.status,
-            reason: lastError,
+            error_message: lastError,
           });
         }
         break;
@@ -481,7 +558,8 @@ async function processImageQueue() {
 
 async function publishHeartbeat() {
   const archiveUnavailable = Boolean(IMAGE_ARCHIVE_DIR) && imageArchiveAvailable === false;
-  const status = lastError || readerProbeError || archiveUnavailable ? "ERRO" : "ONLINE";
+  const imageQueueStale = unmatchedImageCount > 0 && oldestUnmatchedImageAgeMs >= IMAGE_UNMATCHED_GRACE_MS;
+  const status = lastError || readerProbeError || archiveUnavailable || imageQueueStale || ftpTransferErrorCode ? "ERRO" : "ONLINE";
   await apiRequest("/api/device_heartbeat.php", {
     jsonBody: {
       device_type: "SCANNER",
@@ -499,8 +577,16 @@ async function publishHeartbeat() {
         reader_last_read_age_ms: readerLastReadAtMs === null ? null : Math.max(0, Date.now() - readerLastReadAtMs),
         active_loading: Boolean(activeLoading),
         unmatched_image_count: unmatchedImageCount,
+        oldest_unmatched_image_age_ms: oldestUnmatchedImageAgeMs,
+        image_queue_status: unmatchedImageCount === 0
+          ? "OK"
+          : imageQueueStale ? "ERRO" : "AGUARDANDO_CORRELACAO",
+        ftp_images_received: ftpImageReceivedCount,
+        ftp_last_image_received_at: ftpLastImageReceivedAt,
+        ftp_transfer_error_code: ftpTransferErrorCode,
         image_archive_directory_available: IMAGE_ARCHIVE_DIR ? imageArchiveAvailable : null,
         ...(archiveUnavailable ? { reason_code: "keyence_image_archive_unavailable" } : {}),
+        ...(imageQueueStale ? { reason_code: "keyence_images_unmatched" } : {}),
         ...(readerProbeError ? { reason_code: "keyence_reader_ping_failed" } : {}),
         ...(lastError ? { reason_code: "keyence_worker_error", error: lastError } : {}),
       },
@@ -604,6 +690,13 @@ async function start() {
       reader_last_read_at: readerLastReadAt,
       reader_last_read_age_ms: readerLastReadAtMs === null ? null : Math.max(0, Date.now() - readerLastReadAtMs),
       unmatched_image_count: unmatchedImageCount,
+      oldest_unmatched_image_age_ms: oldestUnmatchedImageAgeMs,
+      image_queue_status: unmatchedImageCount === 0
+        ? "OK"
+        : oldestUnmatchedImageAgeMs >= IMAGE_UNMATCHED_GRACE_MS ? "ERRO" : "AGUARDANDO_CORRELACAO",
+      ftp_images_received: ftpImageReceivedCount,
+      ftp_last_image_received_at: ftpLastImageReceivedAt,
+      ftp_transfer_error_code: ftpTransferErrorCode,
       image_archive_directory_available: IMAGE_ARCHIVE_DIR ? imageArchiveAvailable : null,
       scan_queue_directory: SCAN_QUEUE_DIR,
     }));
@@ -624,6 +717,8 @@ async function start() {
   await mkdir(INBOX_DIR, { recursive: true, mode: 0o770 });
   await mkdir(SCAN_QUEUE_DIR, { recursive: true, mode: 0o770 });
   await mkdir(FAILED_SCAN_DIR, { recursive: true, mode: 0o770 });
+  await mkdir(QUARANTINE_DIR, { recursive: true, mode: 0o770 });
+  await restoreRetryableQuarantine();
   await loadScanQueueReservations();
   let dockerGateway = null;
   try {
@@ -644,12 +739,21 @@ async function start() {
     port: FTP_CONTROL_PORT,
     passiveStart: FTP_PASSIVE_START,
     passiveEnd: FTP_PASSIVE_END,
+    minimumFreeBytes: FTP_MINIMUM_FREE_BYTES,
     advertisedAddress: FTP_PASV_ADDRESS,
     username: FTP_USER,
     password: FTP_PASSWORD,
     allowedAddresses: ftpAllowedAddresses,
     inboxDirectory: INBOX_DIR,
-    onImage: () => void processImageQueue(),
+    onImage: () => {
+      ftpImageReceivedCount += 1;
+      ftpLastImageReceivedAt = new Date().toISOString();
+      ftpTransferErrorCode = null;
+      void processImageQueue();
+    },
+    onTransferError: (code) => {
+      ftpTransferErrorCode = String(code || "falha_ftp_desconhecida").slice(0, 80);
+    },
     log,
   });
   await ftpReceiver.listen();

@@ -54,7 +54,7 @@ if ($action === "STATUS") {
 if ($action === "PENDING_IMAGES") {
     expirar_solicitacoes_imagem_keyence($pdo, (int) $device["equipment_id"]);
     $statement = $pdo->prepare(
-        "SELECT r.id, r.sensor_event_id, r.status, r.reason,
+        "SELECT r.id, r.sensor_event_id, r.status, r.reason, r.image_sha256,
                 CAST(ROUND(UNIX_TIMESTAMP(r.requested_at) * 1000) AS UNSIGNED) AS requested_at_epoch_ms,
                 s.device_detected_at,
                 CAST(ROUND(UNIX_TIMESTAMP(s.detected_at) * 1000) AS UNSIGNED) AS server_detected_at_epoch_ms
@@ -76,10 +76,12 @@ if ($action === "PENDING_IMAGES") {
         $sensorDetectedAtMs = $row["device_detected_at"] !== null
             ? trace_sql_datetime_to_epoch_ms((string) $row["device_detected_at"])
             : (int) $row["server_detected_at_epoch_ms"];
+        $imageHash = strtolower((string) ($row["image_sha256"] ?? ""));
         return [
             "id" => (int) $row["id"],
             "sensor_event_id" => (int) $row["sensor_event_id"],
             "status" => $row["status"],
+            "image_sha256" => preg_match('/^[a-f0-9]{64}$/', $imageHash) === 1 ? $imageHash : null,
             "requested_at_epoch_ms" => (int) $row["requested_at_epoch_ms"],
             "sensor_detected_at_epoch_ms" => $sensorDetectedAtMs,
             "image_expected_at_epoch_ms" => $sensorDetectedAtMs + trace_scanner_timing()["travel_ms"],
@@ -94,7 +96,7 @@ if ($action !== "UPLOAD_IMAGE") {
 
 $requestId = filter_var($payload["request_id"] ?? null, FILTER_VALIDATE_INT);
 $sourceFileName = trim((string) ($payload["source_file_name"] ?? ""));
-if ($sourceFileName !== "" && !preg_match('/^[A-Za-z0-9._-]{1,80}$/', $sourceFileName)) {
+if ($sourceFileName !== "" && !preg_match('/^[A-Za-z0-9._-]{1,120}$/', $sourceFileName)) {
     json_response(["error" => "Nome da imagem de origem inválido."], 422);
 }
 $upload = $_FILES["file"] ?? null;
@@ -128,7 +130,7 @@ if ($capturedAtInput !== null && $capturedAtInput !== "" && $capturedAtEpochMs =
 }
 if ($capturedAtEpochMs !== null) {
     $nowEpochMs = (int) round(microtime(true) * 1000);
-    if ($capturedAtEpochMs < $nowEpochMs - 600000 || $capturedAtEpochMs > $nowEpochMs + 30000) {
+    if ($capturedAtEpochMs < 946684800000 || $capturedAtEpochMs > $nowEpochMs + 30000) {
         json_response(["error" => "Horário de captura fora da janela aceita."], 422);
     }
 }
@@ -142,7 +144,8 @@ $storedPath = "";
 $storageRoot = realpath(__DIR__ . "/../../armazenamento");
 try {
     $requestStatement = $pdo->prepare(
-        "SELECT r.id, r.sensor_event_id, r.carregamento_id, r.equipment_id, r.reason, r.status, c.company_id
+        "SELECT r.id, r.sensor_event_id, r.carregamento_id, r.equipment_id, r.reason, r.status,
+                r.image_sha256, c.company_id
          FROM solicitacoes_imagens_evidencia r
          JOIN carregamentos c ON c.id = r.carregamento_id
          WHERE r.id = :id AND r.equipment_id = :equipment_id AND c.company_id = :company_id
@@ -159,8 +162,14 @@ try {
         json_response(["error" => "Solicitação de evidência não encontrada para esta Dala."], 404);
     }
     if ($capture["status"] === "CAPTURADA") {
-        $pdo->commit();
-        json_response(["data" => ["request_id" => (int) $requestId, "duplicate" => true]]);
+        if (is_string($capture["image_sha256"])
+            && preg_match('/^[a-f0-9]{64}$/i', $capture["image_sha256"]) === 1
+            && hash_equals(strtolower($capture["image_sha256"]), $sha256)) {
+            $pdo->commit();
+            json_response(["data" => ["request_id" => (int) $requestId, "duplicate" => true]]);
+        }
+        $pdo->rollBack();
+        json_response(["error" => "A solicitação já possui outra imagem; a nova foto deve ser preservada para revisão."], 409);
     }
     if (!in_array($capture["status"], ["PENDENTE", "ERRO"], true)) {
         $pdo->rollBack();
@@ -249,11 +258,16 @@ try {
     $imageId = (int) $pdo->lastInsertId();
     $complete = $pdo->prepare(
         "UPDATE solicitacoes_imagens_evidencia
-         SET status = 'CAPTURADA', captured_at = {$capturedAtExpression}, claimed_by_device_id = :device_id,
+         SET status = 'CAPTURADA', captured_at = {$capturedAtExpression}, image_sha256 = :image_sha256,
+             claimed_by_device_id = :device_id,
              error_message = NULL, updated_at = NOW(3)
          WHERE id = :id AND status IN ('PENDENTE', 'ERRO')",
     );
-    $completeParameters = ["device_id" => $device["id"], "id" => (int) $requestId];
+    $completeParameters = [
+        "device_id" => $device["id"],
+        "id" => (int) $requestId,
+        "image_sha256" => $sha256,
+    ];
     if ($capturedAtEpochMs !== null) {
         $completeParameters["captured_at_epoch_ms"] = $capturedAtEpochMs;
     }

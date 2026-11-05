@@ -77,6 +77,32 @@ final class ServicoMonitoramento
                 $device["reader_probe_is_recent"] = $probeIsRecent;
                 $device["scanner_service_status"] = (string) $device["status"];
                 $device["reader_last_read_at"] = $lastReadTimestamp !== false ? $lastReadAt : null;
+                $device["ftp_image_receiver_listening"] = is_bool($details["ftp_image_receiver_listening"] ?? null)
+                    ? $details["ftp_image_receiver_listening"]
+                    : null;
+                $device["image_archive_directory_available"] = is_bool($details["image_archive_directory_available"] ?? null)
+                    ? $details["image_archive_directory_available"]
+                    : null;
+                $queueStatus = strtoupper((string) ($details["image_queue_status"] ?? ""));
+                $device["image_queue_status"] = in_array($queueStatus, ["OK", "ERRO", "AGUARDANDO_CORRELACAO"], true)
+                    ? $queueStatus
+                    : null;
+                foreach (["unmatched_image_count", "ftp_images_received"] as $countField) {
+                    $count = filter_var($details[$countField] ?? null, FILTER_VALIDATE_INT);
+                    $device[$countField] = $count !== false && $count >= 0 && $count <= 1000000000 ? $count : null;
+                }
+                $oldestImageAgeMs = filter_var($details["oldest_unmatched_image_age_ms"] ?? null, FILTER_VALIDATE_INT);
+                $device["oldest_unmatched_image_age_ms"] = $oldestImageAgeMs !== false
+                    && $oldestImageAgeMs >= 0 && $oldestImageAgeMs <= 31536000000
+                    ? $oldestImageAgeMs
+                    : null;
+                $ftpLastImageAt = $details["ftp_last_image_received_at"] ?? null;
+                $ftpLastImageTimestamp = is_string($ftpLastImageAt) ? strtotime($ftpLastImageAt) : false;
+                $device["ftp_last_image_received_at"] = $ftpLastImageTimestamp !== false ? $ftpLastImageAt : null;
+                $ftpTransferErrorCode = trim((string) ($details["ftp_transfer_error_code"] ?? ""));
+                $device["ftp_transfer_error_code"] = preg_match('/^[a-z0-9_]{1,80}$/', $ftpTransferErrorCode) === 1
+                    ? $ftpTransferErrorCode
+                    : null;
             }
             unset($device["details"]);
             $limit = match ($deviceType) {
@@ -91,11 +117,13 @@ final class ServicoMonitoramento
                 // não que o scanner foi fisicamente desconectado.
                 $device["status"] = "DESCONHECIDO";
             } elseif ($deviceType === "SCANNER") {
-                $device["status"] = $device["reader_online_source"] !== null
+                $device["status"] = $reportedStatus === "ERRO"
+                    ? "ERRO"
+                    : ($device["reader_online_source"] !== null
                     ? "ONLINE"
                     : ($device["reader_probe_is_recent"] && $device["reader_network_status"] === "OFFLINE"
                         ? "OFFLINE"
-                        : ($reportedStatus === "ERRO" ? "ERRO" : "DESCONHECIDO"));
+                        : "DESCONHECIDO"));
             } elseif ($reportedStatus === "ERRO") {
                 $device["status"] = "ERRO";
             } elseif ($reportedStatus === "DESCONHECIDO") {

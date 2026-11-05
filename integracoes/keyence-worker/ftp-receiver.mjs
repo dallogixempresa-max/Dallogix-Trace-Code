@@ -1,12 +1,14 @@
 import { timingSafeEqual } from "node:crypto";
 import { createServer } from "node:net";
 import { randomBytes } from "node:crypto";
-import { mkdir, rename, writeFile } from "node:fs/promises";
+import { mkdir, open, rename, statfs, unlink } from "node:fs/promises";
 import { basename, posix } from "node:path";
 import { isAllowedSourceAddress, sha256 } from "./keyence-core.mjs";
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_SESSIONS = 16;
+const DEFAULT_MINIMUM_FREE_BYTES = 256 * 1024 * 1024;
+let reservedFreeBytes = 0;
 
 function safeEqual(left, right) {
   const a = Buffer.from(String(left));
@@ -114,8 +116,10 @@ class FtpSession {
   async storeFile(argument) {
     const inputName = argument.trim();
     const filename = posix.basename(inputName);
-    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,159}\.(?:jpe?g)$/i.test(filename)
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,119}\.(?:jpe?g)$/i.test(filename)
+      || filename.length > 120
       || inputName !== filename || filename !== basename(filename)) {
+      this.options.onTransferError?.("nome_arquivo_invalido");
       this.reply("553 Only JPEG image files are accepted.");
       return;
     }
@@ -147,20 +151,87 @@ class FtpSession {
       });
     } catch (error) {
       this.closePassive();
+      this.options.onTransferError?.(error.message.includes("10 MiB") ? "imagem_acima_do_limite" : "conexao_de_dados_falhou");
       this.reply(error.message.includes("10 MiB") ? "552 File too large." : "425 Data connection failed.");
       return;
     }
     this.closePassive();
     if (data.length < 4 || data[0] !== 0xff || data[1] !== 0xd8 || data[data.length - 2] !== 0xff || data[data.length - 1] !== 0xd9) {
+      this.options.onTransferError?.("jpeg_invalido");
       this.reply("550 Invalid JPEG image.");
       return;
     }
     await mkdir(this.options.inboxDirectory, { recursive: true, mode: 0o770 });
     const hash = sha256(data);
-    const target = `${this.options.inboxDirectory}/${Date.now()}--${hash}-${randomBytes(4).toString("hex")}.jpg`;
+    const target = `${this.options.inboxDirectory}/${Date.now()}--${hash}-${randomBytes(4).toString("hex")}-ftp-${filename}.jpg`;
     const temporary = `${target}.tmp-${randomBytes(6).toString("hex")}`;
-    await writeFile(temporary, data, { flag: "wx", mode: 0o600 });
-    await rename(temporary, target);
+    const minimumFreeBytes = Number.isSafeInteger(this.options.minimumFreeBytes)
+      ? Math.max(0, this.options.minimumFreeBytes)
+      : DEFAULT_MINIMUM_FREE_BYTES;
+    let filesystem;
+    try {
+      filesystem = await statfs(this.options.inboxDirectory);
+    } catch (error) {
+      this.options.onTransferError?.("nao_foi_possivel_verificar_espaco");
+      this.options.log("error", "Não foi possível verificar o espaço livre para receber imagem FTP.", {
+        reason: String(error?.message || error).slice(0, 180),
+      });
+      this.reply("451 Storage check failed; retry later.");
+      return;
+    }
+    const freeBytes = Number(filesystem.bavail) * Number(filesystem.bsize);
+    if (!Number.isFinite(freeBytes) || freeBytes - reservedFreeBytes < minimumFreeBytes + data.length) {
+      this.options.onTransferError?.("espaco_livre_abaixo_da_reserva");
+      this.options.log("error", "Recepção FTP recusada: espaço livre abaixo da reserva de segurança.", {
+        free_bytes: Number.isFinite(freeBytes) ? Math.floor(freeBytes - reservedFreeBytes) : null,
+        minimum_free_bytes: minimumFreeBytes,
+        image_bytes: data.length,
+      });
+      this.reply("452 Insufficient storage; retry later.");
+      return;
+    }
+    reservedFreeBytes += data.length;
+
+    let fileHandle = null;
+    try {
+      fileHandle = await open(temporary, "wx", 0o600);
+      await fileHandle.writeFile(data);
+      await fileHandle.sync();
+      await fileHandle.close();
+      fileHandle = null;
+      await rename(temporary, target);
+      const inboxHandle = await open(this.options.inboxDirectory, "r");
+      try {
+        await inboxHandle.sync();
+      } finally {
+        await inboxHandle.close();
+      }
+    } catch (error) {
+      this.options.onTransferError?.("falha_ao_gravar_imagem");
+      if (fileHandle) {
+        await fileHandle.close().catch((closeError) => {
+          this.options.log("error", "Não foi possível fechar o temporário incompleto da imagem FTP.", {
+            reason: String(closeError?.message || closeError).slice(0, 180),
+          });
+        });
+      }
+      await unlink(temporary).catch((cleanupError) => {
+        if (cleanupError.code !== "ENOENT") {
+          this.options.log("error", "Não foi possível remover o temporário incompleto da imagem FTP.", {
+            reason: String(cleanupError?.message || cleanupError).slice(0, 180),
+          });
+        }
+      });
+      this.options.log("error", "Imagem Keyence não foi confirmada como gravada com segurança.", {
+        reason: String(error?.message || error).slice(0, 180),
+        code: error?.code || null,
+        image_bytes: data.length,
+      });
+      this.reply("451 Image was not durably stored; retry later.");
+      return;
+    } finally {
+      reservedFreeBytes = Math.max(0, reservedFreeBytes - data.length);
+    }
     this.reply("226 Image received.");
     this.options.log("info", "Imagem JPEG recebida do Keyence por FTP.", {
       source_filename: filename,

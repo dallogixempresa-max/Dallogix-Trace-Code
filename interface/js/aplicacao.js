@@ -23,8 +23,8 @@ import { criarTratadorAcoesInterface, instalarInteracoesGlobaisInterface } from 
 import { criarTratadorAcoesRelatorios } from "./controladores/acoes-relatorios.js?v=202611050002";
 import { criarDelegacaoAcoes, criarDespachanteAcoes } from "./controladores/despachante-acoes.js?v=202611050002";
 import { criarCarregadorPaginas } from "./controladores/carregador-paginas.js?v=202611050002";
-import { createLiveViewController } from "./controladores/estado-visualizacao.js?v=202611050002";
-import { createHidScannerCapture, isScannerNoReadMarker } from "./controladores/captura-leitor-hid.js?v=202611050002";
+import { createLiveViewController } from "./controladores/estado-visualizacao.js?v=202611050003";
+import { createHidScannerCapture, isScannerNoReadMarker } from "./controladores/captura-leitor-hid.js?v=202611050003";
 import { createLocalConnectivityController } from "./controladores/conectividade-local.js?v=202611050002";
 import { bindManifestCreationForm, bindManifestEditForm } from "./controladores/formulario-romaneio.js?v=202611050002";
 import { bindProductForm } from "./controladores/formulario-produto.js?v=202611050002";
@@ -89,7 +89,7 @@ const registroTelas = criarRegistroTelas({
   emergency: () =>
     import("../telas/emergencia/emergencia.js?v=202611050002").then(({ emergency }) => emergency),
   settings: () =>
-    import("../telas/configuracoes/configuracoes.js?v=202611050002").then(({ settings }) => settings),
+    import("../telas/configuracoes/configuracoes.js?v=202611050003").then(({ settings }) => settings),
   dalas: () =>
     import("../telas/dalas/dalas.js?v=202611050002").then(({ dalas }) => dalas),
   dala: () =>
@@ -481,7 +481,7 @@ const conectividadeLocal = createLocalConnectivityController({
   refreshSettingsView: () => refreshSettingsStatusView(),
   render: () => render(),
   logWarning: (...args) => logFrontend.aviso(...args),
-  serviceWorkerUrl: "/service-worker.js?v=202611050002",
+  serviceWorkerUrl: "/service-worker.js?v=202611050003",
 });
 
 function waitForDocumentStyles() {

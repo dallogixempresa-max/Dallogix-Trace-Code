@@ -253,6 +253,7 @@ Confirme:
 - MySQL, PHP, Nginx e Node-RED ficam `running`; o Node-RED precisa ficar `healthy`.
 - A API local responde e a ativação local informa o estado esperado.
 - As tarefas `Trace-Docker-Start`, `Dallogix Trace Atualizacao Estavel` e `Dallogix Trace Backup Diario` aparecem no Agendador.
+- Depois de reiniciar e entrar na conta técnica, confirme em `armazenamento/logs/docker-start.log` que o motor Linux e o IP industrial responderam, os serviços foram iniciados e, para Keyence, as portas FTP de controle/passivas e a regra de Firewall restrita ao leitor foram confirmadas. Essa validação não substitui o envio real de uma imagem pelo leitor.
 - O Central mostra heartbeat recente da máquina e a versão instalada corresponde à release.
 - Um backup diário aparece na pasta local. Em homologação, restaure uma cópia em um banco de teste para validar o processo de recuperação.
 

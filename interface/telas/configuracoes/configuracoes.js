@@ -54,15 +54,53 @@ export function apresentacaoStatusDispositivo(value, type = "", device = {}) {
     const checkedTime = checkedAt && !Number.isNaN(checkedAt.getTime())
       ? checkedAt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
       : "";
+    const rawUnmatchedImages = device?.unmatched_image_count;
+    const unmatchedImages = rawUnmatchedImages !== null && rawUnmatchedImages !== undefined
+      && Number.isSafeInteger(Number(rawUnmatchedImages))
+      ? Math.max(0, Number(device.unmatched_image_count))
+      : null;
+    const rawImageAgeMs = device?.oldest_unmatched_image_age_ms;
+    const imageAgeMinutes = rawImageAgeMs !== null && rawImageAgeMs !== undefined
+      && Number.isSafeInteger(Number(rawImageAgeMs))
+      ? Math.floor(Math.max(0, Number(device.oldest_unmatched_image_age_ms)) / 60000)
+      : null;
+    const ftpImagesReceived = device?.ftp_images_received !== null && device?.ftp_images_received !== undefined
+      && Number.isSafeInteger(Number(device.ftp_images_received))
+      ? Math.max(0, Number(device.ftp_images_received))
+      : null;
+    const lastFtpImageAt = device?.ftp_last_image_received_at ? new Date(device.ftp_last_image_received_at) : null;
+    const lastFtpImageTime = lastFtpImageAt && !Number.isNaN(lastFtpImageAt.getTime())
+      ? lastFtpImageAt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+      : "";
+    const ftpErrorDescriptions = {
+      nome_arquivo_invalido: "nome do arquivo não aceito",
+      conexao_de_dados_falhou: "conexão de dados interrompida",
+      imagem_acima_do_limite: "imagem acima do limite de tamanho",
+      jpeg_invalido: "arquivo recebido não é um JPEG válido",
+      nao_foi_possivel_verificar_espaco: "não foi possível verificar o espaço livre",
+      espaco_livre_abaixo_da_reserva: "espaço livre abaixo da reserva de segurança",
+      falha_ao_gravar_imagem: "falha ao gravar a imagem recebida",
+    };
+    const ftpError = ftpErrorDescriptions[device?.ftp_transfer_error_code] || "";
+    const ftpDetail = device?.ftp_image_receiver_listening === true
+      ? `FTP ativo; ${ftpImagesReceived === null ? "recebimentos não contabilizados" : `${ftpImagesReceived} foto(s) recebida(s) nesta execução`}${lastFtpImageTime ? `; última às ${lastFtpImageTime}` : ftpImagesReceived === 0 ? "; nenhuma foto recebida nesta execução" : ""}.`
+      : device?.ftp_image_receiver_listening === false
+        ? "Receptor FTP de fotos indisponível."
+        : "Estado do receptor FTP não confirmado.";
+    const imageQueueDetail = unmatchedImages > 0
+      ? ` Fila de evidências: ${unmatchedImages} foto(s) sem vínculo${imageAgeMinutes !== null ? `; mais antiga há ${imageAgeMinutes} min` : ""}.`
+      : unmatchedImages === 0
+        ? " Fila de evidências sem pendências."
+        : " Estado da fila de evidências não confirmado.";
     if (normalized === "ONLINE") {
       return {
         monitored: true,
         online: true,
         tone: "online",
         label: "ONLINE",
-        detail: probeMethod === "ICMP_PING"
+        detail: `${probeMethod === "ICMP_PING"
           ? `Ping respondeu em ${readerIp || "IP configurado"}${checkedTime ? ` às ${checkedTime}` : ""}. A leitura do código é confirmada no visor da operação.`
-          : `Leitor respondeu na porta ${probePort}; a leitura do código é confirmada no visor da operação.`,
+          : `Leitor respondeu na porta ${probePort}; a leitura do código é confirmada no visor da operação.`} ${ftpDetail}${imageQueueDetail}`,
       };
     }
     if (normalized === "OFFLINE") {
@@ -82,7 +120,7 @@ export function apresentacaoStatusDispositivo(value, type = "", device = {}) {
         online: false,
         tone: "error",
         label: "FALHA NO PC",
-        detail: "A integração do leitor no PC informou uma falha.",
+        detail: `${device?.image_queue_status === "ERRO" ? "" : "A integração do leitor no PC informou uma falha. "}${ftpDetail}${imageQueueDetail}${ftpError ? ` Última transferência FTP recusada: ${ftpError}.` : ""}`,
       };
     }
     return {
