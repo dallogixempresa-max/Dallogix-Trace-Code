@@ -62,6 +62,24 @@ export function matchPendingImage(receivedAt, requests, windowMs, timestampField
   return { request: candidates[0].request, reason: null };
 }
 
+/**
+ * Match an image only when exactly one pending evidence request fits its time
+ * window. FTP filenames do not carry a Trace passage ID, so choosing the
+ * nearest of multiple candidates can attach the photo to the wrong sack.
+ */
+export function matchUniquePendingImage(receivedAt, requests, windowMs, timestampField) {
+  const candidates = (Array.isArray(requests) ? requests : [])
+    .map((request) => ({
+      request,
+      distance: Math.abs(Number(receivedAt) - Number(request[timestampField])),
+    }))
+    .filter((candidate) => Number.isFinite(candidate.distance) && candidate.distance <= windowMs);
+
+  if (candidates.length === 0) return { request: null, reason: "sem_solicitacao_compativel" };
+  if (candidates.length !== 1) return { request: null, reason: "solicitacoes_ambiguas" };
+  return { request: candidates[0].request, reason: null };
+}
+
 export function groupImageFrames(frames, burstWindowMs) {
   const ordered = (Array.isArray(frames) ? frames : [])
     .filter((frame) => Number.isFinite(Number(frame.receivedAt)) && Number(frame.receivedAt) >= 0)

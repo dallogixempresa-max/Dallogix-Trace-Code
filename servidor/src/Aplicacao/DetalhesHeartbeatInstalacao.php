@@ -53,6 +53,33 @@ final class DetalhesHeartbeatInstalacao
             if ($lastReadAgeMs !== false && $lastReadAgeMs >= 0 && $lastReadAgeMs <= 86400000) {
                 $normalized["reader_last_read_age_ms"] = $lastReadAgeMs;
             }
+            foreach (["ftp_image_receiver_listening", "image_archive_directory_available"] as $booleanField) {
+                if (is_bool($details[$booleanField] ?? null)) {
+                    $normalized[$booleanField] = $details[$booleanField];
+                }
+            }
+            $queueStatus = strtoupper(trim((string) ($details["image_queue_status"] ?? "")));
+            if (in_array($queueStatus, ["OK", "ERRO", "AGUARDANDO_CORRELACAO"], true)) {
+                $normalized["image_queue_status"] = $queueStatus;
+            }
+            foreach (["unmatched_image_count", "ftp_images_received"] as $countField) {
+                $count = filter_var($details[$countField] ?? null, FILTER_VALIDATE_INT);
+                if ($count !== false && $count >= 0 && $count <= 1000000000) {
+                    $normalized[$countField] = $count;
+                }
+            }
+            $oldestImageAgeMs = filter_var($details["oldest_unmatched_image_age_ms"] ?? null, FILTER_VALIDATE_INT);
+            if ($oldestImageAgeMs !== false && $oldestImageAgeMs >= 0 && $oldestImageAgeMs <= 31536000000) {
+                $normalized["oldest_unmatched_image_age_ms"] = $oldestImageAgeMs;
+            }
+            $ftpLastImageAt = $details["ftp_last_image_received_at"] ?? null;
+            if (is_string($ftpLastImageAt) && strtotime($ftpLastImageAt) !== false) {
+                $normalized["ftp_last_image_received_at"] = mb_substr($ftpLastImageAt, 0, 64);
+            }
+            $ftpTransferError = trim((string) ($details["ftp_transfer_error_code"] ?? ""));
+            if (preg_match('/^[a-z0-9_]{1,80}$/', $ftpTransferError) === 1) {
+                $normalized["ftp_transfer_error_code"] = $ftpTransferError;
+            }
             return $normalized;
         }
         if ($deviceType !== "CLP") {

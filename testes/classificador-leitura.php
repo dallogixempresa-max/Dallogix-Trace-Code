@@ -11,7 +11,8 @@ $cases = [
     ["quinto A excede o item", true, 10, 4, 4, 10, 4, false, "EXCESSO"],
     ["A excede mesmo com B pendente", true, 10, 4, 4, 10, 5, false, "EXCESSO"],
     ["passagem física excedente com código", true, 20, 6, 1, 10, 5, true, "EXCESSO"],
-    ["passagem sem código não recebe produto", false, null, 0, 0, 10, 4, true, "SEM_LEITURA"],
+    ["passagem sem código sem excesso não recebe produto", false, null, 0, 0, 10, 4, false, "SEM_LEITURA"],
+    ["passagem física excedente sem código não recebe produto", false, null, 0, 0, 10, 4, true, "EXCESSO"],
     ["produto ausente do romaneio", true, 30, 0, 0, 10, 4, false, "PRODUTO_INCORRETO"],
 ];
 
