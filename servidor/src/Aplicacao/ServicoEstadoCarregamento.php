@@ -169,7 +169,7 @@ final class ServicoEstadoCarregamento
             $reason = (string) ($current["stop_reason"] ?? "");
             if (
                 $current["state"] !== "PAUSADO"
-                || !in_array($reason, ["PRODUTO_INCORRETO", "EXCESSO", "COTA_PRODUTO_ATINGIDA"], true)
+                || !in_array($reason, ["PRODUTO_INCORRETO", "EXCESSO", "COTA_PRODUTO_ATINGIDA", "COTA_ROMANEIO_ATINGIDA"], true)
                 || trim((string) ($current["operator_alert"] ?? "")) === ""
             ) {
                 throw new ExcecaoEstadoCarregamento(
@@ -196,9 +196,11 @@ final class ServicoEstadoCarregamento
                 );
             }
 
-            $confirmationAction = $reason === "COTA_PRODUTO_ATINGIDA"
-                ? "PARADA_FISICA_META_PRODUTO_CONFIRMADA"
-                : "REMOCAO_UNIDADE_E_PARADA_FISICA_CONFIRMADAS";
+            $confirmationAction = match ($reason) {
+                "COTA_PRODUTO_ATINGIDA" => "PARADA_FISICA_META_PRODUTO_CONFIRMADA",
+                "COTA_ROMANEIO_ATINGIDA" => "PARADA_FISICA_META_ROMANEIO_CONFIRMADA",
+                default => "REMOCAO_UNIDADE_E_PARADA_FISICA_CONFIRMADAS",
+            };
             \record_operational_event(
                 $this->connection,
                 $user,

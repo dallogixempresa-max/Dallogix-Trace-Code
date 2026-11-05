@@ -1,7 +1,7 @@
-import { dataHora, numero } from "../../js/funcoes/formato.js?v=202611050001";
+import { dataHora, numero } from "../../js/funcoes/formato.js?v=202611050002";
 import { button, esc } from "../../js/funcoes/html.js";
 import { rotuloComando, rotuloEstado, rotuloEvento, rotuloStatusComando } from "../../js/funcoes/rotulos.js";
-import { pageHeader, physicalStateBadge } from "../../js/funcoes/view.js?v=202611050001";
+import { pageHeader, physicalStateBadge } from "../../js/funcoes/view.js?v=202611050002";
 
 export function dalaEdit(store) {
   const dala = store.state.equipmentDetail;

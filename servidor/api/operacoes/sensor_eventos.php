@@ -482,7 +482,13 @@ try {
             ],
         );
     } elseif ($loading["state"] === "CARREGANDO" && $plannedQuantity > 0 && $detectedBags === $plannedQuantity) {
-        $nearEndWarning = "Quantidade prevista atingida. A esteira continua; uma passagem adicional será excesso e solicitará a parada.";
+        $targetStop = (new ServicoComandoClp($pdo))->solicitarParadaAoAtingirMetaRomaneio(
+            ["id" => null, "company_id" => (int) $device["company_id"]],
+            (int) $loadingId,
+        );
+        $excessStop = $targetStop;
+        $automaticStop = ($targetStop["command_request_id"] ?? null) !== null;
+        $nearEndWarning = $targetStop["operator_alert"];
         $targetAlreadyRecorded = $pdo->prepare(
             "SELECT 1 FROM logs_auditoria
              WHERE company_id = :company_id AND action = 'QUANTIDADE_PLANEJADA_ATINGIDA'
@@ -503,10 +509,11 @@ try {
                     "planned_quantity" => $plannedQuantity,
                     "detected_bags" => $detectedBags,
                     "valid_readings" => null,
-                    "automatic_stop" => false,
-                    "physical_stop_request_status" => "NAO_SOLICITADA",
-                    "command_request_id" => null,
-                    "operator_action" => "CONTINUAR_ATE_EXCESSO",
+                    "automatic_stop" => $automaticStop,
+                    "stop_reason" => $targetStop["stop_reason"],
+                    "physical_stop_request_status" => $targetStop["physical_stop_request_status"],
+                    "command_request_id" => $targetStop["command_request_id"],
+                    "operator_action" => "CONFIRMAR_PARADA_E_CONFERIR_LEITURAS",
                 ],
             );
         }
@@ -527,7 +534,7 @@ try {
                 "physical_stop_request_status" => $excessStop["physical_stop_request_status"] ?? null,
                 "command_request_id" => $excessStop["command_request_id"] ?? null,
                 "operator_alert" => $excessStop["operator_alert"] ?? $nearEndWarning,
-                "load_status" => ($excessStop["stop_reason"] ?? null) === "EXCESSO"
+                "load_status" => in_array(($excessStop["stop_reason"] ?? null), ["EXCESSO", "COTA_ROMANEIO_ATINGIDA"], true)
                     ? "EM_ANDAMENTO"
                     : ($loading["state"] === "FINALIZANDO"
                         ? "COMPLETO" : "EM_ANDAMENTO"),

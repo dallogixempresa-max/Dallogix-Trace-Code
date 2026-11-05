@@ -1,9 +1,9 @@
 import { button, esc } from "../../js/funcoes/html.js";
-import { numero } from "../../js/funcoes/formato.js?v=202611050001";
-import { rotuloComando, rotuloEstado } from "../../js/funcoes/rotulos.js?v=202611050001";
-import { resolverComandoAtual } from "../../js/funcoes/estado-comando.js?v=202611050001";
-import { emergencyPanel, pageHeader } from "../../js/funcoes/view.js?v=202611050001";
-import { podeFinalizarCarregamento } from "../../js/funcoes/regras-carregamento.js?v=202611050001";
+import { numero } from "../../js/funcoes/formato.js?v=202611050002";
+import { rotuloComando, rotuloEstado } from "../../js/funcoes/rotulos.js?v=202611050002";
+import { resolverComandoAtual } from "../../js/funcoes/estado-comando.js?v=202611050002";
+import { emergencyPanel, pageHeader } from "../../js/funcoes/view.js?v=202611050002";
+import { podeFinalizarCarregamento } from "../../js/funcoes/regras-carregamento.js?v=202611050002";
 
 function equipmentLabel(store) {
   if (store.state.equipmentCode && store.state.equipmentCode !== "—") {
@@ -151,7 +151,9 @@ export function workControlLocks(state, {
   locks.run = emergency
     ? "A emergência precisa ser liberada antes de iniciar."
     : state.stopReason
-      ? state.stopReason === "COTA_PRODUTO_ATINGIDA"
+      ? state.stopReason === "COTA_ROMANEIO_ATINGIDA"
+        ? "Confirme a parada física e finalize o romaneio após conferir leituras e fotos."
+        : state.stopReason === "COTA_PRODUTO_ATINGIDA"
         ? "Confirme a parada física antes de continuar com outro produto."
         : "Confirme que a unidade foi removida e que a esteira está fisicamente parada antes de retomar."
     : manifestTargetReached
@@ -308,6 +310,8 @@ function workControls(store) {
       : "A emergência está ativa. Solicite a liberação abaixo; a operação continuará pausada até a confirmação da unidade removida."
     : store.state.stopReason === "COTA_PRODUTO_ATINGIDA"
       ? "A cota deste produto foi atingida. Aguarde a confirmação da parada física antes de continuar com outro produto."
+    : store.state.stopReason === "COTA_ROMANEIO_ATINGIDA"
+      ? "A quantidade do romaneio foi atingida. Confirme a parada física e aguarde as leituras e fotos antes de finalizar."
     : !stopCommand
     ? "O gateway ainda não confirmou um comando de parada. Verifique a máquina antes de confirmar."
     : ["PENDENTE", "PROCESSANDO"].includes(pendingStatus)
@@ -321,15 +325,22 @@ function workControls(store) {
       : '<p>Solicite ao supervisor ou administrador a liberação da emergência.</p>'
     : button("Acionar emergência", "emergency", "danger");
   const stopReasonIsProductQuota = store.state.stopReason === "COTA_PRODUTO_ATINGIDA";
-  const stopConfirmationLabel = stopReasonIsProductQuota
+  const stopReasonIsManifestQuota = store.state.stopReason === "COTA_ROMANEIO_ATINGIDA";
+  const stopConfirmationLabel = stopReasonIsManifestQuota
+    ? "Quantidade do romaneio atingida"
+    : stopReasonIsProductQuota
     ? "Meta do produto atingida"
     : store.state.stopReason === "EXCESSO"
       ? "Quantidade excedida"
       : "Ação de segurança necessária";
-  const stopConfirmationCheckLabel = stopReasonIsProductQuota
+  const stopConfirmationCheckLabel = stopReasonIsManifestQuota
+    ? "Confirmo que a esteira está fisicamente parada e vou conferir as leituras e fotos antes de finalizar."
+    : stopReasonIsProductQuota
     ? "Confirmo que a esteira está fisicamente parada e vou continuar com outro produto."
     : "Confirmo que a unidade foi removida e que a esteira está fisicamente parada.";
-  const stopConfirmationButtonLabel = stopReasonIsProductQuota
+  const stopConfirmationButtonLabel = stopReasonIsManifestQuota
+    ? "Confirmar parada"
+    : stopReasonIsProductQuota
     ? "Confirmar parada e continuar"
     : "Confirmar remoção e liberar retomada";
   const stopConfirmation = store.state.stopReason && !store.state.emergency
@@ -372,7 +383,7 @@ function workControls(store) {
   const endNotice = excess
     ? `Atenção: ${numero(detectedBags - plannedTotal)} sacas passaram do total previsto.`
     : complete
-      ? "Quantidade prevista atingida. A esteira continua em operação; uma passagem adicional será excesso e solicitará a parada."
+      ? "Quantidade prevista atingida. Parada automática solicitada; confira a parada física, as leituras e as fotos antes de finalizar."
       : nearEnd
         ? "Atenção: o carregamento está próximo da quantidade prevista."
         : "";

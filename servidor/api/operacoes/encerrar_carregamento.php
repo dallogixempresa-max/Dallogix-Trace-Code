@@ -123,10 +123,14 @@ $divergences->execute([
 ]);
 $divergenceRows = $divergences->fetchAll();
 $hasDivergence = false;
+$shortfall = 0;
+$overfill = 0;
 foreach ($divergenceRows as $divergence) {
-    if ((int) $divergence["planned_quantity"] !== (int) $divergence["moved_quantity"]) {
+    $difference = (int) $divergence["planned_quantity"] - (int) $divergence["moved_quantity"];
+    $shortfall += max(0, $difference);
+    $overfill += max(0, -$difference);
+    if ($difference !== 0) {
         $hasDivergence = true;
-        break;
     }
 }
 $loadingPlannedQuantityStatement = $pdo->prepare(
@@ -201,6 +205,42 @@ $uncoveredExcessPassagesStatement->execute([
     "evidence_loading_id" => $loadingId,
 ]);
 $uncoveredExcessPassages = (int) $uncoveredExcessPassagesStatement->fetchColumn();
+$noReadCountStatement = $pdo->prepare(
+    "SELECT COUNT(*) FROM leituras WHERE carregamento_id = :loading_id AND result = 'SEM_LEITURA'",
+);
+$noReadCountStatement->execute(["loading_id" => $loadingId]);
+$noReadCount = (int) $noReadCountStatement->fetchColumn();
+$uncoveredNoReadStatement = $pdo->prepare(
+    "SELECT COUNT(*) FROM leituras l
+     WHERE l.carregamento_id = :loading_id AND l.result = 'SEM_LEITURA'
+       AND (l.sensor_event_id IS NULL OR NOT EXISTS (
+         SELECT 1 FROM solicitacoes_imagens_evidencia e
+         WHERE e.carregamento_id = l.carregamento_id
+           AND e.sensor_event_id = l.sensor_event_id
+           AND e.reason = 'SEM_LEITURA' AND e.status = 'CAPTURADA'
+       ))",
+);
+$uncoveredNoReadStatement->execute(["loading_id" => $loadingId]);
+$uncoveredNoRead = (int) $uncoveredNoReadStatement->fetchColumn();
+if ($uncoveredNoRead > 0) {
+    $pdo->rollBack();
+    json_response(["error" => "Aguarde a foto Keyence de cada saca sem leitura antes de finalizar."], 409);
+}
+$otherNonValidStatement = $pdo->prepare(
+    "SELECT COUNT(*) FROM leituras WHERE carregamento_id = :loading_id
+       AND result NOT IN ('VALIDO', 'SEM_LEITURA')",
+);
+$otherNonValidStatement->execute(["loading_id" => $loadingId]);
+$otherNonValid = (int) $otherNonValidStatement->fetchColumn();
+$returnedStatement = $pdo->prepare(
+    "SELECT COALESCE(SUM(quantity), 0) FROM retornos WHERE carregamento_id = :loading_id",
+);
+$returnedStatement->execute(["loading_id" => $loadingId]);
+$returned = (int) $returnedStatement->fetchColumn();
+$noReadCoveredByPhoto = $noReadCount > 0
+    && $loadingDetectedQuantity === $loadingPlannedQuantity
+    && !$hasExcess && $otherNonValid === 0 && $returned === 0
+    && $overfill === 0 && $shortfall === $noReadCount;
 if ($automatic) {
     $plannedQuantityStatement = $pdo->prepare(
         "SELECT COALESCE(SUM(ri.planned_quantity), 0)
@@ -262,12 +302,12 @@ if ($automatic) {
         ], 409);
     }
 }
-if (($hasDivergence || $hasExcess)
+if ((($hasDivergence && !$noReadCoveredByPhoto) || $hasExcess)
     && !in_array($user["role"], ["ADMIN_EMPRESA", "SUPERVISOR"], true)) {
     $pdo->rollBack();
     json_response(["error" => "Somente supervisores ou administradores podem autorizar divergência ou excesso."], 403);
 }
-if (($hasDivergence || $hasExcess) && $justification === "") {
+if ((($hasDivergence && !$noReadCoveredByPhoto) || $hasExcess) && $justification === "") {
     $pdo->rollBack();
     json_response(["error" => "Informe uma justificativa para finalizar com divergência ou excesso."], 422);
 }

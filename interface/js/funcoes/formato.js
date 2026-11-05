@@ -1,4 +1,4 @@
-import { agora } from "./relogio.js?v=202611050001";
+import { agora } from "./relogio.js?v=202611050002";
 
 const traceTimeZone = "America/Sao_Paulo";
 const dateOnly = new Intl.DateTimeFormat("pt-BR", {
