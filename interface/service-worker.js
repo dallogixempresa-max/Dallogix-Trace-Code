@@ -1,5 +1,5 @@
-const CACHE_NAME = "trace-shell-20261104-02";
-const APPLICATION_ASSET_VERSION = "202611040002";
+const CACHE_NAME = "trace-shell-20261104-03";
+const APPLICATION_ASSET_VERSION = "202611040003";
 const PRECACHE_CONCURRENCY = 4;
 const SHELL = [
   "/",
@@ -65,7 +65,6 @@ const SHELL = [
   "/telas/painel/painel.js",
   "/telas/painel-dallogix/painel-dallogix.js",
   "/telas/produtos/produtos.js",
-  "/telas/resumo-final/resumo-final.js",
   "/telas/romaneio/romaneio.js",
   "/telas/romaneios/romaneios.js",
   "/telas/usuarios/usuarios.js",
@@ -87,7 +86,6 @@ const SHELL = [
   "/telas/painel/painel.css",
   "/telas/painel-dallogix/painel-dallogix.css",
   "/telas/produtos/produtos.css",
-  "/telas/resumo-final/resumo-final.css",
   "/telas/romaneio/romaneio.css",
   "/telas/romaneios/romaneios.css",
   "/telas/usuarios/usuarios.css",
@@ -148,6 +146,7 @@ const SHELL = [
   "/js/funcoes/formato.js",
   "/js/funcoes/estado-comando.js",
   "/js/funcoes/html.js",
+  "/js/funcoes/regras-carregamento.js",
   "/js/funcoes/relogio.js",
   "/js/funcoes/romaneio.js",
   "/js/funcoes/status-dala.js",

@@ -14,10 +14,6 @@ const resumo = await readFile(
   new URL("../servidor/api/operacoes/resumo_carregamento.php", import.meta.url),
   "utf8",
 );
-const resumoFinal = await readFile(
-  new URL("../interface/telas/resumo-final/resumo-final.js", import.meta.url),
-  "utf8",
-);
 
 test("a query de falhas de leitura inclui product_id e nome do produto", () => {
   // A auditoria precisa mostrar se a SEM_LEITURA tinha produto identificado
@@ -62,17 +58,8 @@ test("o encerramento retorna leituras_sem_produto no payload de resposta", () =>
 });
 
 test("resumo_carregamento expõe leituras_sem_produto durante o carregamento", () => {
-  // O painel de resumo final atualiza em tempo real durante a operação;
+  // O painel de operação acompanha estes dados durante a operação;
   // a métrica precisa estar disponível antes do encerramento.
   assert.match(resumo, /leituras_sem_produto/);
   assert.match(resumo, /result = 'SEM_LEITURA' AND product_id IS NULL/);
-});
-
-test("resumo-final.js exibe métrica 'Sem identificação' quando leituras_sem_produto > 0", () => {
-  // A métrica é condicional: zero não deve gerar um tile vazio.
-  assert.match(resumoFinal, /semProduto > 0/);
-  assert.match(resumoFinal, /Sem identificação/);
-  // Lê de loading.leituras_sem_produto (carregamento.*), não de data.*
-  assert.match(resumoFinal, /loading\.leituras_sem_produto/);
-  assert.doesNotMatch(resumoFinal, /data\.leituras_sem_produto/);
 });

@@ -1,8 +1,8 @@
-import { dataHora, numero } from "../../js/funcoes/formato.js?v=202611040002";
+import { dataHora, numero } from "../../js/funcoes/formato.js?v=202611040003";
 import { button, esc } from "../../js/funcoes/html.js";
 import { rotuloComando, rotuloEstado, rotuloEvento, rotuloStatusComando } from "../../js/funcoes/rotulos.js";
-import { pageHeader, physicalStateBadge } from "../../js/funcoes/view.js?v=202611040002";
-import { estadoCarregando, estadoErro } from "../../js/componentes/estados.js?v=202611040002";
+import { pageHeader, physicalStateBadge } from "../../js/funcoes/view.js?v=202611040003";
+import { estadoCarregando, estadoErro } from "../../js/componentes/estados.js?v=202611040003";
 
 function dalaStatusCell(equipment) {
   return `<div class="dala-status" data-equipment-id="${equipment.id}"><span class="status-dot unknown" aria-hidden="true"></span><span class="dala-status-label unknown" role="status" aria-label="Verificando comunicação do CLP" title="Verificando comunicação do CLP">—</span></div>`;

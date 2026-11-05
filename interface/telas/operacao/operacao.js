@@ -1,8 +1,9 @@
 import { button, esc } from "../../js/funcoes/html.js";
-import { numero } from "../../js/funcoes/formato.js?v=202611040002";
-import { rotuloComando, rotuloEstado } from "../../js/funcoes/rotulos.js?v=202611040002";
-import { resolverComandoAtual } from "../../js/funcoes/estado-comando.js?v=202611040002";
-import { emergencyPanel, pageHeader } from "../../js/funcoes/view.js?v=202611040002";
+import { numero } from "../../js/funcoes/formato.js?v=202611040003";
+import { rotuloComando, rotuloEstado } from "../../js/funcoes/rotulos.js?v=202611040003";
+import { resolverComandoAtual } from "../../js/funcoes/estado-comando.js?v=202611040003";
+import { emergencyPanel, pageHeader } from "../../js/funcoes/view.js?v=202611040003";
+import { podeFinalizarCarregamento } from "../../js/funcoes/regras-carregamento.js?v=202611040003";
 
 function equipmentLabel(store) {
   if (store.state.equipmentCode && store.state.equipmentCode !== "—") {
@@ -287,12 +288,19 @@ function workControls(store) {
         showStartButton: false,
       })
     : "";
-  const totalTargetReached = plannedTotal > 0 && detectedBags >= plannedTotal;
-  const summaryReady = ["FINALIZANDO", "FINALIZADO"].includes(store.state.operationalState) ||
-    (totalTargetReached && store.state.operationalState === "PAUSADO");
-  const summaryAction = summaryReady
-    ? `${button("Abrir resumo final", "open-summary", "secondary")}`
-    : "";
+  const finishReady = podeFinalizarCarregamento(store.state);
+  const finishAction = estadoOperacional === "EMERGENCIA" ? "" : `<div class="work-header-finish-actions">${button(
+    "Finalizar romaneio",
+    "finish",
+    finishReady ? "primary" : "secondary",
+    finishReady
+      ? { title: "Finaliza este carregamento e, se for o último, encerra o romaneio." }
+      : {
+          disabled: true,
+          "aria-disabled": "true",
+          title: "Aguarde a pausa da esteira e a confirmação de todas as leituras e evidências.",
+        },
+  )}</div>`;
   const stopCommand = pendingCommand === "PAUSAR_CARREGAMENTO" ? currentCommand : null;
   const stopConfirmationMessage = store.state.emergency
     ? pendingCommand === "DESBLOQUEAR_MAQUINA" && currentCommandPending
@@ -384,11 +392,11 @@ function workControls(store) {
   const totalSummary = `<section class="work-live-summary" aria-label="Contagem e progresso do carregamento"><div class="work-live-summary-heading"><strong>Sacas detectadas pelo sensor</strong><span><b data-live="detected">${numero(detectedBags)}</b> / <b data-live="planned">${numero(plannedTotal)}</b> previstas · <span data-live="progress-percent">${totalPercent}%</span></span></div><div class="work-live-summary-foot"><span>Scanner: <b data-live="scanner-readings">${numero(store.state.scannerReadings || 0)}</b> sacas com código · Excesso com foto: <b data-live="excess-evidence">${excessEvidenceLabel}</b></span></div><div class="progress work-live-progress" role="progressbar" aria-label="Progresso de sacas detectadas pelo sensor M2052" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${totalPercent}"><i data-live="progress-bar" style="width:${totalPercent}%"></i></div><div class="work-live-summary-foot"><span data-live="remaining-label">${remainingLabel}</span> · <b>${numero(validReadings)}</b> leituras válidas</div><p class="work-completion-notice ${endNoticeTone}" data-live="end-notice"${endNotice ? "" : " hidden"}>${endNotice}</p>${noReadNotice}${scannerMonitor}</section>`;
   const panelHeading = estadoOperacional === "EMERGENCIA"
     ? ""
-    : `<div class="panel-heading"><div><span class="kicker">Comandos da máquina</span><h3>Operar Dala</h3></div>${summaryAction ? `<div class="work-machine-heading-actions">${summaryAction}</div>` : ""}</div>`;
+    : `<div class="panel-heading"><div><span class="kicker">Comandos da máquina</span><h3>Operar Dala</h3></div></div>`;
   const visibleControls = estadoOperacional === "EMERGENCIA" ? "" : controls;
   const machinePanel = `<section class="panel work-machine-panel">${panelHeading}<div class="work-machine-controls">${emergencySection}${stopConfirmation}${visibleControls}</div></section>`;
   const statusColumn = `<section class="work-status-column">${totalSummary}${itemProgress}</section>`;
-  const workHeader = `<header class="work-screen-header">${loadingPicker}<div class="work-screen-heading"><h2>${esc(workTitle)}</h2><p>Dala ${esc(equipmentLabel(store))} · Caminhão ${esc(store.state.truck || "—")} <span class="work-header-state">${badge}</span></p></div></header>`;
+  const workHeader = `<header class="work-screen-header">${loadingPicker}<div class="work-screen-heading"><h2>${esc(workTitle)}</h2><p>Dala ${esc(equipmentLabel(store))} · Caminhão ${esc(store.state.truck || "—")} <span class="work-header-state">${badge}</span></p></div>${finishAction}</header>`;
   return `<div class="work-operation-screen">${workHeader}<div class="work-operation-layout">${statusColumn}${machinePanel}</div></div>`;
 }
 export function work(store) {

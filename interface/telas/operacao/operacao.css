@@ -1,5 +1,5 @@
 /* Tela de operação: acompanhamento do romaneio e comandos da Dala. */
-@import url("/css/responsive.css?v=202611040002");
+@import url("/css/responsive.css?v=202611040003");
 
 /* A tela trabalha com três blocos claros: cabeçalho, acompanhamento e controle.
    Todas as regras ficam escopadas para não alterar as demais telas. */
@@ -487,16 +487,6 @@ body.work-page:has(.work-operation-screen) .work-machine-panel > .panel-heading 
   align-items: end;
   justify-content: space-between;
   gap: 12px;
-}
-
-body.work-page:has(.work-operation-screen) .work-machine-heading-actions {
-  flex: 0 0 auto;
-}
-
-body.work-page:has(.work-operation-screen) .work-machine-heading-actions .button {
-  min-height: 34px;
-  padding: 7px 10px;
-  font-size: 12px;
 }
 
 body.work-page:has(.work-operation-screen) .work-items-panel {
@@ -1051,9 +1041,27 @@ body.work-page:has(.emergency-compact) .emergency-compact .emergency-actions {
 /* Ajustes finais da composição: título central, retorno discreto e leitura
    automática sem textos repetidos sobre o mesmo estado. */
 body.work-page:has(.work-operation-screen) .work-screen-header {
+  position: relative;
   grid-template-columns: minmax(120px, 1fr) minmax(0, auto) minmax(120px, 1fr);
   align-items: start;
   gap: 12px;
+}
+
+/* O botão ocupa a área livre à direita do título sem aumentar a altura do
+   cabeçalho nem deslocar os painéis que vêm abaixo. */
+body.work-page:has(.work-operation-screen) .work-header-finish-actions {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 1;
+  width: min(28vw, 420px);
+}
+
+body.work-page:has(.work-operation-screen) .work-header-finish-actions .button {
+  width: 100%;
+  min-height: 54px;
+  padding: 14px 20px;
+  font-size: clamp(16px, 1.25vw, 20px);
 }
 
 body.work-page:has(.work-operation-screen) .work-screen-heading {
@@ -1113,6 +1121,18 @@ body.work-page:has(.work-operation-screen) .work-reader-monitor-heading p {
     left: 0;
     display: flex;
     max-width: 100%;
+  }
+
+  body.work-page:has(.work-operation-screen) .work-header-finish-actions {
+    top: 0;
+    right: 0;
+    width: min(48%, 280px);
+  }
+
+  body.work-page:has(.work-operation-screen) .work-header-finish-actions .button {
+    min-height: 42px;
+    padding: 9px 10px;
+    font-size: 15px;
   }
 }
 

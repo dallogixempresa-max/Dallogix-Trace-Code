@@ -17,8 +17,8 @@ const readingsEndpoint = await readFile(new URL("../servidor/api/operacoes/leitu
 const finishLoadingApi = await readFile(new URL("../servidor/api/operacoes/encerrar_carregamento.php", import.meta.url), "utf8");
 const loadingSummaryApi = await readFile(new URL("../servidor/api/operacoes/resumo_carregamento.php", import.meta.url), "utf8");
 const observabilityService = await readFile(new URL("../interface/js/servicos/ServicoObservabilidade.js", import.meta.url), "utf8");
-const summaryPageLoader = await readFile(new URL("../interface/js/controladores/carregador-paginas.js", import.meta.url), "utf8");
-const summaryPage = await readFile(new URL("../interface/telas/resumo-final/resumo-final.js", import.meta.url), "utf8");
+const operationalRealtime = await readFile(new URL("../interface/js/controladores/tempo-real.js", import.meta.url), "utf8");
+const loadingFinishRules = await readFile(new URL("../interface/js/funcoes/regras-carregamento.js", import.meta.url), "utf8");
 const machineCommandService = await readFile(new URL("../servidor/src/Aplicacao/ServicoComandoClp.php", import.meta.url), "utf8");
 const clpFlow = JSON.parse(await readFile(new URL("../integracoes/node-red/trace-clp-bridge.flow.json", import.meta.url), "utf8"));
 const desktopHost = await readFile(new URL("../desktop/DallogixTrace/Program.cs", import.meta.url), "utf8");
@@ -81,8 +81,9 @@ test("fila durável do M2052 é reprocessada após reinício e fechamento aguard
   assert.match(finishLoadingApi, /sensor_event_outbox_pending/);
   assert.match(loadingSummaryApi, /leituras_pendentes_sensor/);
   assert.match(observabilityService, /resumo_carregamento\.php\?carregamento_id=/);
-  assert.match(summaryPageLoader, /\.then\(\(\) => store\.loadSummaryMonitoring\(\)\)/);
-  assert.match(summaryPage, /sensorOutboxPending === 0/);
+  assert.match(operationalRealtime, /store\.loadSummaryMonitoring\(\)/);
+  assert.match(loadingFinishRules, /outboxPending !== null/);
+  assert.match(loadingFinishRules, /Number\(outboxPending\) === 0/);
 });
 
 test("AutoID HID entrega sequências de teclado ao Trace sem tornar o visor editável", () => {

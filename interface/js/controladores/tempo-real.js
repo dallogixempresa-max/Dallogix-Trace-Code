@@ -1,4 +1,4 @@
-import { logFrontend } from "../utilitarios/LogFrontend.js?v=202611040002";
+import { logFrontend } from "../utilitarios/LogFrontend.js?v=202611040003";
 
 /** Compartilha SSE e polling rápido entre Operação e Emergência. */
 export function createOperationalRealtimeController({
@@ -80,8 +80,9 @@ export function createOperationalRealtimeController({
     polling = true;
     lastPollStartedAt = Date.now();
     try {
+      const activeLoadingRefresh = store.loadActiveLoading(store.state.selectedLoadingId);
       const requests = [
-        store.loadActiveLoading(store.state.selectedLoadingId),
+        activeLoadingRefresh,
         store.loadDeviceStatuses(),
       ];
       // Sem o SSE, este poll é a única via de atualização: sem consultar o
@@ -89,6 +90,14 @@ export function createOperationalRealtimeController({
       // terminal e a tela de operação trava os botões para sempre.
       if (store.state.loadingId) {
         requests.push(store.loadPlcCommandStatus(store.state.loadingId));
+      }
+      if (page === "work" && store.state.operationalState === "PAUSADO" && store.state.loadingId) {
+        requests.push(activeLoadingRefresh.then(() => {
+          if (!isCurrent(token) || store.state.operationalState !== "PAUSADO" || !store.state.loadingId) {
+            return null;
+          }
+          return store.loadSummaryMonitoring();
+        }));
       }
       const results = await Promise.allSettled(requests);
       if (!isCurrent(token)) return false;

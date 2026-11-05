@@ -1,3 +1,5 @@
+import { podeFinalizarCarregamento } from "../funcoes/regras-carregamento.js?v=202611040003";
+
 const ACOES_COMANDO_MAQUINA = new Set([
   "start-machine",
   "stop-machine",
@@ -148,20 +150,6 @@ export function criarTratadorAcoesOperacionais({
     }
   }
 
-  async function abrirResumo() {
-    const totalTargetReached = Number(store.state.planned) > 0
-      && Number(store.state.detectedBags) >= Number(store.state.planned);
-    const pausedAtTarget = store.state.operationalState === "PAUSADO" && totalTargetReached;
-    if (!["FINALIZANDO", "FINALIZADO"].includes(store.state.operationalState) && !pausedAtTarget) {
-      notificarForaDaOperacao(
-        "O resumo final ficará disponível após a conclusão da passagem dos sacos.",
-        "aviso",
-      );
-      return;
-    }
-    await navegar("summary");
-  }
-
   async function liberarEmergencia(node) {
     node.disabled = true;
     try {
@@ -174,7 +162,19 @@ export function criarTratadorAcoesOperacionais({
     }
   }
 
-  async function finalizarCarregamento() {
+  async function finalizarRomaneio(node) {
+    if (node?.dataset.busy === "1") return;
+    if (!podeFinalizarCarregamento(store.state)) {
+      notificarForaDaOperacao(
+        "Aguarde a pausa da esteira e a confirmação das leituras e evidências antes de finalizar.",
+        "aviso",
+      );
+      return;
+    }
+    if (node) {
+      node.dataset.busy = "1";
+      node.disabled = true;
+    }
     try {
       const hasItemDivergence = (store.state.loadingItems || []).some((item) =>
         Number(item.loaded_quantity || 0) !== Number(item.planned_quantity || 0),
@@ -204,15 +204,46 @@ export function criarTratadorAcoesOperacionais({
         : "";
       if (requiresSupervisorReview && !justification.trim()) return;
       const result = await store.finishLoading(justification.trim());
-      if (result?.romaneio_pronto_para_encerrar && result.romaneio_id) {
-        await store.loadManifest(result.romaneio_id);
-        await navegar("manifest", `?id=${encodeURIComponent(result.romaneio_id)}`);
-      } else {
-        notificar("Carregamento finalizado. Ainda há outros carregamentos neste romaneio.");
+      const manifestId = Number(result?.romaneio_id) || 0;
+      if (!manifestId) throw new Error("Não foi possível identificar o romaneio finalizado.");
+      let manifestLoaded = false;
+
+      if (result?.romaneio_pronto_para_encerrar && !result?.romaneio_finalizado) {
+        await store.loadManifest(manifestId);
+        manifestLoaded = true;
+        const pendingEvidence = Number(store.state.manifestDetail?.pending_evidence_count) || 0;
+        if (pendingEvidence > 0) {
+          notificarForaDaOperacao(
+            `O carregamento terminou, mas ainda há ${pendingEvidence} imagem(ns) de evidência pendente(s). O romaneio não foi encerrado.`,
+            "aviso",
+          );
+        } else if (await confirmarAcao(
+          "Todos os carregamentos deste romaneio foram finalizados. Encerrar agora e liberar o relatório de auditoria?",
+        )) {
+          try {
+            await store.finishManifest(manifestId);
+            manifestLoaded = true;
+            notificar("Romaneio encerrado. O relatório de auditoria já está disponível.");
+          } catch (error) {
+            manifestLoaded = false;
+            notificarForaDaOperacao(error.message || "Não foi possível encerrar o romaneio.", "erro");
+          }
+        }
       }
+
+      if (!result?.romaneio_pronto_para_encerrar) {
+        notificar("Este carregamento foi finalizado. Ainda há outros carregamentos neste romaneio.");
+      }
+      if (!manifestLoaded) await store.loadManifest(manifestId);
+      await navegar("manifest", `?id=${encodeURIComponent(manifestId)}`);
       render();
     } catch (error) {
       notificarForaDaOperacao(error.message, "erro");
+    } finally {
+      if (node?.isConnected) {
+        node.dataset.busy = "0";
+        node.disabled = false;
+      }
     }
   }
 
@@ -230,12 +261,10 @@ export function criarTratadorAcoesOperacionais({
         return selecionarCarregamento(node);
       case "change-loading":
         return changeOperationLoading(store, render);
-      case "open-summary":
-        return abrirResumo();
       case "unlock":
         return liberarEmergencia(node);
       case "finish":
-        return finalizarCarregamento();
+        return finalizarRomaneio(node);
       default:
         if (ACOES_COMANDO_MAQUINA.has(acao)) {
           return executarComandoDeOperacao(node, acao);

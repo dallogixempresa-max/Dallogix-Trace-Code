@@ -1,4 +1,4 @@
-import { erroRespostaHttp } from "../api/ClienteApi.js?v=202611040002";
+import { erroRespostaHttp } from "../api/ClienteApi.js?v=202611040003";
 
 const PAGINACAO_COMANDOS_PADRAO = { page: 1, per_page: 30, total: 0, pages: 1 };
 const PAGINACAO_LOGS_PADRAO = { page: 1, per_page: 100, total: 0, pages: 1 };
@@ -47,7 +47,7 @@ export class ServicoObservabilidade {
         ? this.api.fetch(`/api/resumo_carregamento.php?carregamento_id=${encodeURIComponent(loadingId)}`)
         : Promise.resolve(null),
     ]);
-    const result = await this.jsonResponse(response, "Não foi possível carregar o resumo final.");
+    const result = await this.jsonResponse(response, "Não foi possível carregar o monitoramento da carga.");
     const loadingResult = loadingResponse
       ? await this.jsonResponse(loadingResponse, "Não foi possível conferir as passagens pendentes.")
       : null;

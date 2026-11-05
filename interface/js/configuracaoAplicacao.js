@@ -15,15 +15,15 @@ export const ROLE_PAGES = Object.freeze({
   ADMIN_DALLOGIX: ["master-home", "companies", "company", "users", "error-logs"],
   ADMIN_EMPRESA: [
     "dashboard", "manifests", "manifest", "manifest-edit", "import", "division",
-    "work", "occurrences", "summary", "products", "alerts", "emergency", "settings",
+    "work", "occurrences", "products", "alerts", "emergency", "settings",
     "dalas", "dala", "dala-edit", "users", "error-logs",
   ],
   SUPERVISOR: [
     "dashboard", "manifests", "manifest", "manifest-edit", "import", "division",
-    "work", "occurrences", "summary", "products", "alerts", "emergency", "dala",
+    "work", "occurrences", "products", "alerts", "emergency", "dala",
   ],
   USUARIO: [
-    "dashboard", "manifests", "manifest", "dala", "work", "summary", "occurrences",
+    "dashboard", "manifests", "manifest", "dala", "work", "occurrences",
     "alerts", "emergency",
   ],
 });
@@ -42,7 +42,6 @@ export const PAGE_LABELS = Object.freeze({
   division: "Divisão de carga",
   work: "Operação",
   occurrences: "Ocorrências",
-  summary: "Resumo final",
   products: "Produtos",
   alerts: "Alertas",
   emergency: "Emergência",
@@ -69,7 +68,6 @@ export const PAGE_PATHS = Object.freeze({
   division: "/telas/divisao-carga/divisao-carga.html",
   work: "/telas/operacao/operacao.html",
   occurrences: "/telas/ocorrencias/ocorrencias.html",
-  summary: "/telas/resumo-final/resumo-final.html",
   products: "/telas/produtos/produtos.html",
   alerts: "/telas/alertas/alertas.html",
   emergency: "/telas/emergencia/emergencia.html",
@@ -88,7 +86,7 @@ export const LEGACY_PAGE_IDS = Object.freeze({
   "index.html": "login", "dashboard.html": "dashboard", "manifests.html": "manifests",
   "manifest.html": "manifest", "manifest-edit.html": "manifest-edit", "import.html": "import",
   "division.html": "division", "work.html": "work", "occurrences.html": "occurrences",
-  "summary.html": "summary", "products.html": "products", "alerts.html": "alerts",
+  "products.html": "products", "alerts.html": "alerts",
   "emergency.html": "emergency", "settings.html": "settings", "dalas.html": "dalas",
   "dala.html": "dala", "dala-edit.html": "dala-edit", "companies.html": "companies",
   "company.html": "company", "master-home.html": "master-home", "users.html": "users",
