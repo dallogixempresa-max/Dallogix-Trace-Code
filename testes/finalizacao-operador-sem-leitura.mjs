@@ -34,6 +34,13 @@ test("Operador pode finalizar 15 passagens de três produtos com uma sem leitura
   assert.equal(podeFinalizarCarregamento({ ...current, stopReason: "COTA_ROMANEIO_ATINGIDA" }), false);
 });
 
+test("a mesma regra permite um romaneio de produto único", () => {
+  const current = state();
+  current.loadingItems = [{ planned_quantity: 15, loaded_quantity: 14 }];
+  assert.equal(divergenciaCobertaPorSemLeitura(current), true);
+  assert.equal(podeFinalizarCarregamento(current), true);
+});
+
 test("excesso, foto pendente, retorno e produto incorreto não entram na exceção", () => {
   assert.equal(divergenciaCobertaPorSemLeitura(state({ detected: 16 })), false);
   assert.equal(divergenciaCobertaPorSemLeitura(state({ incorrect: 1 })), false);
