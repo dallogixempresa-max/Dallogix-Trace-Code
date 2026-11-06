@@ -68,8 +68,12 @@ function Test-DockerLinuxEngine {
         & taskkill.exe /PID $probe.Id /T /F 2>$null | Out-Null
         return $false
     }
-    if ($probe.ExitCode -ne 0) { return $false }
-    return ((Get-Content $stdoutPath -Raw -ErrorAction SilentlyContinue).Trim() -eq 'linux')
+    $engineType = (Get-Content $stdoutPath -Raw -ErrorAction SilentlyContinue).Trim()
+    $probeError = (Get-Content $stderrPath -Raw -ErrorAction SilentlyContinue).Trim()
+    # Em tarefas do Windows PowerShell 5.1 o ExitCode do objeto retornado por
+    # Start-Process pode permanecer nulo mesmo depois de WaitForExit concluir.
+    # O tipo de engine esperado e stderr vazio são sinais estáveis do processo.
+    return ($engineType -eq 'linux' -and [string]::IsNullOrWhiteSpace($probeError))
 }
 
 function Read-TraceEnvFile([string]$Path) {
