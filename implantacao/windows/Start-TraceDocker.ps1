@@ -68,8 +68,12 @@ function Test-DockerLinuxEngine {
         & taskkill.exe /PID $probe.Id /T /F 2>$null | Out-Null
         return $false
     }
-    $engineType = (Get-Content $stdoutPath -Raw -ErrorAction SilentlyContinue).Trim()
-    $probeError = (Get-Content $stderrPath -Raw -ErrorAction SilentlyContinue).Trim()
+    # Get-Content -Raw returns $null for a zero-byte file in Windows
+    # PowerShell 5.1, so calling .Trim() directly aborts the startup task.
+    # ReadAllText consistently returns an empty string for the redirected
+    # stderr file when docker info succeeds without diagnostics.
+    $engineType = [System.IO.File]::ReadAllText($stdoutPath).Trim()
+    $probeError = [System.IO.File]::ReadAllText($stderrPath).Trim()
     # Em tarefas do Windows PowerShell 5.1 o ExitCode do objeto retornado por
     # Start-Process pode permanecer nulo mesmo depois de WaitForExit concluir.
     # O tipo de engine esperado e stderr vazio são sinais estáveis do processo.
