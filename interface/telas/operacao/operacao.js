@@ -256,11 +256,12 @@ function workControls(store) {
     : bloqueio(commandLocks.stop);
   const loadingPicker = `<div class="work-header-actions"><button class="button secondary small work-back-button" data-action="goto-manifests" type="button">← Romaneios</button>${(store.state.activeLoadings || []).length > 1 ? `<button class="button secondary small work-back-button" data-action="change-loading" type="button">Trocar Dala</button>` : ""}</div>`;
   const latestScannerReading = store.state.latestScannerReading;
-  const esteiraAtiva = ["CARREGANDO", "FINALIZANDO"].includes(estadoOperacional);
-  const scannerValue = esteiraAtiva
+  const leitorPodeConcluirPassagens = Boolean(store.state.loadingId)
+    && ["CARREGANDO", "FINALIZANDO", "PAUSADO"].includes(estadoOperacional);
+  const scannerValue = leitorPodeConcluirPassagens
     ? (latestScannerReading?.value || "Aguardando leitura…")
     : "Aguardando leitura…";
-  const scannerValueClass = esteiraAtiva &&
+  const scannerValueClass = leitorPodeConcluirPassagens &&
     ["SEM_LEITURA", "PRODUTO_INCORRETO"].includes(latestScannerReading?.result)
     ? " is-error"
     : "";
@@ -394,7 +395,7 @@ function workControls(store) {
       ? `Quantidade física atingida · ${numero(validReadings)} códigos válidos`
       : `Falta${remainingTotal === 1 ? "" : "m"} ${numero(remainingTotal)} saca${remainingTotal === 1 ? "" : "s"} para a quantidade prevista`;
   const unlinkedBags = detectedBags - validReadings;
-  const noReadNotice = esteiraAtiva && unlinkedBags > 0
+  const noReadNotice = leitorPodeConcluirPassagens && unlinkedBags > 0
     ? `<p class="work-completion-notice excess" data-live="no-read-notice">${numero(unlinkedBags)} saca${unlinkedBags === 1 ? "" : "s"} detectada${unlinkedBags === 1 ? "" : "s"} sem código válido associado.</p>`
     : `<p class="work-completion-notice excess" data-live="no-read-notice" hidden></p>`;
   const excessEvidenceLabel = `${numero(store.state.excessEvidenceCaptured || 0)} de ${numero(store.state.excessEvidenceRequests || 0)} com foto` +

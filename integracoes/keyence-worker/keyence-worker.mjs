@@ -29,7 +29,12 @@ const FTP_PASV_ADDRESS = process.env.KEYENCE_FTP_PASV_ADDRESS || "";
 const FTP_ALLOWED_ADDRESS = process.env.KEYENCE_FTP_ALLOWED_ADDRESS || "";
 const TCP_ALLOWED_ADDRESS = process.env.KEYENCE_TCP_ALLOWED_ADDRESS || "";
 const INBOX_DIR = process.env.KEYENCE_INBOX_DIR || "/var/lib/trace/keyence-inbox";
-const IMAGE_ARCHIVE_DIR = process.env.KEYENCE_IMAGE_ARCHIVE_DIR || "";
+const IMAGE_ARCHIVE_DIRS = [...new Set((process.env.KEYENCE_IMAGE_ARCHIVE_DIRS
+  || process.env.KEYENCE_IMAGE_ARCHIVE_DIR
+  || "")
+  .split(",")
+  .map((directory) => directory.trim())
+  .filter(Boolean))];
 const SCAN_QUEUE_DIR = join(INBOX_DIR, "scans");
 const FAILED_SCAN_DIR = join(INBOX_DIR, "failed-scans");
 const QUARANTINE_DIR = join(INBOX_DIR, "quarantine");
@@ -445,21 +450,31 @@ async function processImageQueue() {
   lastImageProcessAttemptAt = Date.now();
   processingImages = true;
   try {
-    if (IMAGE_ARCHIVE_DIR && Date.now() - lastImageArchivePollAt >= IMAGE_ARCHIVE_POLL_MS) {
+    if (IMAGE_ARCHIVE_DIRS.length > 0 && Date.now() - lastImageArchivePollAt >= IMAGE_ARCHIVE_POLL_MS) {
       lastImageArchivePollAt = Date.now();
-      const archiveResult = await importArchivedImages({
-        sourceDirectory: IMAGE_ARCHIVE_DIR,
-        inboxDirectory: INBOX_DIR,
-        now: lastImageArchivePollAt,
-        settleMs: IMAGE_SETTLE_MS,
-        maxAgeMs: IMAGE_MAX_AGE_MS,
-        log,
-      });
-      if (archiveResult.available !== imageArchiveAvailable) {
-        imageArchiveAvailable = archiveResult.available;
+      const archiveResults = [];
+      for (const sourceDirectory of IMAGE_ARCHIVE_DIRS) {
+        archiveResults.push(await importArchivedImages({
+          sourceDirectory,
+          inboxDirectory: INBOX_DIR,
+          now: lastImageArchivePollAt,
+          settleMs: IMAGE_SETTLE_MS,
+          maxAgeMs: IMAGE_MAX_AGE_MS,
+          log,
+        }));
+      }
+      const availableDirectories = archiveResults
+        .filter((result) => result.available)
+        .length;
+      const archiveAvailable = availableDirectories > 0;
+      if (archiveAvailable !== imageArchiveAvailable) {
+        imageArchiveAvailable = archiveAvailable;
         log(imageArchiveAvailable ? "info" : "warn", imageArchiveAvailable
           ? "Pasta local de imagens Keyence está montada no Trace."
-          : "Pasta local de imagens Keyence não está acessível ao Trace.");
+          : "Nenhuma pasta local de imagens Keyence está acessível ao Trace.", {
+          available_directories: availableDirectories,
+          configured_directories: IMAGE_ARCHIVE_DIRS.length,
+        });
       }
     }
 
@@ -557,7 +572,7 @@ async function processImageQueue() {
 }
 
 async function publishHeartbeat() {
-  const archiveUnavailable = Boolean(IMAGE_ARCHIVE_DIR) && imageArchiveAvailable === false;
+  const archiveUnavailable = IMAGE_ARCHIVE_DIRS.length > 0 && imageArchiveAvailable === false;
   const imageQueueStale = unmatchedImageCount > 0 && oldestUnmatchedImageAgeMs >= IMAGE_UNMATCHED_GRACE_MS;
   const status = lastError || readerProbeError || archiveUnavailable || imageQueueStale || ftpTransferErrorCode ? "ERRO" : "ONLINE";
   await apiRequest("/api/device_heartbeat.php", {
@@ -584,7 +599,8 @@ async function publishHeartbeat() {
         ftp_images_received: ftpImageReceivedCount,
         ftp_last_image_received_at: ftpLastImageReceivedAt,
         ftp_transfer_error_code: ftpTransferErrorCode,
-        image_archive_directory_available: IMAGE_ARCHIVE_DIR ? imageArchiveAvailable : null,
+        image_archive_directory_available: IMAGE_ARCHIVE_DIRS.length > 0 ? imageArchiveAvailable : null,
+        ...(IMAGE_ARCHIVE_DIRS.length > 0 ? { image_archive_directories_configured: IMAGE_ARCHIVE_DIRS.length } : {}),
         ...(archiveUnavailable ? { reason_code: "keyence_image_archive_unavailable" } : {}),
         ...(imageQueueStale ? { reason_code: "keyence_images_unmatched" } : {}),
         ...(readerProbeError ? { reason_code: "keyence_reader_ping_failed" } : {}),
@@ -697,7 +713,8 @@ async function start() {
       ftp_images_received: ftpImageReceivedCount,
       ftp_last_image_received_at: ftpLastImageReceivedAt,
       ftp_transfer_error_code: ftpTransferErrorCode,
-      image_archive_directory_available: IMAGE_ARCHIVE_DIR ? imageArchiveAvailable : null,
+      image_archive_directory_available: IMAGE_ARCHIVE_DIRS.length > 0 ? imageArchiveAvailable : null,
+      image_archive_directories_configured: IMAGE_ARCHIVE_DIRS.length,
       scan_queue_directory: SCAN_QUEUE_DIR,
     }));
   });

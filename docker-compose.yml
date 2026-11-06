@@ -294,13 +294,17 @@ services:
       KEYENCE_IMAGE_UNMATCHED_GRACE_MS: ${KEYENCE_IMAGE_UNMATCHED_GRACE_MS:-300000}
       KEYENCE_IMAGE_RECEIVE_TIMEOUT_MS: ${KEYENCE_IMAGE_RECEIVE_TIMEOUT_MS:-120000}
       KEYENCE_INBOX_DIR: /var/lib/trace/keyence-inbox
-      KEYENCE_IMAGE_ARCHIVE_DIR: /var/lib/trace/keyence-falhas
+      KEYENCE_IMAGE_ARCHIVE_DIRS: /var/lib/trace/keyence-falhas,/var/lib/trace/keyence-falhas-x-lite
       KEYENCE_SERVICE_BIND: 0.0.0.0
     volumes:
       - ./armazenamento/keyence-inbox:/var/lib/trace/keyence-inbox
       - type: bind
-        source: ${KEYENCE_IMAGE_ARCHIVE_HOST_DIR:-C:/Keyence/Falhas}
+        source: "${KEYENCE_IMAGE_ARCHIVE_HOST_DIR:-C:/Keyence/Falhas}"
         target: /var/lib/trace/keyence-falhas
+        read_only: true
+      - type: bind
+        source: "${KEYENCE_IMAGE_ARCHIVE_FALLBACK_HOST_DIR:-C:/Windows X-Lite/Keyence/Falhas}"
+        target: /var/lib/trace/keyence-falhas-x-lite
         read_only: true
     ports:
       - "${KEYENCE_BIND_ADDRESS:-127.0.0.1}:${KEYENCE_TCP_PORT:-19000}:19000"

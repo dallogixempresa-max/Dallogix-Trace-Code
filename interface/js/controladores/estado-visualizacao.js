@@ -61,7 +61,9 @@ export function createLiveViewController({
     };
     const operationalState = String(store.state.operationalState || "").toUpperCase();
     const esteiraAtiva = ["CARREGANDO", "FINALIZANDO"].includes(operationalState);
-    values["scanner-value"] = esteiraAtiva
+    const leitorPodeConcluirPassagens = Boolean(store.state.loadingId)
+      && ["CARREGANDO", "FINALIZANDO", "PAUSADO"].includes(operationalState);
+    values["scanner-value"] = leitorPodeConcluirPassagens
       ? (store.state.latestScannerReading?.value || "Aguardando leitura…")
       : "Aguardando leitura…";
     Object.entries(values).forEach(([key, value]) => {
@@ -72,12 +74,12 @@ export function createLiveViewController({
     const scannerValue = document.querySelector('[data-live="scanner-value"]');
     scannerValue?.classList.toggle(
       "is-error",
-      esteiraAtiva && store.state.latestScannerReading?.result === "SEM_LEITURA",
+      leitorPodeConcluirPassagens && store.state.latestScannerReading?.result === "SEM_LEITURA",
     );
     const noReadNotice = document.querySelector('[data-live="no-read-notice"]');
     if (noReadNotice) {
       const unlinkedBags = detectedBags - validReadings;
-      const show = esteiraAtiva && unlinkedBags > 0;
+      const show = leitorPodeConcluirPassagens && unlinkedBags > 0;
       noReadNotice.textContent = show
         ? `${numero(unlinkedBags)} saca${unlinkedBags === 1 ? "" : "s"} detectada${unlinkedBags === 1 ? "" : "s"} sem código válido associado.`
         : "";
