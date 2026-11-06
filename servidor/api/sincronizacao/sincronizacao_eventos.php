@@ -469,13 +469,14 @@ try {
             }
             $pauseLoading = $pdo->prepare(
                 "UPDATE carregamentos
-                 SET state = 'PAUSADO', stop_reason = :stop_reason, operator_alert = :operator_alert
+                 SET state = 'PAUSADO', stop_reason = :stop_reason_set, operator_alert = :operator_alert
                  WHERE id = :id AND company_id = :company_id
                    AND state IN ('CARREGANDO', 'FINALIZANDO', 'PAUSADO')
-                   AND (stop_reason IS NULL OR stop_reason = :stop_reason)",
+                   AND (stop_reason IS NULL OR stop_reason = :stop_reason_match)",
             );
             $pauseLoading->execute([
-                "stop_reason" => $stopReason,
+                "stop_reason_set" => $stopReason,
+                "stop_reason_match" => $stopReason,
                 "operator_alert" => $operatorAlert,
                 "id" => $loadingId,
                 "company_id" => $companyId,
