@@ -208,8 +208,15 @@ try {
     Write-DockerStartLog 'Servicos do Trace solicitados ao Docker Compose apos o login.'
 
     if ($keyenceEnabled) {
-        $containerId = (& $docker compose @composeArguments ps -q keyence-worker | Select-Object -First 1)
-        if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace([string]$containerId)) {
+        # Capture the full native-process output before selecting a line.
+        # Select-Object -First 1 directly in the pipeline can close stdout
+        # early and make Docker Compose report exit code -1 in PowerShell 5.1.
+        $containerOutput = @(& $docker compose @composeArguments ps -q keyence-worker)
+        $composeExitCode = $LASTEXITCODE
+        $containerId = $containerOutput |
+            Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } |
+            Select-Object -First 1
+        if ($composeExitCode -ne 0 -or [string]::IsNullOrWhiteSpace([string]$containerId)) {
             throw 'O serviço do leitor Keyence não possui um contêiner iniciado.'
         }
         $workerHealthy = $false
