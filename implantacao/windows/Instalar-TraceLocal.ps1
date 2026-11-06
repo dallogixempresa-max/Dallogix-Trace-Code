@@ -551,7 +551,10 @@ try {
     }
     $values = Read-EnvValues $envPath
     if ($ProductionMachine -and $values.ContainsKey('KEYENCE_ENABLED') -and $values['KEYENCE_ENABLED'] -eq '1') {
-        Ensure-EnvDefaults $envPath @{ KEYENCE_IMAGE_ARCHIVE_HOST_DIR = 'C:/Keyence/Falhas' }
+        Ensure-EnvDefaults $envPath @{
+            KEYENCE_IMAGE_ARCHIVE_HOST_DIR = 'C:/Keyence/Falhas'
+            KEYENCE_IMAGE_ARCHIVE_FALLBACK_HOST_DIR = 'C:/Windows X-Lite/Keyence/Falhas'
+        }
         $values = Read-EnvValues $envPath
     }
     foreach ($key in @("MYSQL_PASSWORD", "MYSQL_ROOT_PASSWORD", "TRACE_DEVICE_TOKEN", "KEYENCE_DEVICE_TOKEN", "KEYENCE_FTP_PASSWORD", "TRACE_CENTRAL_URL")) {

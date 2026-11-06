@@ -217,9 +217,7 @@ export function criarTratadorAcoesOperacionais({
             `O carregamento terminou, mas ainda há ${pendingEvidence} imagem(ns) de evidência pendente(s). O romaneio não foi encerrado.`,
             "aviso",
           );
-        } else if (await confirmarAcao(
-          "Todos os carregamentos deste romaneio foram finalizados. Encerrar agora e liberar o relatório de auditoria?",
-        )) {
+        } else {
           try {
             await store.finishManifest(manifestId);
             manifestLoaded = true;

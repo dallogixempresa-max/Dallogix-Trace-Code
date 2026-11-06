@@ -38,7 +38,8 @@ test("última leitura do serviço Keyence alimenta o visor em atualizações ao 
   assert.match(monitoringRepository, /lr\.result AS last_scanner_result/);
   assert.match(activeLoading, /latestScannerReading = loading\.last_scanner_read_at/);
   assert.match(activeLoading, /Falha na leitura \(sem código\)/);
-  assert.match(liveView, /values\["scanner-value"\] = esteiraAtiva/);
+  assert.match(liveView, /leitorPodeConcluirPassagens = Boolean\(store\.state\.loadingId\)\s*&& \["CARREGANDO", "FINALIZANDO", "PAUSADO"\]\.includes\(operationalState\)/);
+  assert.match(liveView, /values\["scanner-value"\] = leitorPodeConcluirPassagens/);
 });
 
 test("visor chama o dispositivo de leitor e início não exige comando de desligamento inexistente", () => {
