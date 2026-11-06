@@ -93,6 +93,20 @@
   margin-top: 0;
 }
 
+#manifest-items .pdf-item-source {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted, #6b7785);
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+#manifest-items tr.is-unmatched select {
+  border-color: #d29724;
+  background: #fffdf8;
+}
+
 @media (max-width: 900px) {
   .manifest-form-grid-primary {
     grid-template-columns: repeat(2, minmax(0, 1fr));

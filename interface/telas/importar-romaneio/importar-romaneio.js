@@ -14,7 +14,7 @@ export function importScreen(store) {
   const products = store.state.products || [];
   const today = industrialPcDate();
   return `<div class="title-row has-back"><button class="button secondary page-back" data-action="goto-manifests" type="button">← Voltar</button><div><h2>Novo romaneio</h2></div></div>
-<section class="panel pdf-import-card"><p>Selecione o arquivo PDF do romaneio para preencher os campos automaticamente. Confira os dados e salve.</p>
+<section class="panel pdf-import-card"><p>Selecione o pedido em PDF. O Trace preencherá os dados e os itens reconhecidos; revise os campos e selecione manualmente os produtos que não forem encontrados antes de cadastrar.</p>
 <form id="pdf-form"><div class="file-picker"><input id="pdf-file" class="file-input" name="file" type="file" accept=".pdf,application/pdf" required /><label class="button primary file-picker-button" for="pdf-file">Escolher arquivo</label><span class="file-name" data-file-name>Nenhum arquivo escolhido</span></div><div class="actions"><button class="button primary" data-action="import-pdf" type="submit">Importar PDF</button></div><div id="pdf-import-feedback" class="import-feedback" role="status" aria-live="polite"></div></form></section><br>
 <div class="divider import-manual-divider"><span>ou cadastre manualmente</span></div>
 <p>Preencha os dados do romaneio e adicione os itens com produto e quantidade.</p>
