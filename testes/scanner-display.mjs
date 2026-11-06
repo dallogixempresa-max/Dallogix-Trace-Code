@@ -16,6 +16,7 @@ const sensorEventsApi = await readFile(new URL("../servidor/api/operacoes/sensor
 const readingsEndpoint = await readFile(new URL("../servidor/api/operacoes/leituras.php", import.meta.url), "utf8");
 const finishLoadingApi = await readFile(new URL("../servidor/api/operacoes/encerrar_carregamento.php", import.meta.url), "utf8");
 const loadingSummaryApi = await readFile(new URL("../servidor/api/operacoes/resumo_carregamento.php", import.meta.url), "utf8");
+const installationHeartbeatDetails = await readFile(new URL("../servidor/src/Aplicacao/DetalhesHeartbeatInstalacao.php", import.meta.url), "utf8");
 const observabilityService = await readFile(new URL("../interface/js/servicos/ServicoObservabilidade.js", import.meta.url), "utf8");
 const operationalRealtime = await readFile(new URL("../interface/js/controladores/tempo-real.js", import.meta.url), "utf8");
 const loadingFinishRules = await readFile(new URL("../interface/js/funcoes/regras-carregamento.js", import.meta.url), "utf8");
@@ -89,6 +90,15 @@ test("fila durável do M2052 é reprocessada após reinício e fechamento aguard
   assert.match(operationalRealtime, /store\.loadSummaryMonitoring\(\)/);
   assert.match(loadingFinishRules, /outboxPending !== null/);
   assert.match(loadingFinishRules, /Number\(outboxPending\) === 0/);
+});
+
+test("heartbeat SENSOR preserva a fila agregada para liberar a finalização no Central", () => {
+  const sensorBranch = installationHeartbeatDetails.match(/if \(\$deviceType === "SENSOR"\) \{([\s\S]*?)\n        \}/)?.[1] || "";
+  assert.match(sensorBranch, /sensor_event_outbox_pending/);
+  assert.match(sensorBranch, /FILTER_VALIDATE_INT/);
+  assert.match(sensorBranch, /min_range[^\n]*0/);
+  assert.doesNotMatch(sensorBranch, /sensor_event_outbox_pending_by_loading/);
+  assert.match(loadingSummaryApi, /\$pendingEventsByLoading\)\s*\?\s*\(int\)\s*\(\$pendingEventsByLoading\[\(string\) \$loadingId\][\s\S]*?:\s*\(\$sensorOutboxState\["pending_events"\]/);
 });
 
 test("evento de excesso usa UUID próprio na auditoria e mantém a referência da passagem", () => {

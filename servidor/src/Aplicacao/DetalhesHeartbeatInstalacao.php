@@ -82,6 +82,20 @@ final class DetalhesHeartbeatInstalacao
             }
             return $normalized;
         }
+        if ($deviceType === "SENSOR") {
+            // O Central precisa saber que a fila durável local foi entregue
+            // antes de liberar o encerramento. Não encaminhamos o mapa por
+            // ID local: esses IDs podem ser diferentes dos IDs remotos.
+            $pendingEvents = filter_var(
+                $details["sensor_event_outbox_pending"] ?? null,
+                FILTER_VALIDATE_INT,
+                ["options" => ["min_range" => 0, "max_range" => 1000000000]],
+            );
+            if ($pendingEvents !== false && $pendingEvents !== null) {
+                $normalized["sensor_event_outbox_pending"] = (int) $pendingEvents;
+            }
+            return $normalized;
+        }
         if ($deviceType !== "CLP") {
             return $normalized;
         }
