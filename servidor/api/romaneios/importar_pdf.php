@@ -1,152 +1,18 @@
 <?php
 declare(strict_types=1);
 
+use function App\Aplicacao\pdf_extract_text;
+use function App\Aplicacao\pdf_field_value;
+use function App\Aplicacao\pdf_normalize;
+use function App\Aplicacao\pdf_parse_items;
+
 require_once __DIR__ . "/../../configuracao/bootstrap.php";
 
-// Importação de romaneio em PDF (padrão da referência TracePlatform).
-// Recebe o PDF, extrai o texto (best-effort, sem dependências externas) e localiza os
-// valores dos campos a partir dos rótulos configurados em Configurações > Importação PDF.
-// PENDENTE DE CONFIRMAÇÃO: layout definitivo dos romaneios em PDF de cada cliente —
-// o mapeamento de rótulos é configurável justamente para acomodar variações.
+// Importação de pedido PDF: os rótulos do cabeçalho e das colunas da tabela são
+// configuráveis por empresa. O resultado preenche o formulário para revisão;
+// a criação do romaneio continua sendo confirmada pelo operador.
 
-/**
- * Extrai o texto visível de um conteúdo de stream PDF (operadores Tj, TJ, ' e ").
- */
-function pdf_text_from_content(string $content): string
-{
-    // Defesa em profundidade: limite explícito de backtracking para isolar esta
-    // função de configurações externas, sem depender do valor global padrão do PHP.
-    ini_set('pcre.backtrack_limit', '100000');
-    $text = "";
-    // Blocos [...] TJ e strings (...) seguidas de Tj / ' / ".
-    if (
-        !preg_match_all(
-            '/\((?:\\\\.|[^\\\\()])*\)\s*(?:Tj|\'|\")|\[(?:[^\[\]]|\\\\.)*\]\s*TJ/',
-            $content,
-            $blocks,
-        )
-    ) {
-        return "";
-    }
-    foreach ($blocks[0] as $block) {
-        if (!preg_match_all("/\((?:\\\\.|[^\\\\()])*\)/", $block, $strings)) {
-            continue;
-        }
-        foreach ($strings[0] as $raw) {
-            $value = substr($raw, 1, -1);
-            $value = str_replace(
-                ["\\(", "\\)", "\\\\"],
-                ["(", ")", "\\"],
-                $value,
-            );
-            $value =
-                preg_replace_callback(
-                    "/\\\\([0-7]{1,3})/",
-                    static fn($match) => chr(octdec($match[1])),
-                    $value,
-                ) ?? $value;
-            $text .= $value;
-        }
-        $text .= "\n";
-    }
-    return $text;
-}
-
-/**
- * Concatena o texto de todos os streams do PDF (com e sem compressão FlateDecode).
- */
-function pdf_extract_text(string $binary): string
-{
-    $maxInflatedStreamBytes = 4 * 1024 * 1024;
-    $maxInflatedTotalBytes = 16 * 1024 * 1024;
-    $text = "";
-    $streams = [1 => []];
-    $offset = 0;
-    while (preg_match('/stream\r?\n/s', $binary, $marker, PREG_OFFSET_CAPTURE, $offset) === 1) {
-        $start = $marker[0][1] + strlen($marker[0][0]);
-        $end = strpos($binary, "endstream", $start);
-        if ($end === false) {
-            break;
-        }
-        $length = $end - $start;
-        if ($length > $maxInflatedStreamBytes) {
-            throw new RuntimeException("Stream do PDF excede o limite permitido.");
-        }
-        $streams[1][] = rtrim(substr($binary, $start, $length), "\r\n");
-        $offset = $end + strlen("endstream");
-    }
-    if ($streams[1] === []) {
-        return "";
-    }
-    $inflatedTotal = 0;
-    foreach ($streams[1] as $stream) {
-        if (strlen($stream) > $maxInflatedStreamBytes) {
-            throw new RuntimeException("Stream do PDF excede o limite permitido.");
-        }
-        // PDFs FlateDecode normalmente carregam zlib completo; aceite também
-        // o formato raw usado por alguns geradores.
-        $inflated = @gzuncompress($stream, $maxInflatedStreamBytes);
-        if ($inflated === false) {
-            $inflated = @gzinflate($stream, $maxInflatedStreamBytes);
-        }
-        if ($inflated === false) {
-            $inflated = @gzuncompress(rtrim($stream, "\r\n"), $maxInflatedStreamBytes);
-        }
-        if ($inflated === false) {
-            $inflated = @gzinflate(rtrim($stream, "\r\n"), $maxInflatedStreamBytes);
-        }
-        $content = $inflated !== false ? $inflated : $stream;
-        $inflatedTotal += strlen($content);
-        if ($inflatedTotal > $maxInflatedTotalBytes) {
-            throw new RuntimeException("Conteúdo descompactado do PDF excede o limite permitido.");
-        }
-        if (
-            $inflated === false &&
-            !preg_match('/\)\s*(?:Tj|TJ|\'|\")/', $content)
-        ) {
-            continue; // stream sem texto (imagens, fontes, etc.)
-        }
-        $text .= pdf_text_from_content($content);
-    }
-    return $text;
-}
-
-/**
- * Normaliza o texto para busca de rótulos (colapsa espaços, remove acentos, caixa alta).
- */
-function pdf_normalize(string $value): string
-{
-    // Preserve quebras de linha: pdf_field_value usa cada linha para separar rótulo e valor.
-    $value = preg_replace("/[ \t]+/u", " ", $value) ?? $value;
-    $transliterated = iconv("UTF-8", "ASCII//TRANSLIT//IGNORE", $value);
-    if ($transliterated !== false) {
-        $value = $transliterated;
-    }
-    return mb_strtoupper(trim($value), "UTF-8");
-}
-
-/**
- * Localiza o valor após um rótulo dentro do texto normalizado por linhas.
- */
-function pdf_field_value(string $normalizedText, string $label): ?string
-{
-    $needle = pdf_normalize($label);
-    if ($needle === "") {
-        return null;
-    }
-    foreach (preg_split('/\r?\n/', $normalizedText) ?: [] as $line) {
-        $position = strpos($line, $needle);
-        if ($position === false) {
-            continue;
-        }
-        $rest = trim(substr($line, $position + strlen($needle)));
-        $rest = ltrim($rest, ":;-–. \t");
-        if ($rest !== "") {
-            return trim($rest);
-        }
-    }
-    return null;
-}
+require_once __DIR__ . "/../../src/Aplicacao/ImportadorRomaneioPdf.php";
 
 $user = require_session_user();
 if ($user["company_id"] === null) {
@@ -196,8 +62,6 @@ if (trim($text) === "") {
         422,
     );
 }
-$normalized = pdf_normalize($text);
-
 $pdo = db();
 $settingsStatement = $pdo->prepare(
     "SELECT pdf_field_mapping, pdf_search_field FROM configuracoes_empresa WHERE company_id = :company_id LIMIT 1",
@@ -219,83 +83,100 @@ $defaultMapping = [
     "motorista" => "Motorista",
     "produto" => "Referência",
     "quantidade" => "Quantidade",
+    "descricao" => "Descrição",
 ];
 $searchField =
     ($settings["pdf_search_field"] ?? "barcode") === "sku" ? "sku" : "barcode";
 
 $fields = [];
-foreach (
-    [
-        "codigo",
-        "data",
-        "expedidor",
-        "placa",
-        "motorista",
-        "produto",
-        "quantidade",
-    ]
-    as $key
-) {
+// Os nomes dos campos são definidos por empresa. Os aliases cobrem variações
+// comuns sem impedir que cada operação personalize o próprio modelo.
+$fieldAliases = [
+    "codigo" => ["Ordem de Carga", "Número do pedido", "Pedido"],
+    "data" => ["Data do carregamento", "Data de entrega"],
+    "expedidor" => ["Empresa"],
+    "placa" => ["Veículo", "Caminhão"],
+    "motorista" => [],
+];
+foreach (["codigo", "data", "expedidor", "placa", "motorista"] as $key) {
     $label = trim((string) ($mapping[$key] ?? $defaultMapping[$key]));
     if ($label === "" || mb_strlen($label, "UTF-8") > 80) {
         continue;
     }
-    $value = pdf_field_value($normalized, $label);
-    if ($value !== null) {
-        $fields[$key] = $value;
+    foreach (array_values(array_unique([$label, ...($fieldAliases[$key] ?? [])])) as $candidateLabel) {
+        $value = pdf_field_value($text, $candidateLabel);
+        if ($value !== null && trim($value) !== "") {
+            $fields[$key] = trim($value);
+            break;
+        }
     }
 }
 
-// Normalizações úteis para preencher o formulário.
+// Só usa datas associadas a um rótulo configurado; a data de impressão do PDF
+// não é presumida como data de carregamento.
 if (
     isset($fields["data"]) &&
     preg_match("/(\d{2})\/(\d{2})\/(\d{4})/", $fields["data"], $match)
 ) {
     $fields["data_iso"] = "{$match[3]}-{$match[2]}-{$match[1]}";
-}
-if (
-    isset($fields["quantidade"]) &&
-    preg_match("/\d+/", str_replace(".", "", $fields["quantidade"]), $match)
-) {
-    $fields["quantidade_numero"] = (int) $match[0];
+} elseif (isset($fields["data"]) && preg_match('/\b(\d{4})-(\d{2})-(\d{2})\b/u', $fields["data"], $match)) {
+    $fields["data_iso"] = "{$match[1]}-{$match[2]}-{$match[3]}";
 }
 
-// Resolve o produto pelo identificador encontrado, conforme "Buscar produtos por".
-$product = null;
-if (isset($fields["produto"]) && $fields["produto"] !== "") {
-    $identifier = $fields["produto"];
-    if ($searchField === "sku") {
-        $productStatement = $pdo->prepare(
-            "SELECT id, code, name FROM produtos WHERE company_id = :company_id AND active = 1 AND code = :identifier LIMIT 1",
-        );
-        $productStatement->execute([
-            "company_id" => $user["company_id"],
-            "identifier" => $identifier,
-        ]);
-    } else {
-        $productStatement = $pdo->prepare(
-            "SELECT p.id, p.code, p.name
-             FROM codigos_produtos pc
-             JOIN produtos p ON p.id = pc.product_id AND p.company_id = pc.company_id
-             WHERE pc.company_id = :company_id
-               AND pc.barcode = :identifier
-               AND p.active = 1
-             LIMIT 1",
-        );
-        $productStatement->execute([
-            "company_id" => $user["company_id"],
-            "identifier" => $identifier,
-        ]);
-    }
-    $found = $productStatement->fetch();
-    $product = $found ?: null;
+$productLookup = [];
+if ($searchField === "sku") {
+    $productStatement = $pdo->prepare(
+        "SELECT id, code AS identifier, code, name FROM produtos WHERE company_id = :company_id AND active = 1 AND code IS NOT NULL AND code <> ''",
+    );
+} else {
+    $productStatement = $pdo->prepare(
+        "SELECT p.id, pc.barcode AS identifier, p.code, p.name
+         FROM codigos_produtos pc
+         JOIN produtos p ON p.id = pc.product_id AND p.company_id = pc.company_id
+         WHERE pc.company_id = :company_id
+           AND pc.barcode IS NOT NULL
+           AND pc.barcode <> ''
+           AND p.active = 1",
+    );
 }
+$productStatement->execute(["company_id" => $user["company_id"]]);
+foreach ($productStatement->fetchAll() as $productRow) {
+    $identifier = trim((string) ($productRow["identifier"] ?? ""));
+    $normalizedIdentifier = pdf_normalize($identifier);
+    if ($normalizedIdentifier !== "" && !isset($productLookup[$normalizedIdentifier])) {
+        $productLookup[$normalizedIdentifier] = [
+            "id" => (int) $productRow["id"],
+            "name" => (string) $productRow["name"],
+            "code" => (string) ($productRow["code"] ?? ""),
+        ];
+    }
+}
+
+$productLabel = trim((string) ($mapping["produto"] ?? $defaultMapping["produto"]));
+$quantityLabel = trim((string) ($mapping["quantidade"] ?? $defaultMapping["quantidade"]));
+$descriptionLabel = trim((string) ($mapping["descricao"] ?? $defaultMapping["descricao"]));
+try {
+    $items = pdf_parse_items($text, $productLabel, $quantityLabel, $descriptionLabel, $productLookup, $searchField);
+} catch (RuntimeException $exception) {
+    json_response(["error" => $exception->getMessage()], 422);
+}
+$missingFields = array_values(array_diff(
+    ["codigo", "data", "expedidor", "placa", "motorista"],
+    array_keys($fields),
+));
+$matchedItems = count(array_filter($items, static fn(array $item): bool => $item["product_id"] !== null));
+$unmatchedItems = count($items) - $matchedItems;
+$quantityTotal = array_sum(array_column($items, "quantity"));
 
 $pdo->beginTransaction();
 try {
     record_operational_event($pdo, $user, "ROMANEIO_PDF_IMPORTADO", "romaneio", 0, [
         "campos_encontrados" => array_keys($fields),
-        "produto_encontrado" => (bool) $product,
+        "linhas_de_itens" => count($items),
+        "itens_reconhecidos" => $matchedItems,
+        "itens_pendentes" => $unmatchedItems,
+        "quantidade_total" => $quantityTotal,
+        "campo_de_busca_produto" => $searchField,
     ]);
     $pdo->commit();
 } catch (Throwable $exception) {
@@ -308,21 +189,11 @@ try {
 json_response([
     "data" => [
         "fields" => $fields,
-        "missing" => array_values(
-            array_diff(
-                [
-                    "codigo",
-                    "data",
-                    "expedidor",
-                    "placa",
-                    "motorista",
-                    "produto",
-                    "quantidade",
-                ],
-                array_keys($fields),
-            ),
-        ),
-        "product" => $product,
+        "missing" => $missingFields,
+        "items" => $items,
+        "matched_items" => $matchedItems,
+        "unmatched_items" => $unmatchedItems,
+        "quantity_total" => $quantityTotal,
         "search_field" => $searchField,
     ],
 ]);

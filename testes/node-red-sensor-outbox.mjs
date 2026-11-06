@@ -5,7 +5,18 @@ import { join } from "node:path";
 import test from "node:test";
 import outboxModule from "../integracoes/node-red/sensor-event-outbox.cjs";
 
-const { createSensorEventOutbox } = outboxModule;
+const { createSensorEventOutbox, countEventsByLoading } = outboxModule;
+
+test("fila do sensor informa pendências separadas por carregamento", () => {
+  assert.deepEqual(
+    countEventsByLoading([
+      { carregamento_id: 46 },
+      { carregamento_id: 46 },
+      { carregamento_id: 47 },
+    ]),
+    { 46: 2, 47: 1 },
+  );
+});
 
 test("fila do sensor persiste somente o evento e o recupera após recriar o serviço", async () => {
   const directory = await mkdtemp(join(tmpdir(), "trace-sensor-outbox-"));

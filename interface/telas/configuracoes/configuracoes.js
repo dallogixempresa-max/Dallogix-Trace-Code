@@ -247,13 +247,14 @@ export function settings(store) {
   const mapping = saved.pdf_field_mapping || {};
   const searchField = saved.pdf_search_field || "barcode";
   const fields = [
-    ["codigo", "Código", false],
+    ["codigo", "Número do pedido ou romaneio", false],
     ["data", "Data do carregamento", false],
-    ["expedidor", "Expedidor", false],
+    ["expedidor", "Empresa ou expedidor", false],
     ["placa", "Placa do caminhão", false],
     ["motorista", "Motorista", false],
-    ["produto", "Identificador do produto", true],
-    ["quantidade", "Quantidade", true],
+    ["produto", "Cabeçalho da coluna do código de barras ou SKU", true],
+    ["quantidade", "Cabeçalho da coluna da quantidade", true],
+    ["descricao", "Cabeçalho da coluna da descrição", false],
   ];
   const dalaRows = config.dalas.length
     ? config.dalas
@@ -275,9 +276,9 @@ ${deviceStatusPanel(store)}
 <p>Visão consolidada das Dalas cadastradas e do último sinal Modbus recebido do PC industrial. Para cadastrar ou editar, use Gerenciar Dalas.</p>
 <p><strong>Identificador:</strong> código único da Dala. <strong>IP do CLP:</strong> endereço na rede local da fábrica. <strong>Porta do CLP:</strong> porta TCP Modbus informada pelo fabricante.</p>
 <div class="table-wrap settings-dalas-table-wrap"><table class="settings-dalas-table"><thead><tr><th>Nome da Dala</th><th>Identificador da Dala</th><th>IP do CLP</th><th>Porta do CLP</th><th>Comunicação</th></tr></thead><tbody>${dalaRows}</tbody></table></div></section><br>
-<section class="panel pdf-import-panel"><div class="panel-heading pdf-import-heading"><div><h3>Importação de romaneios (PDF)</h3><p class="compact-help">Informe apenas os nomes dos campos que existem no PDF. <b class="required">*</b> Obrigatório.</p></div></div>
+<section class="panel pdf-import-panel"><div class="panel-heading pdf-import-heading"><div><h3>Importação de romaneios (PDF)</h3><p class="compact-help">Este mapeamento vale somente para esta empresa. Informe os rótulos e cabeçalhos usados no PDF, por exemplo: “Ordem de Carga”, “Empresa”, “REFERÊNCIA” e “QTD”. O PDF precisa conter texto selecionável. <b class="required">*</b> Colunas de produto e quantidade obrigatórias.</p></div></div>
 <form id="pdf-settings-form"><div class="pdf-import-fields">
-${fields.map(([key, label, required]) => `<label>${label}${required ? ' <b class="required">*</b>' : ""}<input name="pdf_${key}" value="${esc(mapping[key] || "")}" placeholder="Nome do campo no PDF" /></label>`).join("")}
+${fields.map(([key, label, required]) => `<label>${label}${required ? ' <b class="required">*</b>' : ""}<input name="pdf_${key}" value="${esc(mapping[key] || "")}" placeholder="${key === "produto" ? "Ex.: REFERÊNCIA" : key === "quantidade" ? "Ex.: QTD" : key === "descricao" ? "Ex.: DESCRIÇÃO" : "Texto do PDF"}" /></label>`).join("")}
 </div>
 <div class="pdf-import-footer"><label>Buscar produtos por <b class="required">*</b><select name="pdf_search_field"><option value="barcode"${searchField === "barcode" ? " selected" : ""}>Código de barras</option><option value="sku"${searchField === "sku" ? " selected" : ""}>SKU</option></select></label><div class="actions">${button("Salvar parâmetros", "save-pdf-settings")}</div></div></form></section>`;
 }

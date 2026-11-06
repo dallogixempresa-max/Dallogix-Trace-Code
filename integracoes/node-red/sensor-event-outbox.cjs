@@ -24,6 +24,18 @@ function normalizeEvent(value) {
     return event;
 }
 
+function countEventsByLoading(events) {
+    const counts = {};
+    for (const event of events) {
+        const loadingId = Number(event?.carregamento_id);
+        if (!Number.isSafeInteger(loadingId) || loadingId < 1) {
+            throw new TypeError("Passagem sem carregamento válido na fila local do sensor.");
+        }
+        counts[loadingId] = (counts[loadingId] || 0) + 1;
+    }
+    return counts;
+}
+
 function createSensorEventOutbox({ directory = process.env.TRACE_SENSOR_EVENT_OUTBOX_DIR || "/data/trace-sensor-outbox" } = {}) {
     let operationQueue = Promise.resolve();
 
@@ -131,4 +143,5 @@ function createSensorEventOutbox({ directory = process.env.TRACE_SENSOR_EVENT_OU
 module.exports = {
     ...createSensorEventOutbox(),
     createSensorEventOutbox,
+    countEventsByLoading,
 };
