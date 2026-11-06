@@ -128,13 +128,24 @@ $sensorOutbox = $pdo->prepare(
        WHEN status = 'ONLINE' AND last_seen_at >= DATE_SUB(NOW(3), INTERVAL 5 SECOND)
        THEN JSON_UNQUOTE(JSON_EXTRACT(details, '$.sensor_event_outbox_pending'))
        ELSE NULL
-     END
+     END AS pending_events,
+     CASE
+       WHEN status = 'ONLINE' AND last_seen_at >= DATE_SUB(NOW(3), INTERVAL 5 SECOND)
+       THEN JSON_EXTRACT(details, '$.sensor_event_outbox_pending_by_loading')
+       ELSE NULL
+     END AS pending_events_by_loading
      FROM status_dispositivos
      WHERE equipment_id = :equipment_id AND device_type = 'SENSOR'
      LIMIT 1",
 );
 $sensorOutbox->execute(["equipment_id" => (int) $data["equipment_id"]]);
-$sensorOutboxPending = $sensorOutbox->fetchColumn();
+$sensorOutboxState = $sensorOutbox->fetch(PDO::FETCH_ASSOC) ?: [];
+$pendingEventsByLoading = is_string($sensorOutboxState["pending_events_by_loading"] ?? null)
+    ? json_decode($sensorOutboxState["pending_events_by_loading"], true)
+    : null;
+$sensorOutboxPending = is_array($pendingEventsByLoading)
+    ? (int) ($pendingEventsByLoading[(string) $loadingId] ?? 0)
+    : ($sensorOutboxState["pending_events"] ?? null);
 $data["sensor_outbox_pendentes"] = $sensorOutboxPending === false || $sensorOutboxPending === null
     ? null
     : max(0, (int) $sensorOutboxPending);

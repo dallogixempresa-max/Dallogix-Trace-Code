@@ -659,7 +659,7 @@
     "type": "function",
     "z": "trace-clp-bridge",
     "name": "Publicar fila local de passagens",
-    "func": "const outbox = global.get('traceSensorEventOutbox');\nif (!outbox || !msg.payload?.details || msg.payload.status !== 'ONLINE') {\n    node.error('Não foi possível confirmar o estado da fila local de passagens.');\n    return null;\n}\noutbox.count().then(count => {\n    msg.payload.details.sensor_event_outbox_pending = count;\n    node.send(msg);\n}).catch(error => node.error(`Não foi possível consultar a fila local do sensor: ${error.message}`, msg));\nreturn null;",
+    "func": "const outbox = global.get('traceSensorEventOutbox');\nif (!outbox || !msg.payload?.details || msg.payload.status !== 'ONLINE') {\n    node.error('Não foi possível confirmar o estado da fila local de passagens.');\n    return null;\n}\noutbox.list().then(events => {\n    msg.payload.details.sensor_event_outbox_pending = events.length;\n    msg.payload.details.sensor_event_outbox_pending_by_loading = outbox.countEventsByLoading(events);\n    node.send(msg);\n}).catch(error => node.error(`Não foi possível consultar a fila local do sensor: ${error.message}`, msg));\nreturn null;",
     "outputs": 1,
     "timeout": 0,
     "noerr": 0,

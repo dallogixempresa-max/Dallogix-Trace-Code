@@ -78,10 +78,13 @@ test("fila durável do M2052 é reprocessada após reinício e fechamento aguard
   assert.match(retry, /outbox\.acknowledge\(eventUuid\)/);
   assert.match(retry, /retryMessage\.headers = \{ 'X-Device-Token': String\(source\.traceToken \|\| ''\)/);
   assert.doesNotMatch(retry, /attempt >= 3/);
-  assert.match(heartbeat, /sensor_event_outbox_pending = count/);
+  assert.match(heartbeat, /sensor_event_outbox_pending = events\.length/);
+  assert.match(heartbeat, /sensor_event_outbox_pending_by_loading = outbox\.countEventsByLoading\(events\)/);
   assert.match(finishLoadingApi, /NOT EXISTS \(SELECT 1 FROM leituras l WHERE l\.sensor_event_id = s\.id\)/);
   assert.match(finishLoadingApi, /sensor_event_outbox_pending/);
+  assert.match(finishLoadingApi, /pending_events_by_loading/);
   assert.match(loadingSummaryApi, /leituras_pendentes_sensor/);
+  assert.match(loadingSummaryApi, /pending_events_by_loading/);
   assert.match(observabilityService, /resumo_carregamento\.php\?carregamento_id=/);
   assert.match(operationalRealtime, /store\.loadSummaryMonitoring\(\)/);
   assert.match(loadingFinishRules, /outboxPending !== null/);
