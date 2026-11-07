@@ -2,7 +2,7 @@ import { button, esc } from "../../js/funcoes/html.js";
 
 const DEVICE_TYPES = [
   ["SENSOR", "Sensor", "Sinal de passagem no CLP"],
-  ["SCANNER", "Leitor", "Leitura automática por HID"],
+  ["SCANNER", "Leitor", "Rede do leitor; código HID no visor"],
   ["CLP", "CLP", "Controle da esteira"],
   ["SERVER", "Servidor", "API desta instalação"],
 ];
@@ -82,25 +82,44 @@ export function apresentacaoStatusDispositivo(value, type = "", device = {}) {
       falha_ao_gravar_imagem: "falha ao gravar a imagem recebida",
     };
     const ftpError = ftpErrorDescriptions[device?.ftp_transfer_error_code] || "";
+    const imageQueueFailed = device?.image_queue_status === "ERRO";
     const ftpDetail = device?.ftp_image_receiver_listening === true
       ? `FTP ativo; ${ftpImagesReceived === null ? "recebimentos não contabilizados" : `${ftpImagesReceived} foto(s) recebida(s) nesta execução`}${lastFtpImageTime ? `; última às ${lastFtpImageTime}` : ftpImagesReceived === 0 ? "; nenhuma foto recebida nesta execução" : ""}.`
       : device?.ftp_image_receiver_listening === false
         ? "Receptor FTP de fotos indisponível."
         : "Estado do receptor FTP não confirmado.";
-    const imageQueueDetail = unmatchedImages > 0
-      ? ` Fila de evidências: ${unmatchedImages} foto(s) sem vínculo${imageAgeMinutes !== null ? `; mais antiga há ${imageAgeMinutes} min` : ""}.`
-      : unmatchedImages === 0
-        ? " Fila de evidências sem pendências."
-        : " Estado da fila de evidências não confirmado.";
+    let imageQueueDetail;
+    if (imageQueueFailed) {
+      const queueCountDetail = unmatchedImages > 0
+        ? `: ${unmatchedImages} foto(s) sem vínculo${imageAgeMinutes !== null ? `; mais antiga há ${imageAgeMinutes} min` : ""}`
+        : "";
+      imageQueueDetail = ` Fila de evidências com falha${queueCountDetail}.`;
+    } else if (unmatchedImages > 0) {
+      imageQueueDetail = ` Fila de evidências: ${unmatchedImages} foto(s) sem vínculo${imageAgeMinutes !== null ? `; mais antiga há ${imageAgeMinutes} min` : ""}.`;
+    } else if (unmatchedImages === 0) {
+      imageQueueDetail = " Fila de evidências sem pendências.";
+    } else {
+      imageQueueDetail = " Estado da fila de evidências não confirmado.";
+    }
+    const integrationErrorDetail = device?.scanner_service_status === "ERRO" && !imageQueueFailed && !ftpError
+      ? " A integração do leitor no PC informou uma falha."
+      : "";
+    const ftpErrorDetail = ftpError ? ` Última transferência FTP recusada: ${ftpError}.` : "";
+    const subsystemDetails = `${ftpDetail}${imageQueueDetail}${ftpErrorDetail}${integrationErrorDetail}`;
     if (normalized === "ONLINE") {
       return {
         monitored: true,
         online: true,
+        attention: device?.scanner_service_status === "ERRO"
+          || imageQueueFailed
+          || Boolean(ftpError)
+          || device?.ftp_image_receiver_listening === false
+          || device?.image_archive_directory_available === false,
         tone: "online",
-        label: "ONLINE",
+        label: probeMethod === "ICMP_PING" ? "REDE ONLINE" : "ONLINE",
         detail: `${probeMethod === "ICMP_PING"
           ? `Ping respondeu em ${readerIp || "IP configurado"}${checkedTime ? ` às ${checkedTime}` : ""}. A leitura do código é confirmada no visor da operação.`
-          : `Leitor respondeu na porta ${probePort}; a leitura do código é confirmada no visor da operação.`} ${ftpDetail}${imageQueueDetail}`,
+          : `Leitor respondeu na porta ${probePort}; a leitura do código é confirmada no visor da operação.`} ${subsystemDetails}`,
       };
     }
     if (normalized === "OFFLINE") {
@@ -109,9 +128,9 @@ export function apresentacaoStatusDispositivo(value, type = "", device = {}) {
         online: false,
         tone: "offline",
         label: "SEM RESPOSTA",
-        detail: probeMethod === "ICMP_PING"
+        detail: `${probeMethod === "ICMP_PING"
           ? `Sem resposta ao ping de ${readerIp || "IP configurado"}${checkedTime ? ` às ${checkedTime}` : ""}. Confira leitor, endereço e rede.`
-          : `Leitor sem resposta na porta ${probePort}; confira endereço e rede.`,
+          : `Leitor sem resposta na porta ${probePort}; confira endereço e rede.`} ${subsystemDetails}`,
       };
     }
     if (normalized === "ERRO") {
@@ -120,7 +139,9 @@ export function apresentacaoStatusDispositivo(value, type = "", device = {}) {
         online: false,
         tone: "error",
         label: "FALHA NO PC",
-        detail: `${device?.image_queue_status === "ERRO" ? "" : "A integração do leitor no PC informou uma falha. "}${ftpDetail}${imageQueueDetail}${ftpError ? ` Última transferência FTP recusada: ${ftpError}.` : ""}`,
+        detail: `${device?.image_queue_status === "ERRO"
+          ? "A rede do leitor ainda não foi confirmada."
+          : "A integração do leitor no PC informou uma falha."} ${subsystemDetails}`,
       };
     }
     return {
@@ -128,7 +149,7 @@ export function apresentacaoStatusDispositivo(value, type = "", device = {}) {
       online: false,
       tone: "unknown",
       label: "NÃO CONFIRMADO",
-      detail: "Aguardando a primeira resposta ao ping do leitor.",
+      detail: `Aguardando a primeira resposta ao ping do leitor. ${subsystemDetails}`,
     };
   }
   const online = ["ONLINE", "LOCAL", "OK"].includes(normalized);
@@ -151,8 +172,10 @@ export function apresentacaoStatusDala(status) {
 export function resumoStatusDispositivos(presentations) {
   return presentations.reduce((summary, status) => {
     if (!status.monitored) summary.unmonitored += 1;
-    else if (status.online) summary.online += 1;
-    else summary.attention += 1;
+    else {
+      if (status.online) summary.online += 1;
+      if (!status.online || status.attention) summary.attention += 1;
+    }
     return summary;
   }, { online: 0, attention: 0, unmonitored: 0 });
 }
@@ -212,9 +235,9 @@ function deviceStatusPanel(store) {
   }).join("");
   return `<section class="panel settings-device-status-panel" aria-label="Status dos dispositivos">
     <div class="settings-device-status-heading"><div><span class="kicker">Status da máquina</span><h3>Dispositivos e serviços</h3><p>Atualização automática enquanto esta tela estiver aberta.</p></div></div>
-    <div class="settings-device-status-summary"><div><strong data-device-summary="online-count">${onlineCount}</strong><span>online</span></div><div><strong data-device-summary="attention-count">${attentionCount}</strong><span data-device-summary="attention-label">sem sinal ou com falha</span></div><div><strong data-device-summary="unmonitored-count">${unmonitoredCount}</strong><span>não confirmado</span></div></div>
+    <div class="settings-device-status-summary"><div><strong data-device-summary="online-count">${onlineCount}</strong><span>online</span></div><div><strong data-device-summary="attention-count">${attentionCount}</strong><span data-device-summary="attention-label">com alerta</span></div><div><strong data-device-summary="unmonitored-count">${unmonitoredCount}</strong><span>não confirmado</span></div></div>
     <div class="settings-device-status-grid">${cards}</div>
-    <p class="settings-device-status-note">Sensor: leitura Modbus de M2052 e evento de passagem são estados distintos; M2052 em zero não indica defeito físico. Leitor: o ping confirma resposta na rede; a leitura do código é confirmada no visor da operação, pelo fluxo HID.</p>
+    <p class="settings-device-status-note">Os totais de online e com alerta são independentes e podem se sobrepor. Sensor: leitura Modbus de M2052 e evento de passagem são estados distintos; M2052 em zero não indica defeito físico. Leitor: o ping confirma resposta na rede; a leitura do código é confirmada no visor da operação, pelo fluxo HID. A fila FTP de fotos de falha é monitorada separadamente.</p>
   </section><br>`;
 }
 

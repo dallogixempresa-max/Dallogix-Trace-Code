@@ -117,13 +117,14 @@ final class ServicoMonitoramento
                 // não que o scanner foi fisicamente desconectado.
                 $device["status"] = "DESCONHECIDO";
             } elseif ($deviceType === "SCANNER") {
-                $device["status"] = $reportedStatus === "ERRO"
-                    ? "ERRO"
-                    : ($device["reader_online_source"] !== null
+                // O estado principal do leitor acompanha a sondagem recente da
+                // rede. Falhas do worker, FTP ou da fila de imagens continuam
+                // expostas em scanner_service_status e nos detalhes da fila.
+                $device["status"] = $device["reader_online_source"] !== null
                     ? "ONLINE"
                     : ($device["reader_probe_is_recent"] && $device["reader_network_status"] === "OFFLINE"
                         ? "OFFLINE"
-                        : "DESCONHECIDO"));
+                        : ($reportedStatus === "ERRO" ? "ERRO" : "DESCONHECIDO"));
             } elseif ($reportedStatus === "ERRO") {
                 $device["status"] = "ERRO";
             } elseif ($reportedStatus === "DESCONHECIDO") {
