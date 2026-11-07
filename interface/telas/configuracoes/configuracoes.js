@@ -47,65 +47,36 @@ export function apresentacaoStatusDispositivo(value, type = "", device = {}) {
         detail: "O leitor ainda não está vinculado a uma Dala.",
       };
     }
-    const probePort = Number(device?.reader_probe_port) || 80;
     const probeMethod = String(device?.reader_probe_method || (device?.reader_probe_port ? "TCP_CONNECT" : "")).toUpperCase();
-    const readerIp = String(device?.reader_ip || "");
-    const checkedAt = device?.reader_probe_checked_at ? new Date(device.reader_probe_checked_at) : null;
-    const checkedTime = checkedAt && !Number.isNaN(checkedAt.getTime())
-      ? checkedAt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
-      : "";
     const rawUnmatchedImages = device?.unmatched_image_count;
     const unmatchedImages = rawUnmatchedImages !== null && rawUnmatchedImages !== undefined
       && Number.isSafeInteger(Number(rawUnmatchedImages))
       ? Math.max(0, Number(device.unmatched_image_count))
       : null;
-    const rawImageAgeMs = device?.oldest_unmatched_image_age_ms;
-    const imageAgeMinutes = rawImageAgeMs !== null && rawImageAgeMs !== undefined
-      && Number.isSafeInteger(Number(rawImageAgeMs))
-      ? Math.floor(Math.max(0, Number(device.oldest_unmatched_image_age_ms)) / 60000)
-      : null;
-    const ftpImagesReceived = device?.ftp_images_received !== null && device?.ftp_images_received !== undefined
-      && Number.isSafeInteger(Number(device.ftp_images_received))
-      ? Math.max(0, Number(device.ftp_images_received))
-      : null;
-    const lastFtpImageAt = device?.ftp_last_image_received_at ? new Date(device.ftp_last_image_received_at) : null;
-    const lastFtpImageTime = lastFtpImageAt && !Number.isNaN(lastFtpImageAt.getTime())
-      ? lastFtpImageAt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
-      : "";
-    const ftpErrorDescriptions = {
-      nome_arquivo_invalido: "nome do arquivo não aceito",
-      conexao_de_dados_falhou: "conexão de dados interrompida",
-      imagem_acima_do_limite: "imagem acima do limite de tamanho",
-      jpeg_invalido: "arquivo recebido não é um JPEG válido",
-      nao_foi_possivel_verificar_espaco: "não foi possível verificar o espaço livre",
-      espaco_livre_abaixo_da_reserva: "espaço livre abaixo da reserva de segurança",
-      falha_ao_gravar_imagem: "falha ao gravar a imagem recebida",
-    };
-    const ftpError = ftpErrorDescriptions[device?.ftp_transfer_error_code] || "";
+    const ftpError = Boolean(device?.ftp_transfer_error_code);
     const imageQueueFailed = device?.image_queue_status === "ERRO";
     const ftpDetail = device?.ftp_image_receiver_listening === true
-      ? `FTP ativo; ${ftpImagesReceived === null ? "recebimentos não contabilizados" : `${ftpImagesReceived} foto(s) recebida(s) nesta execução`}${lastFtpImageTime ? `; última às ${lastFtpImageTime}` : ftpImagesReceived === 0 ? "; nenhuma foto recebida nesta execução" : ""}.`
+      ? "FTP ativo"
       : device?.ftp_image_receiver_listening === false
-        ? "Receptor FTP de fotos indisponível."
-        : "Estado do receptor FTP não confirmado.";
-    let imageQueueDetail;
-    if (imageQueueFailed) {
-      const queueCountDetail = unmatchedImages > 0
-        ? `: ${unmatchedImages} foto(s) sem vínculo${imageAgeMinutes !== null ? `; mais antiga há ${imageAgeMinutes} min` : ""}`
-        : "";
-      imageQueueDetail = ` Fila de evidências com falha${queueCountDetail}.`;
-    } else if (unmatchedImages > 0) {
-      imageQueueDetail = ` Fila de evidências: ${unmatchedImages} foto(s) sem vínculo${imageAgeMinutes !== null ? `; mais antiga há ${imageAgeMinutes} min` : ""}.`;
-    } else if (unmatchedImages === 0) {
-      imageQueueDetail = " Fila de evidências sem pendências.";
-    } else {
-      imageQueueDetail = " Estado da fila de evidências não confirmado.";
-    }
-    const integrationErrorDetail = device?.scanner_service_status === "ERRO" && !imageQueueFailed && !ftpError
-      ? " A integração do leitor no PC informou uma falha."
+        ? "FTP indisponível"
       : "";
-    const ftpErrorDetail = ftpError ? ` Última transferência FTP recusada: ${ftpError}.` : "";
-    const subsystemDetails = `${ftpDetail}${imageQueueDetail}${ftpErrorDetail}${integrationErrorDetail}`;
+    const imageQueueDetail = imageQueueFailed
+      ? unmatchedImages > 0
+        ? `Fila de fotos com falha: ${unmatchedImages} sem vínculo`
+        : "Fila de fotos com falha"
+      : unmatchedImages > 0
+        ? `Fotos sem vínculo: ${unmatchedImages}`
+        : "";
+    const integrationErrorDetail = device?.scanner_service_status === "ERRO" && !imageQueueFailed && !ftpError
+      ? "Integração do PC com falha"
+      : "";
+    const ftpErrorDetail = ftpError ? "FTP com erro no recebimento" : "";
+    const archiveErrorDetail = device?.image_archive_directory_available === false
+      ? "Armazenamento de fotos indisponível"
+      : "";
+    const subsystemDetails = [ftpDetail, imageQueueDetail, ftpErrorDetail, integrationErrorDetail, archiveErrorDetail]
+      .filter(Boolean)
+      .join(" · ");
     if (normalized === "ONLINE") {
       return {
         monitored: true,
@@ -117,9 +88,7 @@ export function apresentacaoStatusDispositivo(value, type = "", device = {}) {
           || device?.image_archive_directory_available === false,
         tone: "online",
         label: probeMethod === "ICMP_PING" ? "REDE ONLINE" : "ONLINE",
-        detail: `${probeMethod === "ICMP_PING"
-          ? `Ping respondeu em ${readerIp || "IP configurado"}${checkedTime ? ` às ${checkedTime}` : ""}. A leitura do código é confirmada no visor da operação.`
-          : `Leitor respondeu na porta ${probePort}; a leitura do código é confirmada no visor da operação.`} ${subsystemDetails}`,
+        detail: subsystemDetails || "Leitor acessível na rede",
       };
     }
     if (normalized === "OFFLINE") {
@@ -128,9 +97,7 @@ export function apresentacaoStatusDispositivo(value, type = "", device = {}) {
         online: false,
         tone: "offline",
         label: "SEM RESPOSTA",
-        detail: `${probeMethod === "ICMP_PING"
-          ? `Sem resposta ao ping de ${readerIp || "IP configurado"}${checkedTime ? ` às ${checkedTime}` : ""}. Confira leitor, endereço e rede.`
-          : `Leitor sem resposta na porta ${probePort}; confira endereço e rede.`} ${subsystemDetails}`,
+        detail: ["Sem resposta do leitor", subsystemDetails].filter(Boolean).join(" · "),
       };
     }
     if (normalized === "ERRO") {
@@ -139,9 +106,7 @@ export function apresentacaoStatusDispositivo(value, type = "", device = {}) {
         online: false,
         tone: "error",
         label: "FALHA NO PC",
-        detail: `${device?.image_queue_status === "ERRO"
-          ? "A rede do leitor ainda não foi confirmada."
-          : "A integração do leitor no PC informou uma falha."} ${subsystemDetails}`,
+        detail: subsystemDetails || "Verifique a integração do leitor no PC",
       };
     }
     return {
@@ -149,7 +114,7 @@ export function apresentacaoStatusDispositivo(value, type = "", device = {}) {
       online: false,
       tone: "unknown",
       label: "NÃO CONFIRMADO",
-      detail: `Aguardando a primeira resposta ao ping do leitor. ${subsystemDetails}`,
+      detail: ["Aguardando resposta do leitor", subsystemDetails].filter(Boolean).join(" · "),
     };
   }
   const online = ["ONLINE", "LOCAL", "OK"].includes(normalized);
