@@ -1,4 +1,4 @@
-import { apresentacaoConectividadePc, apresentacaoStatusDispositivo, renderStatusDalaBinario, resumoStatusDispositivos } from "../../telas/configuracoes/configuracoes.js?v=202611050003";
+import { apresentacaoConectividadePc, apresentacaoStatusDispositivo, renderStatusDalaBinario, resumoStatusDispositivos } from "../../telas/configuracoes/configuracoes.js?v=202611060001";
 import { operationStructureSignature, renderDalaStatuses } from "./operacao.js?v=202611050002";
 import { numero, relativo, dataHora } from "../funcoes/formato.js?v=202611050002";
 import { el } from "../funcoes/html.js";
@@ -148,7 +148,7 @@ export function createLiveViewController({
     if (onlineSummary) onlineSummary.textContent = String(onlineCount);
     if (attentionSummary) attentionSummary.textContent = String(attentionCount);
     if (unmonitoredSummary) unmonitoredSummary.textContent = String(unmonitoredCount);
-    if (attentionLabel) attentionLabel.textContent = "sem sinal ou com falha";
+    if (attentionLabel) attentionLabel.textContent = "com alerta";
 
     const [pcTone, pcLabel] = apresentacaoConectividadePc(store.state.syncStatus);
     const updateConnectivity = (key, tone, label) => {
