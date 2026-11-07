@@ -48,24 +48,12 @@ export function apresentacaoStatusDispositivo(value, type = "", device = {}) {
       };
     }
     const probeMethod = String(device?.reader_probe_method || (device?.reader_probe_port ? "TCP_CONNECT" : "")).toUpperCase();
-    const rawUnmatchedImages = device?.unmatched_image_count;
-    const unmatchedImages = rawUnmatchedImages !== null && rawUnmatchedImages !== undefined
-      && Number.isSafeInteger(Number(rawUnmatchedImages))
-      ? Math.max(0, Number(device.unmatched_image_count))
-      : null;
     const ftpError = Boolean(device?.ftp_transfer_error_code);
     const imageQueueFailed = device?.image_queue_status === "ERRO";
     const ftpDetail = device?.ftp_image_receiver_listening === true
       ? "FTP ativo"
       : device?.ftp_image_receiver_listening === false
         ? "FTP indisponível"
-      : "";
-    const imageQueueDetail = imageQueueFailed
-      ? unmatchedImages > 0
-        ? `Fila de fotos com falha: ${unmatchedImages} sem vínculo`
-        : "Fila de fotos com falha"
-      : unmatchedImages > 0
-        ? `Fotos sem vínculo: ${unmatchedImages}`
         : "";
     const integrationErrorDetail = device?.scanner_service_status === "ERRO" && !imageQueueFailed && !ftpError
       ? "Integração do PC com falha"
@@ -74,7 +62,7 @@ export function apresentacaoStatusDispositivo(value, type = "", device = {}) {
     const archiveErrorDetail = device?.image_archive_directory_available === false
       ? "Armazenamento de fotos indisponível"
       : "";
-    const subsystemDetails = [ftpDetail, imageQueueDetail, ftpErrorDetail, integrationErrorDetail, archiveErrorDetail]
+    const subsystemDetails = [ftpDetail, ftpErrorDetail, integrationErrorDetail, archiveErrorDetail]
       .filter(Boolean)
       .join(" · ");
     if (normalized === "ONLINE") {
