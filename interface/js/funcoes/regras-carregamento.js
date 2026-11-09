@@ -1,20 +1,67 @@
-/** A tela só libera o encerramento após confirmar as filas locais do carregamento. */
-export function podeFinalizarCarregamento(state) {
+/** Explica a pendência que ainda impede o encerramento seguro do carregamento. */
+export function motivoBloqueioFinalizacao(state) {
   const loading = state?.summaryMonitoring?.carregamento || {};
+  const operationalState = String(state?.operationalState || "").toUpperCase();
+  if (operationalState !== "PAUSADO") {
+    return "Confirme a parada física da esteira antes de finalizar.";
+  }
+  const hasPendingMachineCommand = state?.commandInFlight === true
+    || [state?.plcCommand, state?.commandIntent].some((command) =>
+      ["PENDENTE", "PROCESSANDO"].includes(String(command?.status || "").toUpperCase()),
+    );
+  if (hasPendingMachineCommand) {
+    return "Aguarde o CLP confirmar o comando da máquina antes de finalizar.";
+  }
+  const automaticQuotaStop = ["COTA_ROMANEIO_ATINGIDA", "EXCESSO"].includes(state?.stopReason)
+    && String(state?.plcCommand?.command || "").toUpperCase() === "PAUSAR_CARREGAMENTO"
+    && String(state?.plcCommand?.status || "").toUpperCase() === "APLICADO";
+  if (state?.stopReason && !automaticQuotaStop) {
+    return "Confirme a parada física solicitada antes de finalizar.";
+  }
+  if (Number(loading.id) <= 0 || Number(loading.id) !== Number(state?.loadingId)) {
+    return "Atualizando os dados do carregamento. Aguarde e tente novamente.";
+  }
+  const planned = Number(state?.planned) || 0;
+  const detected = Number(state?.detectedBags) || 0;
+  if (planned <= 0 || detected < planned) {
+    return "Aguarde o sensor atingir a quantidade prevista do romaneio.";
+  }
+  const pendingSensor = Number(loading.leituras_pendentes_sensor);
+  if (loading.leituras_pendentes_sensor === null
+    || loading.leituras_pendentes_sensor === undefined
+    || !Number.isFinite(pendingSensor)
+    || pendingSensor > 0) {
+    return "Aguarde o leitor concluir a conferência das passagens detectadas.";
+  }
   const outboxPending = loading.sensor_outbox_pendentes;
-  return String(state?.operationalState || "").toUpperCase() === "PAUSADO"
-    && !state?.stopReason
-    && Number(loading.id) > 0
-    && Number(loading.id) === Number(state?.loadingId)
-    && Number(loading.leituras_pendentes_sensor) === 0
-    && Number(loading.imagens_pendentes) === 0
-    && outboxPending !== null
-    && outboxPending !== undefined
-    && Number(outboxPending) === 0;
+  const pendingOutboxCount = Number(outboxPending);
+  if (outboxPending === null || outboxPending === undefined
+    || !Number.isFinite(pendingOutboxCount)
+    || pendingOutboxCount > 0) {
+    return "Aguarde o sensor confirmar o envio de todas as passagens.";
+  }
+  const pendingImagesValue = loading.imagens_pendentes;
+  const pendingImages = Number(pendingImagesValue);
+  if (pendingImagesValue === null || pendingImagesValue === undefined || !Number.isFinite(pendingImages)) {
+    return "Aguarde o recebimento das fotos de evidência.";
+  }
+  if (pendingImages > 0) {
+    const photoLabel = pendingImages === 1 ? "foto" : "fotos";
+    return `Aguarde o recebimento de ${pendingImages} ${photoLabel} de evidência.`;
+  }
+  if (Number(loading.imagens_com_falha) > 0) {
+    return "Há foto(s) de evidência com falha. Verifique o envio do Keyence/FTP antes de finalizar.";
+  }
+  return "";
 }
 
-/** Permite conferência normal quando a diferença é apenas saca sem código, com foto exigida no servidor. */
-export function divergenciaCobertaPorSemLeitura(state) {
+/** Só libera o fechamento com meta física atingida, parada confirmada e filas concluídas. */
+export function podeFinalizarCarregamento(state) {
+  return motivoBloqueioFinalizacao(state) === "";
+}
+
+/** Permite ao operador fechar apenas a divergência de saca sem leitura com foto. */
+export function divergenciaCobertaPorEvidencia(state) {
   const summary = state?.summaryMonitoring?.carregamento || {};
   const planned = Number(state?.planned) || 0;
   const detected = Number(state?.detectedBags) || 0;
@@ -27,8 +74,14 @@ export function divergenciaCobertaPorSemLeitura(state) {
     && shortfall === noRead && !overfill
     && Number(summary.produtos_incorretos || 0) === 0
     && Number(summary.sacas_retornadas || 0) === 0
-    && Number(state?.excessEvidenceRequests || 0) === 0;
+    && Number(state?.excessEvidenceRequests || 0) === 0
+    && Number(summary.imagens_pendentes || 0) === 0
+    && Number(summary.imagens_com_falha || 0) === 0
+    && Number(state?.excessEvidencePending || 0) === 0
+    && Number(state?.excessEvidenceFailed || 0) === 0;
 }
+
+export const divergenciaCobertaPorSemLeitura = divergenciaCobertaPorEvidencia;
 
 export function assinaturaProntidaoFinalizacao(state) {
   const loading = state?.summaryMonitoring?.carregamento || {};
@@ -36,7 +89,8 @@ export function assinaturaProntidaoFinalizacao(state) {
     Number(loading.id) || null,
     loading.leituras_pendentes_sensor ?? null,
     loading.imagens_pendentes ?? null,
+    loading.imagens_com_falha ?? null,
     loading.sensor_outbox_pendentes ?? null,
-    podeFinalizarCarregamento(state),
+    motivoBloqueioFinalizacao(state),
   ];
 }

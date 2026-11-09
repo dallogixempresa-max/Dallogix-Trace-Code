@@ -1,4 +1,8 @@
-import { podeFinalizarCarregamento, divergenciaCobertaPorSemLeitura } from "../funcoes/regras-carregamento.js?v=202611050002";
+import {
+  divergenciaCobertaPorEvidencia,
+  motivoBloqueioFinalizacao,
+  podeFinalizarCarregamento,
+} from "../funcoes/regras-carregamento.js?v=202611090002";
 
 const ACOES_COMANDO_MAQUINA = new Set([
   "start-machine",
@@ -166,7 +170,7 @@ export function criarTratadorAcoesOperacionais({
     if (node?.dataset.busy === "1") return;
     if (!podeFinalizarCarregamento(store.state)) {
       notificarForaDaOperacao(
-        "Aguarde a pausa da esteira e a confirmação das leituras e evidências antes de finalizar.",
+        motivoBloqueioFinalizacao(store.state),
         "aviso",
       );
       return;
@@ -181,7 +185,8 @@ export function criarTratadorAcoesOperacionais({
       );
       const hasExcess = Number(store.state.detectedBags || 0) > Number(store.state.planned || 0)
         || Number(store.state.excessEvidenceRequests || 0) > 0;
-      const requiresSupervisorReview = (hasItemDivergence && !divergenciaCobertaPorSemLeitura(store.state)) || hasExcess;
+      const evidenceCoversDivergence = divergenciaCobertaPorEvidencia(store.state);
+      const requiresSupervisorReview = (hasItemDivergence && !evidenceCoversDivergence) || hasExcess;
       const canAuthorizeDivergence = ["ADMIN_EMPRESA", "SUPERVISOR"].includes(
         String(store.state.userRole || "").toUpperCase(),
       );

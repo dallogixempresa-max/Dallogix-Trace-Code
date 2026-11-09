@@ -116,6 +116,11 @@ $data["imagens_pendentes"] = $count(
     "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia WHERE carregamento_id = :id AND status IN ('PENDENTE','CAPTURANDO')",
     ["id" => $loadingId],
 );
+$data["imagens_com_falha"] = $count(
+    $pdo,
+    "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia WHERE carregamento_id = :id AND status = 'ERRO'",
+    ["id" => $loadingId],
+);
 $data["leituras_pendentes_sensor"] = $count(
     $pdo,
     "SELECT COUNT(*) FROM eventos_sensor s
