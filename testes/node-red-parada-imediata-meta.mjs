@@ -7,6 +7,8 @@ const byId = (id) => flow.find((node) => node.id === id);
 const modbusResultNode = byId("modbus-result");
 const retryNode = byId("sensor-event-retry");
 const eventApi = await readFile(new URL("../servidor/api/operacoes/sensor_eventos.php", import.meta.url), "utf8");
+const gatewayApi = await readFile(new URL("../servidor/api/dalas/plc_gateway.php", import.meta.url), "utf8");
+const gatewayService = await readFile(new URL("../servidor/src/Aplicacao/ServicoGatewayClp.php", import.meta.url), "utf8");
 
 test("a quota do sensor dispara claim imediato pelo mesmo gateway físico", async () => {
   const now = Date.now();
@@ -73,7 +75,12 @@ test("a quota do sensor dispara claim imediato pelo mesmo gateway físico", asyn
   assert.equal(immediateClaim?.[2].url, "http://trace.local/api/plc_gateway.php");
   assert.equal(immediateClaim?.[2].payload.action, "CLAIM");
   assert.equal(immediateClaim?.[2].payload.equipment_id, 17);
-  assert.equal(immediateClaim?.[2].immediateStopRequestId, 83);
+  assert.equal(immediateClaim?.[2].payload.priority_stop_request_id, 83);
+  assert.match(gatewayApi, /priority_stop_request_id/);
+  assert.match(gatewayService, /r\.id = :priority_stop_request_id/);
+  assert.match(gatewayService, /r\.command = 'PAUSAR_CARREGAMENTO'/);
+  assert.match(gatewayService, /r\.command = 'EMERGENCIA'/);
+  assert.match(gatewayService, /c\.state = 'PAUSADO'/);
 });
 
 test("evento duplicado ou sem pausa pendente não cria claim de máquina", async () => {

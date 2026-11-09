@@ -28,7 +28,21 @@ try {
         if ($equipmentId !== false && (int) $equipmentId !== $device["equipment_id"]) {
             json_response(["error" => "O equipamento não pertence a este gateway."], 403);
         }
-        $request = $service->reservarComando($device["equipment_id"], $device["id"]);
+        $priorityStopRequestId = null;
+        if (array_key_exists("priority_stop_request_id", $payload)) {
+            $priorityStopRequestId = filter_var(
+                $payload["priority_stop_request_id"],
+                FILTER_VALIDATE_INT,
+            );
+            if ($priorityStopRequestId === false || $priorityStopRequestId < 1) {
+                json_response(["error" => "Solicitação de parada prioritária inválida."], 422);
+            }
+        }
+        $request = $service->reservarComando(
+            $device["equipment_id"],
+            $device["id"],
+            $priorityStopRequestId === null ? null : (int) $priorityStopRequestId,
+        );
         if (!$request) {
             http_response_code(204);
             exit();

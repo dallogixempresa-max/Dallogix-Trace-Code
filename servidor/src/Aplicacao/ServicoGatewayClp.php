@@ -31,9 +31,17 @@ final class ServicoGatewayClp
         $this->repositorio = new RepositorioComandosClp($connection);
     }
 
-    public function reservarComando(int $equipmentId, int $deviceId): ?array
+    public function reservarComando(
+        int $equipmentId,
+        int $deviceId,
+        ?int $priorityStopRequestId = null,
+    ): ?array
     {
-        if ($equipmentId <= 0 || $deviceId <= 0) {
+        if (
+            $equipmentId <= 0 ||
+            $deviceId <= 0 ||
+            ($priorityStopRequestId !== null && $priorityStopRequestId <= 0)
+        ) {
             throw new ExcecaoGatewayClp("Equipamento e dispositivo são obrigatórios.", 422);
         }
 
@@ -93,6 +101,22 @@ final class ServicoGatewayClp
                 );
             }
 
+            // Prioriza a pausa gerada pelo sensor sobre outros comandos ainda
+            // pendentes, sem concorrer com uma escrita que já está PROCESSANDO.
+            // O ID só pode apontar para uma pausa de segurança do carregamento
+            // que o servidor já marcou como PAUSADO.
+            $priorityStopFilter = $priorityStopRequestId === null
+                ? ""
+                : " AND (
+                       r.command = 'EMERGENCIA'
+                       OR (r.id = :priority_stop_request_id
+                           AND r.command = 'PAUSAR_CARREGAMENTO'
+                           AND c.state = 'PAUSADO'
+                           AND c.stop_reason IN (
+                               'EXCESSO', 'PRODUTO_INCORRETO',
+                               'COTA_PRODUTO_ATINGIDA', 'COTA_ROMANEIO_ATINGIDA'
+                           ))
+                   )";
             $statement = $this->connection->prepare(
                 "SELECT r.id, r.company_id, r.equipment_id, r.carregamento_id, r.command, r.requested_at,
                         r.remote_command_id, c.remote_carregamento_id, c.state AS loading_state,
@@ -120,11 +144,16 @@ final class ServicoGatewayClp
                              AND processing.status = 'PROCESSANDO'
                        ))
                    )
+                   {$priorityStopFilter}
                  ORDER BY CASE WHEN r.command = 'EMERGENCIA' THEN 0 ELSE 1 END,
                           r.requested_at, r.id
                  LIMIT 1 FOR UPDATE SKIP LOCKED",
             );
-            $statement->execute(["equipment_id" => $equipmentId]);
+            $parameters = ["equipment_id" => $equipmentId];
+            if ($priorityStopRequestId !== null) {
+                $parameters["priority_stop_request_id"] = $priorityStopRequestId;
+            }
+            $statement->execute($parameters);
             $request = $statement->fetch();
             if (!$request) {
                 $this->connection->commit();
