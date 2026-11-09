@@ -3,7 +3,7 @@ import { numero } from "../../js/funcoes/formato.js?v=202611050002";
 import { rotuloComando, rotuloEstado } from "../../js/funcoes/rotulos.js?v=202611050002";
 import { resolverComandoAtual } from "../../js/funcoes/estado-comando.js?v=202611050002";
 import { emergencyPanel, pageHeader } from "../../js/funcoes/view.js?v=202611050002";
-import { motivoBloqueioFinalizacao, podeFinalizarCarregamento } from "../../js/funcoes/regras-carregamento.js?v=202611090003";
+import { motivoBloqueioFinalizacao, podeFinalizarCarregamento } from "../../js/funcoes/regras-carregamento.js?v=202611090004";
 
 function equipmentLabel(store) {
   if (store.state.equipmentCode && store.state.equipmentCode !== "—") {
@@ -406,14 +406,10 @@ function workControls(store) {
     : remainingTotal === 0
       ? `Quantidade física atingida · ${numero(validReadings)} códigos válidos`
       : `Falta${remainingTotal === 1 ? "" : "m"} ${numero(remainingTotal)} saca${remainingTotal === 1 ? "" : "s"} para a quantidade prevista`;
-  const unlinkedBags = Number(store.state.summaryMonitoring?.carregamento?.sem_leitura) || 0;
-  const noReadNotice = leitorPodeConcluirPassagens && unlinkedBags > 0
-    ? `<p class="work-completion-notice excess" data-live="no-read-notice">${numero(unlinkedBags)} saca${unlinkedBags === 1 ? "" : "s"} passou${unlinkedBags === 1 ? "" : "ram"} pelo sensor sem leitura de código.</p>`
-    : `<p class="work-completion-notice excess" data-live="no-read-notice" hidden></p>`;
   const excessEvidenceLabel = `${numero(store.state.excessEvidenceCaptured || 0)} de ${numero(store.state.excessEvidenceRequests || 0)} com foto` +
     (Number(store.state.excessEvidencePending) > 0 ? ` · ${numero(store.state.excessEvidencePending)} pendente(s)` : "") +
     (Number(store.state.excessEvidenceFailed) > 0 ? ` · ${numero(store.state.excessEvidenceFailed)} falha(s)` : "");
-  const totalSummary = `<section class="work-live-summary" aria-label="Contagem e progresso do carregamento"><div class="work-live-summary-heading"><strong>Sacas detectadas pelo sensor</strong><span><b data-live="detected">${numero(detectedBags)}</b> / <b data-live="planned">${numero(plannedTotal)}</b> previstas · <span data-live="progress-percent">${totalPercent}%</span></span></div><div class="work-live-summary-foot"><span>Scanner: <b data-live="scanner-readings">${numero(store.state.scannerReadings || 0)}</b> sacas com código · Excesso com foto: <b data-live="excess-evidence">${excessEvidenceLabel}</b></span></div><div class="progress work-live-progress" role="progressbar" aria-label="Progresso de sacas detectadas pelo sensor M2052" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${totalPercent}"><i data-live="progress-bar" style="width:${totalPercent}%"></i></div><div class="work-live-summary-foot"><span data-live="remaining-label">${remainingLabel}</span> · <b>${numero(validReadings)}</b> leituras válidas</div><p class="work-completion-notice ${endNoticeTone}" data-live="end-notice"${endNotice ? "" : " hidden"}>${endNotice}</p>${noReadNotice}${finishBlockNotice}${scannerMonitor}</section>`;
+  const totalSummary = `<section class="work-live-summary" aria-label="Contagem e progresso do carregamento"><div class="work-live-summary-heading"><strong>Sacas detectadas pelo sensor</strong><span><b data-live="detected">${numero(detectedBags)}</b> / <b data-live="planned">${numero(plannedTotal)}</b> previstas · <span data-live="progress-percent">${totalPercent}%</span></span></div><div class="work-live-summary-foot"><span>Scanner: <b data-live="scanner-readings">${numero(store.state.scannerReadings || 0)}</b> sacas com código · Excesso com foto: <b data-live="excess-evidence">${excessEvidenceLabel}</b></span></div><div class="progress work-live-progress" role="progressbar" aria-label="Progresso de sacas detectadas pelo sensor M2052" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${totalPercent}"><i data-live="progress-bar" style="width:${totalPercent}%"></i></div><div class="work-live-summary-foot"><span data-live="remaining-label">${remainingLabel}</span> · <b>${numero(validReadings)}</b> leituras válidas</div><p class="work-completion-notice ${endNoticeTone}" data-live="end-notice"${endNotice ? "" : " hidden"}>${endNotice}</p>${finishBlockNotice}${scannerMonitor}</section>`;
   const panelHeading = estadoOperacional === "EMERGENCIA"
     ? ""
     : `<div class="panel-heading"><div><span class="kicker">Comandos da máquina</span><h3>Operar Dala</h3></div></div>`;
