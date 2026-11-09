@@ -8,7 +8,7 @@ namespace App\Aplicacao;
 final class ClassificadorLeitura
 {
     /**
-     * @return array{result: string, product_id: ?int, product_planned_quantity: int, product_valid_count: int, product_quota_reached: bool}
+     * @return array{result: string, product_id: ?int, product_planned_quantity: int, product_valid_count: int, product_quota_reached: bool, no_read_evidence_required: bool}
      */
     public function classificar(
         bool $barcodePresent,
@@ -21,11 +21,15 @@ final class ClassificadorLeitura
         int $productSemLeituraCount = 0,
         int $loadingSemLeituraCount = 0,
     ): array {
-        $result = $barcodePresent ? "PRODUTO_INCORRETO" : "SEM_LEITURA";
+        // Um código não encontrado no catálogo não prova que o saco contém um
+        // produto fora do romaneio. Registre como leitura sem identificação e
+        // exija evidência; só classifique como incorreto um produto reconhecido.
+        $catalogProductIdentified = $barcodePresent && $matchedProductId !== null;
+        $result = $catalogProductIdentified ? "PRODUTO_INCORRETO" : "SEM_LEITURA";
         $productId = null;
         $loadingPassageCount = $loadingValidCount + $loadingSemLeituraCount;
 
-        if ($barcodePresent && $matchedProductId !== null && $productPlannedQuantity > 0) {
+        if ($catalogProductIdentified && $productPlannedQuantity > 0) {
             $productId = $matchedProductId;
             $result = "VALIDO";
             if (
@@ -35,13 +39,12 @@ final class ClassificadorLeitura
             ) {
                 $result = "EXCESSO";
             }
-        } elseif (!$barcodePresent && (
+        } elseif (!$catalogProductIdentified && (
             $physicalExcess ||
             ($loadingPlannedQuantity > 0 && $loadingPassageCount >= $loadingPlannedQuantity)
         )) {
-            // A passagem sem código continua sendo evidência física. Se ela
-            // excede a meta total, classifique-a como excesso sem perder o
-            // marcador $noRead usado para exigir a foto do Keyence.
+            // Uma passagem sem leitura identificável continua sendo evidência
+            // física. Se ela exceder a meta total, classifique-a como excesso.
             $result = "EXCESSO";
         }
 
@@ -55,6 +58,7 @@ final class ClassificadorLeitura
             "product_planned_quantity" => $productPlannedQuantity,
             "product_valid_count" => $productValidCount,
             "product_quota_reached" => $productQuotaReached,
+            "no_read_evidence_required" => !$catalogProductIdentified,
         ];
     }
 }

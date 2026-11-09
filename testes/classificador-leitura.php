@@ -34,4 +34,26 @@ foreach ($cases as [$name, $barcodePresent, $productId, $productPlanned, $produc
     }
 }
 
+$unmatchedBarcode = $classifier->classificar(true, null, 0, 0, 10, 4, false);
+if ($unmatchedBarcode["result"] !== "SEM_LEITURA"
+    || $unmatchedBarcode["product_id"] !== null
+    || !$unmatchedBarcode["no_read_evidence_required"]
+) {
+    throw new RuntimeException("Código sem correspondência no catálogo deve exigir evidência como leitura não identificada.");
+}
+
+$unmatchedBarcodeAtExcess = $classifier->classificar(true, null, 0, 0, 10, 10, true);
+if ($unmatchedBarcodeAtExcess["result"] !== "EXCESSO"
+    || !$unmatchedBarcodeAtExcess["no_read_evidence_required"]
+) {
+    throw new RuntimeException("Código sem correspondência em passagem excedente deve manter o excesso e exigir evidência.");
+}
+
+$knownProductOutsideManifest = $classifier->classificar(true, 30, 0, 0, 10, 4, false);
+if ($knownProductOutsideManifest["result"] !== "PRODUTO_INCORRETO"
+    || $knownProductOutsideManifest["no_read_evidence_required"]
+) {
+    throw new RuntimeException("Produto reconhecido fora do romaneio deve continuar sendo tratado como incorreto.");
+}
+
 echo "ok\n";
