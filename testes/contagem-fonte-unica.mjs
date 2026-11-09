@@ -5,6 +5,7 @@ import test from "node:test";
 
 const readingsEndpoint = await readFile(new URL("../servidor/api/operacoes/leituras.php", import.meta.url), "utf8");
 const manifestApi = await readFile(new URL("../servidor/api/romaneios/romaneios.php", import.meta.url), "utf8");
+const manifestDetailQuery = manifestApi.match(/\$header = \$pdo->prepare\(\s*"([\s\S]*?)"\s*,/)?.[1] || "";
 const manifestList = await readFile(new URL("../servidor/src/Persistencia/RepositorioRomaneiosLista.php", import.meta.url), "utf8");
 const reportEndpoint = await readFile(new URL("../servidor/api/relatorios/relatorio_auditoria.php", import.meta.url), "utf8");
 const finishEndpoint = await readFile(new URL("../servidor/api/operacoes/encerrar_carregamento.php", import.meta.url), "utf8");
@@ -27,9 +28,9 @@ test("o contador por carregamento é incrementado na mesma transação da leitur
 test("telas contam só leituras VALIDO como lidas; sem leitura fica fora", () => {
   // Sacas que passaram pelo sensor sem código não são lidas. Se a tela voltar a
   // contar SEM_LEITURA como lida, o operador vê saca sem código como leitura.
-  assert.match(manifestApi, /FROM leituras l\s+JOIN carregamentos c2 ON c2\.id = l\.carregamento_id[\s\S]{0,400}?l\.result = 'VALIDO'/);
+  assert.match(manifestDetailQuery, /FROM leituras l\s+JOIN carregamentos c2 ON c2\.id = l\.carregamento_id[\s\S]{0,400}?l\.result = 'VALIDO'/);
   assert.match(manifestList, /FROM leituras l\s+JOIN carregamentos c ON c\.id = l\.carregamento_id[\s\S]{0,400}?l\.result = 'VALIDO'/);
-  assert.doesNotMatch(manifestApi, /l\.result[^;\n]*SEM_LEITURA/);
+  assert.doesNotMatch(manifestDetailQuery, /l\.result[^;\n]*SEM_LEITURA/);
   assert.doesNotMatch(manifestList, /l\.result[^;\n]*SEM_LEITURA/);
   assert.doesNotMatch(manifestApi, /SUM\(c2\.leituras_validas\)/);
   assert.doesNotMatch(manifestList, /SUM\(c\.leituras_validas\) AS loaded_quantity/);
