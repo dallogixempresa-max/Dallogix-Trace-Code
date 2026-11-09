@@ -320,6 +320,8 @@ $productId = $classification["product_id"];
 $productPlannedQuantity = $classification["product_planned_quantity"];
 $productValidCount = $classification["product_valid_count"];
 $productQuotaReached = $classification["product_quota_reached"];
+$noReadEvidenceRequired = $classification["no_read_evidence_required"];
+$barcodeUnmatched = $barcode !== "" && $matchedProductId === null;
 
 $insert = $pdo->prepare(
     "INSERT INTO leituras (company_id, carregamento_id, sensor_event_id, product_id, barcode, attempt_number, result, read_at) VALUES (:company_id, :carregamento_id, :sensor_event_id, :product_id, :barcode, :attempt_number, :result, NOW(3))",
@@ -393,6 +395,7 @@ record_operational_event(
         "result" => $result,
         "barcode" => $barcode,
         "no_read" => $noRead,
+        "barcode_unmatched" => $barcodeUnmatched,
         "attempt_number" => $attemptNumber,
         ...($productId !== null ? ["product_id" => (int) $productId] : []),
         "read_at" => date("Y-m-d H:i:s.v"),
@@ -401,7 +404,7 @@ record_operational_event(
 );
 $occurrenceId = null;
 $evidenceStatus = "NAO_SOLICITADA";
-if ($noRead) {
+if ($noReadEvidenceRequired) {
     $occurrence = $pdo->prepare(
         'INSERT INTO ocorrencias (company_id, carregamento_id, type, quantity, description, created_by) VALUES (:company_id, :carregamento_id, \'FALHA_SEM_LEITURA\', 1, :description, :created_by)',
     );
@@ -410,7 +413,9 @@ if ($noRead) {
         "carregamento_id" => $loadingId,
         "description" => $result === "EXCESSO"
             ? "Saco excedente detectado pelo sensor sem código de barras válido."
-            : "Saco detectado pelo sensor sem código de barras válido.",
+            : ($barcodeUnmatched
+                ? "Saco detectado pelo sensor com código sem correspondência no catálogo."
+                : "Saco detectado pelo sensor sem código de barras válido."),
         "created_by" => $usuarioAtor["id"],
     ]);
     $occurrenceId = (int) $pdo->lastInsertId();
@@ -487,7 +492,7 @@ if ($result === "EXCESSO") {
         ],
     );
 }
-if ($sensorEventId && ($noRead || $result === "EXCESSO")) {
+if ($sensorEventId && ($noReadEvidenceRequired || $result === "EXCESSO")) {
     $evidenceReason = $result === "EXCESSO" ? "EXCESSO" : "SEM_LEITURA";
     $evidenceRequest = $pdo->prepare(
         'INSERT INTO solicitacoes_imagens_evidencia (sensor_event_id, carregamento_id, equipment_id, reason, requested_at)
