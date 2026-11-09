@@ -15,7 +15,7 @@ import {
 const LIMITE_IDADE_MONITORAMENTO_OPERACIONAL_MS = 6000;
 
 export class ArmazenamentoTrace {
-  constructor() {
+  constructor({ api = null } = {}) {
     this.state = {
       page: "manifests",
       loaded: 0,
@@ -119,7 +119,7 @@ export class ArmazenamentoTrace {
       offlineQueueSize: 0,
     };
     this.csrfToken = "";
-    this.api = new ClienteApi();
+    this.api = api || new ClienteApi();
     this.manifests = [];
     // Evita instâncias duplicadas quando duas ações pedem o mesmo serviço juntas.
     this.servicosCarregando = new Map();
