@@ -100,3 +100,31 @@ test("mantém a finalização bloqueada quando há passagem acima da meta", () =
   assert.match(finishButton, /disabled/);
   assert.match(html, /A finalização permanece bloqueada/);
 });
+
+test("mostra falha de leitura somente no campo do código de barras", () => {
+  const html = work({
+    state: {
+      selectedLoadingId: 1,
+      activeLoadings: [],
+      loadingId: 1,
+      loadingItems: [],
+      operationalState: "PAUSADO",
+      userRole: "USUARIO",
+      emergency: false,
+      running: false,
+      equipmentId: 1,
+      equipmentCode: "DALA-01",
+      detectedBags: 1,
+      planned: 2,
+      loaded: 0,
+      latestScannerReading: {
+        result: "SEM_LEITURA",
+        value: "Falha na leitura (sem código)",
+      },
+      summaryMonitoring: { carregamento: { sem_leitura: 1 } },
+    },
+  });
+
+  assert.match(html, /<output id="automatic-scanner-barcode" class="[^"]*is-error" data-live="scanner-value"[^>]*>Falha na leitura \(sem código\)</);
+  assert.doesNotMatch(html, /no-read-notice|passou pelo sensor sem leitura de código/);
+});

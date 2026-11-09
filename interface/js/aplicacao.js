@@ -8,7 +8,7 @@ import { ServicoEmergencia } from "./servicos/ServicoEmergencia.js?v=20261105000
 import { ServicoOperacao } from "./servicos/ServicoOperacao.js?v=202611050002";
 import { ArmazenamentoTrace } from "./classes/ArmazenamentoTrace.js?v=202611050002";
 import { FORM_ACTIONS } from "./constantes/acoes.js?v=202611050002";
-import { changeOperationLoading, linhaItemRomaneio } from "./controladores/operacao.js?v=202611090003";
+import { changeOperationLoading, linhaItemRomaneio } from "./controladores/operacao.js?v=202611090004";
 import { createOperationalRealtimeController } from "./controladores/tempo-real.js?v=202611050002";
 import { createPageRefreshController } from "./controladores/page-refresh.js?v=202611050002";
 import { createDalaStatusRealtimeController } from "./controladores/status-dalas-tempo-real.js?v=202611050002";
@@ -16,15 +16,15 @@ import { createMachineCommandQueue } from "./controladores/comandos-maquina.js?v
 import { criarRegistroTelas } from "./controladores/registro-telas.js?v=202611050002";
 import { criarTratadorAcoesNavegacao } from "./controladores/acoes-navegacao.js?v=202611050002";
 import { criarTratadorAcoesAdministracao } from "./controladores/acoes-administracao.js?v=202611050002";
-import { criarTratadorAcoesOperacionais } from "./controladores/acoes-operacionais.js?v=202611090003";
+import { criarTratadorAcoesOperacionais } from "./controladores/acoes-operacionais.js?v=202611090004";
 import { criarTratadorAcoesDiagnostico } from "./controladores/acoes-diagnostico.js?v=202611050002";
 import { criarTratadorAcoesCadastros } from "./controladores/acoes-cadastros.js?v=202611050002";
 import { criarTratadorAcoesInterface, instalarInteracoesGlobaisInterface } from "./controladores/acoes-interface.js?v=202611050002";
 import { criarTratadorAcoesRelatorios } from "./controladores/acoes-relatorios.js?v=202611050002";
 import { criarDelegacaoAcoes, criarDespachanteAcoes } from "./controladores/despachante-acoes.js?v=202611050002";
 import { criarCarregadorPaginas } from "./controladores/carregador-paginas.js?v=202611050002";
-import { createLiveViewController } from "./controladores/estado-visualizacao.js?v=202611090003";
-import { createHidScannerCapture, isScannerNoReadMarker } from "./controladores/captura-leitor-hid.js?v=202611090003";
+import { createLiveViewController } from "./controladores/estado-visualizacao.js?v=202611090004";
+import { createHidScannerCapture, isScannerNoReadMarker } from "./controladores/captura-leitor-hid.js?v=202611090004";
 import { createLocalConnectivityController } from "./controladores/conectividade-local.js?v=202611050002";
 import { bindManifestCreationForm, bindManifestEditForm } from "./controladores/formulario-romaneio.js?v=202611050002";
 import { bindProductForm } from "./controladores/formulario-produto.js?v=202611050002";
@@ -79,7 +79,7 @@ const registroTelas = criarRegistroTelas({
   division: () =>
     import("../telas/divisao-carga/divisao-carga.js?v=202611050002").then(({ division }) => division),
   work: () =>
-    import("../telas/operacao/operacao.js?v=202611090003").then(({ work }) => work),
+    import("../telas/operacao/operacao.js?v=202611090004").then(({ work }) => work),
   occurrences: () =>
     import("../telas/ocorrencias/ocorrencias.js?v=202611050002").then(({ occurrences }) => occurrences),
   products: () =>
@@ -481,7 +481,7 @@ const conectividadeLocal = createLocalConnectivityController({
   refreshSettingsView: () => refreshSettingsStatusView(),
   render: () => render(),
   logWarning: (...args) => logFrontend.aviso(...args),
-  serviceWorkerUrl: "/service-worker.js?v=202611090003",
+  serviceWorkerUrl: "/service-worker.js?v=202611090004",
 });
 
 function waitForDocumentStyles() {
