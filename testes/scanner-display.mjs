@@ -88,8 +88,10 @@ test("fila durável do M2052 é reprocessada após reinício e fechamento aguard
   assert.match(loadingSummaryApi, /pending_events_by_loading/);
   assert.match(observabilityService, /resumo_carregamento\.php\?carregamento_id=/);
   assert.match(operationalRealtime, /store\.loadSummaryMonitoring\(\)/);
-  assert.match(loadingFinishRules, /outboxPending !== null/);
-  assert.match(loadingFinishRules, /Number\(outboxPending\) === 0/);
+  assert.match(loadingFinishRules, /outboxPending === null/);
+  assert.match(loadingFinishRules, /outboxPending === undefined/);
+  assert.match(loadingFinishRules, /Number\.isFinite\(pendingOutboxCount\)/);
+  assert.match(loadingFinishRules, /pendingOutboxCount > 0/);
 });
 
 test("heartbeat SENSOR preserva a fila agregada para liberar a finalização no Central", () => {

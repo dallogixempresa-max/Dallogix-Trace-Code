@@ -41,7 +41,9 @@ if (!$loading) {
     $pdo->rollBack();
     json_response(["error" => "Carregamento não encontrado."], 404);
 }
-if ($loading["state"] !== "PAUSADO" || trim((string) ($loading["stop_reason"] ?? "")) !== "") {
+$stopReason = strtoupper(trim((string) ($loading["stop_reason"] ?? "")));
+$automaticQuotaStopReason = in_array($stopReason, ["COTA_ROMANEIO_ATINGIDA", "EXCESSO"], true);
+if ($loading["state"] !== "PAUSADO" || ($stopReason !== "" && !$automaticQuotaStopReason)) {
     $pdo->rollBack();
     json_response(
         [
@@ -59,6 +61,39 @@ $pendingCommand->execute(["loading_id" => $loadingId, "company_id" => $user["com
 if ((int) $pendingCommand->fetchColumn() > 0) {
     $pdo->rollBack();
     json_response(["error" => "Aguarde o CLP confirmar o último comando antes de encerrar."], 409);
+}
+$automaticQuotaStopAcknowledged = false;
+if ($automaticQuotaStopReason) {
+    $stopAction = $stopReason === "EXCESSO"
+        ? "EXCESSO_DETECTADO"
+        : "QUANTIDADE_PLANEJADA_ATINGIDA";
+    $confirmedStop = $pdo->prepare(
+        "SELECT q.id FROM logs_auditoria a
+         JOIN solicitacoes_comandos_clp q
+           ON q.id = CAST(JSON_UNQUOTE(JSON_EXTRACT(a.metadata, '$.command_request_id')) AS UNSIGNED)
+         WHERE a.company_id = :company_id AND a.action = :action
+           AND a.entity_type = 'carregamento' AND a.entity_id = :loading_id
+           AND JSON_UNQUOTE(JSON_EXTRACT(a.metadata, '$.stop_reason')) = :stop_reason
+           AND q.carregamento_id = :command_loading_id AND q.company_id = :command_company_id
+           AND q.command = 'PAUSAR_CARREGAMENTO' AND q.status = 'APLICADO'
+         ORDER BY a.id DESC LIMIT 1",
+    );
+    $confirmedStop->execute([
+        "company_id" => $user["company_id"],
+        "action" => $stopAction,
+        "loading_id" => $loadingId,
+        "stop_reason" => $stopReason,
+        "command_loading_id" => $loadingId,
+        "command_company_id" => $user["company_id"],
+    ]);
+    $automaticQuotaStopAcknowledged = (bool) $confirmedStop->fetchColumn();
+    if (!$automaticQuotaStopAcknowledged) {
+        $pdo->rollBack();
+        json_response(
+            ["error" => "Aguarde o PC industrial confirmar a parada da esteira antes de finalizar."],
+            409,
+        );
+    }
 }
 
 $pendingSensorEvents = $pdo->prepare(
@@ -234,7 +269,7 @@ if ($uncoveredNoRead > 0) {
 }
 $otherNonValidStatement = $pdo->prepare(
     "SELECT COUNT(*) FROM leituras WHERE carregamento_id = :loading_id
-       AND result NOT IN ('VALIDO', 'SEM_LEITURA')",
+       AND result NOT IN ('VALIDO', 'SEM_LEITURA', 'EXCESSO')",
 );
 $otherNonValidStatement->execute(["loading_id" => $loadingId]);
 $otherNonValid = (int) $otherNonValidStatement->fetchColumn();
@@ -243,10 +278,16 @@ $returnedStatement = $pdo->prepare(
 );
 $returnedStatement->execute(["loading_id" => $loadingId]);
 $returned = (int) $returnedStatement->fetchColumn();
-$noReadCoveredByPhoto = $noReadCount > 0
+$evidenceCoveredDivergence = $noReadCount > 0
+    && $loadingPlannedQuantity > 0
     && $loadingDetectedQuantity === $loadingPlannedQuantity
-    && !$hasExcess && $otherNonValid === 0 && $returned === 0
-    && $overfill === 0 && $shortfall === $noReadCount;
+    && !$hasExcess
+    && $shortfall === $noReadCount
+    && $otherNonValid === 0 && $returned === 0
+    && $overfill === 0
+    && $uncoveredNoRead === 0
+    && $uncapturedExcessEvidence === 0
+    && $uncoveredExcessPassages === 0;
 if ($automatic) {
     $plannedQuantityStatement = $pdo->prepare(
         "SELECT COALESCE(SUM(ri.planned_quantity), 0)
@@ -308,12 +349,12 @@ if ($automatic) {
         ], 409);
     }
 }
-if ((($hasDivergence && !$noReadCoveredByPhoto) || $hasExcess)
+if ((($hasDivergence || $hasExcess) && !$evidenceCoveredDivergence)
     && !in_array($user["role"], ["ADMIN_EMPRESA", "SUPERVISOR"], true)) {
     $pdo->rollBack();
     json_response(["error" => "Somente supervisores ou administradores podem autorizar divergência ou excesso."], 403);
 }
-if ((($hasDivergence && !$noReadCoveredByPhoto) || $hasExcess) && $justification === "") {
+if ((($hasDivergence || $hasExcess) && !$evidenceCoveredDivergence) && $justification === "") {
     $pdo->rollBack();
     json_response(["error" => "Informe uma justificativa para finalizar com divergência ou excesso."], 422);
 }

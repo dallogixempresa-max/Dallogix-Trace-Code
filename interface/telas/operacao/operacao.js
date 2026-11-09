@@ -3,7 +3,7 @@ import { numero } from "../../js/funcoes/formato.js?v=202611050002";
 import { rotuloComando, rotuloEstado } from "../../js/funcoes/rotulos.js?v=202611050002";
 import { resolverComandoAtual } from "../../js/funcoes/estado-comando.js?v=202611050002";
 import { emergencyPanel, pageHeader } from "../../js/funcoes/view.js?v=202611050002";
-import { podeFinalizarCarregamento } from "../../js/funcoes/regras-carregamento.js?v=202611050002";
+import { motivoBloqueioFinalizacao, podeFinalizarCarregamento } from "../../js/funcoes/regras-carregamento.js?v=202611090002";
 
 function equipmentLabel(store) {
   if (store.state.equipmentCode && store.state.equipmentCode !== "—") {
@@ -292,16 +292,23 @@ function workControls(store) {
       })
     : "";
   const finishReady = podeFinalizarCarregamento(store.state);
+  const targetReached = plannedTotal > 0 && detectedBags >= plannedTotal;
+  const finishBlockReason = motivoBloqueioFinalizacao(store.state);
+  const finishBlockNotice = !finishReady && targetReached
+    ? `<p class="work-completion-notice near-end" data-live="finish-block-notice">${esc(finishBlockReason)}</p>`
+    : "";
   const finishAction = estadoOperacional === "EMERGENCIA" ? "" : `<div class="work-header-finish-actions">${button(
     "Finalizar romaneio",
     "finish",
-    finishReady ? "primary" : "secondary",
+    finishReady || targetReached ? "primary" : "secondary",
     finishReady
       ? { title: "Finaliza este carregamento e, se for o último, encerra o romaneio." }
+      : targetReached
+      ? { title: finishBlockReason }
       : {
           disabled: true,
           "aria-disabled": "true",
-          title: "Aguarde a pausa da esteira e a confirmação de todas as leituras e evidências.",
+          title: finishBlockReason,
         },
   )}</div>`;
   const stopCommand = pendingCommand === "PAUSAR_CARREGAMENTO" ? currentCommand : null;
@@ -344,7 +351,7 @@ function workControls(store) {
     : stopReasonIsProductQuota
     ? "Confirmar parada e continuar"
     : "Confirmar remoção e liberar retomada";
-  const stopConfirmation = store.state.stopReason && !store.state.emergency
+  const stopConfirmation = store.state.stopReason && !store.state.emergency && !quotaStopReason
     ? `<dialog id="work-stop-dialog" class="work-stop-dialog" role="alertdialog" aria-modal="true" aria-labelledby="work-stop-confirmation-title" aria-describedby="work-stop-confirmation-alert work-stop-confirmation-status"><section class="work-stop-confirmation"><span class="kicker">${stopConfirmationLabel}</span><h2 id="work-stop-confirmation-title">Atenção: operação pausada</h2><p id="work-stop-confirmation-alert" class="work-stop-confirmation-alert">${esc(store.state.operatorAlert || "Confirme a parada física antes de continuar.")}</p><p id="work-stop-confirmation-status">${esc(stopConfirmationMessage)}</p><form class="confirm-stop-removal-form"><label><input type="checkbox" name="confirmar_remocao" value="true" required${store.state.stopRemovalAcknowledged === true ? " checked" : ""} autofocus /><span>${stopConfirmationCheckLabel}</span></label><button class="button primary" type="submit">${stopConfirmationButtonLabel}</button><p class="form-feedback" data-form-feedback role="status" aria-live="polite" hidden></p></form><div class="work-stop-emergency-action">${stopEmergencyAction}</div></section></dialog>`
     : "";
   const badge = ["PENDENTE", "PROCESSANDO"].includes(pendingStatus) && pendingCommand
@@ -381,10 +388,15 @@ function workControls(store) {
   const nearEnd = plannedTotal > 0 && detectedBags > 0 && remainingTotal > 0 && remainingTotal <= nearEndThreshold;
   const complete = plannedTotal > 0 && detectedBags >= plannedTotal;
   const excess = plannedTotal > 0 && detectedBags > plannedTotal;
+  const quotaStopReason = ["COTA_ROMANEIO_ATINGIDA", "EXCESSO"].includes(store.state.stopReason);
+  const quotaPauseConfirmed = quotaStopReason
+    && store.state.operationalState === "PAUSADO"
+    && pendingCommand === "PAUSAR_CARREGAMENTO"
+    && pendingStatus === "APLICADO";
   const endNotice = excess
-    ? `Atenção: ${numero(detectedBags - plannedTotal)} sacas passaram do total previsto.`
+    ? `Passagem adicional registrada. O comando para parar a esteira ${quotaPauseConfirmed ? "foi confirmado pelo PC industrial" : "foi enviado ao PC industrial"}; a evidência será incluída no relatório.`
     : complete
-      ? "Quantidade prevista atingida. Parada automática solicitada; confira a parada física, as leituras e as fotos antes de finalizar."
+      ? `Quantidade prevista atingida. O comando para parar a esteira ${quotaPauseConfirmed ? "foi confirmado pelo PC industrial" : "foi enviado ao PC industrial"}; o botão de finalização já está disponível e o fechamento será concluído após o processamento das leituras e fotos.`
       : nearEnd
         ? "Atenção: o carregamento está próximo da quantidade prevista."
         : "";
@@ -401,7 +413,7 @@ function workControls(store) {
   const excessEvidenceLabel = `${numero(store.state.excessEvidenceCaptured || 0)} de ${numero(store.state.excessEvidenceRequests || 0)} com foto` +
     (Number(store.state.excessEvidencePending) > 0 ? ` · ${numero(store.state.excessEvidencePending)} pendente(s)` : "") +
     (Number(store.state.excessEvidenceFailed) > 0 ? ` · ${numero(store.state.excessEvidenceFailed)} falha(s)` : "");
-  const totalSummary = `<section class="work-live-summary" aria-label="Contagem e progresso do carregamento"><div class="work-live-summary-heading"><strong>Sacas detectadas pelo sensor</strong><span><b data-live="detected">${numero(detectedBags)}</b> / <b data-live="planned">${numero(plannedTotal)}</b> previstas · <span data-live="progress-percent">${totalPercent}%</span></span></div><div class="work-live-summary-foot"><span>Scanner: <b data-live="scanner-readings">${numero(store.state.scannerReadings || 0)}</b> sacas com código · Excesso com foto: <b data-live="excess-evidence">${excessEvidenceLabel}</b></span></div><div class="progress work-live-progress" role="progressbar" aria-label="Progresso de sacas detectadas pelo sensor M2052" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${totalPercent}"><i data-live="progress-bar" style="width:${totalPercent}%"></i></div><div class="work-live-summary-foot"><span data-live="remaining-label">${remainingLabel}</span> · <b>${numero(validReadings)}</b> leituras válidas</div><p class="work-completion-notice ${endNoticeTone}" data-live="end-notice"${endNotice ? "" : " hidden"}>${endNotice}</p>${noReadNotice}${scannerMonitor}</section>`;
+  const totalSummary = `<section class="work-live-summary" aria-label="Contagem e progresso do carregamento"><div class="work-live-summary-heading"><strong>Sacas detectadas pelo sensor</strong><span><b data-live="detected">${numero(detectedBags)}</b> / <b data-live="planned">${numero(plannedTotal)}</b> previstas · <span data-live="progress-percent">${totalPercent}%</span></span></div><div class="work-live-summary-foot"><span>Scanner: <b data-live="scanner-readings">${numero(store.state.scannerReadings || 0)}</b> sacas com código · Excesso com foto: <b data-live="excess-evidence">${excessEvidenceLabel}</b></span></div><div class="progress work-live-progress" role="progressbar" aria-label="Progresso de sacas detectadas pelo sensor M2052" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${totalPercent}"><i data-live="progress-bar" style="width:${totalPercent}%"></i></div><div class="work-live-summary-foot"><span data-live="remaining-label">${remainingLabel}</span> · <b>${numero(validReadings)}</b> leituras válidas</div><p class="work-completion-notice ${endNoticeTone}" data-live="end-notice"${endNotice ? "" : " hidden"}>${endNotice}</p>${noReadNotice}${finishBlockNotice}${scannerMonitor}</section>`;
   const panelHeading = estadoOperacional === "EMERGENCIA"
     ? ""
     : `<div class="panel-heading"><div><span class="kicker">Comandos da máquina</span><h3>Operar Dala</h3></div></div>`;

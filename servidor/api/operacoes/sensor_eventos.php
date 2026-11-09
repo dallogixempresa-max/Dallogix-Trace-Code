@@ -481,7 +481,13 @@ try {
                 "command_request_id" => $excessStop["command_request_id"] ?? null,
             ],
         );
-    } elseif ($loading["state"] === "CARREGANDO" && $plannedQuantity > 0 && $detectedBags === $plannedQuantity) {
+    // O ramo de EXCESSO acima trata quantidades maiores; ao atingir a meta,
+    // também solicitamos pausa se o carregamento estiver em transição.
+    } elseif (
+        in_array($loading["state"], ["CARREGANDO", "FINALIZANDO"], true)
+        && $plannedQuantity > 0
+        && $detectedBags === $plannedQuantity
+    ) {
         $targetStop = (new ServicoComandoClp($pdo))->solicitarParadaAoAtingirMetaRomaneio(
             ["id" => null, "company_id" => (int) $device["company_id"]],
             (int) $loadingId,

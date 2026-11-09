@@ -1,7 +1,7 @@
 import { esc } from "../funcoes/html.js";
 import { produtosDisponiveisParaRomaneio } from "../funcoes/romaneio.js?v=202611050002";
 import { renderStatusDala } from "../funcoes/status-dala.js?v=202611050002";
-import { assinaturaProntidaoFinalizacao } from "../funcoes/regras-carregamento.js?v=202611050002";
+import { assinaturaProntidaoFinalizacao } from "../funcoes/regras-carregamento.js?v=202611090002";
 
 export function operationStructureSignature(state, clpAvailable) {
   const unselectedLoadings = state.selectedLoadingId
