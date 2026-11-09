@@ -2,7 +2,7 @@ import {
   divergenciaCobertaPorEvidencia,
   motivoBloqueioFinalizacao,
   podeFinalizarCarregamento,
-} from "../funcoes/regras-carregamento.js?v=202611090002";
+} from "../funcoes/regras-carregamento.js?v=202611090003";
 
 const ACOES_COMANDO_MAQUINA = new Set([
   "start-machine",
@@ -183,27 +183,21 @@ export function criarTratadorAcoesOperacionais({
       const hasItemDivergence = (store.state.loadingItems || []).some((item) =>
         Number(item.loaded_quantity || 0) !== Number(item.planned_quantity || 0),
       );
-      const hasExcess = Number(store.state.detectedBags || 0) > Number(store.state.planned || 0)
-        || Number(store.state.excessEvidenceRequests || 0) > 0;
       const evidenceCoversDivergence = divergenciaCobertaPorEvidencia(store.state);
-      const requiresSupervisorReview = (hasItemDivergence && !evidenceCoversDivergence) || hasExcess;
+      const requiresSupervisorReview = hasItemDivergence && !evidenceCoversDivergence;
       const canAuthorizeDivergence = ["ADMIN_EMPRESA", "SUPERVISOR"].includes(
         String(store.state.userRole || "").toUpperCase(),
       );
       if (requiresSupervisorReview && !canAuthorizeDivergence) {
         notificarForaDaOperacao(
-          hasExcess
-            ? "Foi registrado excesso. Um supervisor ou administrador precisa conferir a foto e autorizar o encerramento com justificativa."
-            : "Há produto sem identificação ou com quantidade divergente. Um supervisor ou administrador precisa encerrar o carregamento com justificativa.",
+          "Há produto sem identificação ou com quantidade divergente. Um supervisor ou administrador precisa encerrar o carregamento com justificativa.",
           "aviso",
         );
         return;
       }
       const justification = requiresSupervisorReview
         ? await solicitarTexto(
-          hasExcess
-            ? "Justificativa obrigatória após conferir a evidência do excesso:"
-            : "Justificativa obrigatória para finalizar com divergência:",
+          "Justificativa obrigatória para finalizar com divergência:",
           { obrigatorio: true, multilinha: true },
         ) || ""
         : "";

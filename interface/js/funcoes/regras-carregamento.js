@@ -23,7 +23,19 @@ export function motivoBloqueioFinalizacao(state) {
   }
   const planned = Number(state?.planned) || 0;
   const detected = Number(state?.detectedBags) || 0;
-  if (planned <= 0 || detected < planned) {
+  if (planned <= 0) {
+    return "A quantidade prevista do romaneio não está informada.";
+  }
+  const excessDetected = String(state?.stopReason || "").toUpperCase() === "EXCESSO"
+    || detected > planned
+    || Number(state?.excessEvidenceRequests ?? loading.excess_evidence_requests ?? loading.excessos_detectados ?? 0) > 0
+    || (state?.loadingItems || []).some((item) =>
+      Number(item.loaded_quantity || 0) > Number(item.planned_quantity || 0),
+    );
+  if (excessDetected) {
+    return "O sensor registrou passagem acima da quantidade prevista. Não é possível finalizar este carregamento.";
+  }
+  if (detected < planned) {
     return "Aguarde o sensor atingir a quantidade prevista do romaneio.";
   }
   const pendingSensor = Number(loading.leituras_pendentes_sensor);
@@ -52,6 +64,13 @@ export function motivoBloqueioFinalizacao(state) {
   if (Number(loading.imagens_com_falha) > 0) {
     return "Há foto(s) de evidência com falha. Verifique o envio do Keyence/FTP antes de finalizar.";
   }
+  const noReadCount = Number(loading.sem_leitura) || 0;
+  if (noReadCount > 0) {
+    const photographedNoReads = Number(loading.sem_leitura_com_foto);
+    if (!Number.isFinite(photographedNoReads) || photographedNoReads < noReadCount) {
+      return "Aguarde a foto Keyence de cada saca sem leitura antes de finalizar.";
+    }
+  }
   return "";
 }
 
@@ -74,6 +93,7 @@ export function divergenciaCobertaPorEvidencia(state) {
     && shortfall === noRead && !overfill
     && Number(summary.produtos_incorretos || 0) === 0
     && Number(summary.sacas_retornadas || 0) === 0
+    && Number(summary.sem_leitura_com_foto) >= noRead
     && Number(state?.excessEvidenceRequests || 0) === 0
     && Number(summary.imagens_pendentes || 0) === 0
     && Number(summary.imagens_com_falha || 0) === 0

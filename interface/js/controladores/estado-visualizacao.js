@@ -1,5 +1,5 @@
 import { apresentacaoConectividadePc, apresentacaoStatusDispositivo, renderStatusDalaBinario, resumoStatusDispositivos } from "../../telas/configuracoes/configuracoes.js?v=202611070001";
-import { operationStructureSignature, renderDalaStatuses } from "./operacao.js?v=202611090002";
+import { operationStructureSignature, renderDalaStatuses } from "./operacao.js?v=202611090003";
 import { numero, relativo, dataHora } from "../funcoes/formato.js?v=202611050002";
 import { el } from "../funcoes/html.js";
 import { refreshCompanyStatusCards } from "../funcoes/view.js?v=202611050002";
@@ -78,10 +78,12 @@ export function createLiveViewController({
     );
     const noReadNotice = document.querySelector('[data-live="no-read-notice"]');
     if (noReadNotice) {
-      const unlinkedBags = detectedBags - validReadings;
+      const noReadCount = Number(store.state.summaryMonitoring?.carregamento?.sem_leitura) || 0;
+      const latestNoRead = store.state.latestScannerReading?.result === "SEM_LEITURA" ? 1 : 0;
+      const unlinkedBags = Math.max(noReadCount, latestNoRead);
       const show = leitorPodeConcluirPassagens && unlinkedBags > 0;
       noReadNotice.textContent = show
-        ? `${numero(unlinkedBags)} saca${unlinkedBags === 1 ? "" : "s"} detectada${unlinkedBags === 1 ? "" : "s"} sem código válido associado.`
+        ? `${numero(unlinkedBags)} saca${unlinkedBags === 1 ? "" : "s"} passou${unlinkedBags === 1 ? "" : "ram"} pelo sensor sem leitura de código.`
         : "";
       noReadNotice.hidden = !show;
     }

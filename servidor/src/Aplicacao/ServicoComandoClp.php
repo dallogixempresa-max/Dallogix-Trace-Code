@@ -239,6 +239,8 @@ final class ServicoComandoClp
             if (!empty($loading["stop_reason"]) && $loading["stop_reason"] !== $reason) {
                 $existingReason = (string) $loading["stop_reason"];
                 $operatorAlert = (string) ($loading["operator_alert"] ?? "Já existe uma parada aguardando confirmação.");
+                $requestId = null;
+                $requestStatus = "BLOQUEIO_EXISTENTE";
                 if ($reason === "EXCESSO") {
                     $existingLabel = match ($existingReason) {
                         "COTA_PRODUTO_ATINGIDA" => "meta do produto atingida",
@@ -246,7 +248,35 @@ final class ServicoComandoClp
                         "PRODUTO_INCORRETO" => "produto fora do romaneio",
                         default => "parada de segurança",
                     };
-                    $operatorAlert = "Excesso detectado: esta saca não foi contabilizada. A parada por $existingLabel continua pendente; confirme a parada física antes de continuar.";
+                    $operatorAlert = "Passagem acima da quantidade prevista detectada. A parada por $existingLabel permanece ativa.";
+                    if (in_array($existingReason, [
+                        "EXCESSO",
+                        "PRODUTO_INCORRETO",
+                        "COTA_PRODUTO_ATINGIDA",
+                        "COTA_ROMANEIO_ATINGIDA",
+                    ], true)) {
+                        $pendingPause = $this->repositorio->comandoPendente($loadingId, "PAUSAR_CARREGAMENTO");
+                        if ($pendingPause) {
+                            $requestId = (int) $pendingPause["id"];
+                            $requestStatus = (string) $pendingPause["status"];
+                            $operatorAlert .= " Já existe uma pausa aguardando confirmação.";
+                        } else {
+                            try {
+                                $request = $this->solicitarOperacao($user, $loadingId, "PAUSAR_CARREGAMENTO");
+                                $requestId = (int) $request["command_request_id"];
+                                $requestStatus = (string) $request["status"];
+                                $operatorAlert .= " Um novo comando de pausa foi enviado ao gateway.";
+                            } catch (ExcecaoComandoClp|ExcecaoDisponibilidadeClp $exception) {
+                                if ($exception->httpStatus >= 500) {
+                                    throw $exception;
+                                }
+                                $requestStatus = "NAO_SOLICITADA";
+                                $operatorAlert .= " O reenvio não foi aceito pelo gateway: "
+                                    . $exception->getMessage()
+                                    . " Mantenha a esteira parada e verifique a máquina.";
+                            }
+                        }
+                    }
                     $saveExistingAlert = $this->connection->prepare(
                         "UPDATE carregamentos SET operator_alert = :operator_alert
                          WHERE id = :id AND company_id = :company_id AND stop_reason = :stop_reason",
@@ -259,8 +289,8 @@ final class ServicoComandoClp
                     ]);
                 }
                 $result = [
-                    "command_request_id" => null,
-                    "physical_stop_request_status" => "BLOQUEIO_EXISTENTE",
+                    "command_request_id" => $requestId,
+                    "physical_stop_request_status" => $requestStatus,
                     "operator_alert" => $operatorAlert,
                     "stop_reason" => $existingReason,
                 ];
@@ -296,7 +326,7 @@ final class ServicoComandoClp
             if ($pendingPause) {
                 $requestId = (int) $pendingPause["id"];
                 $requestStatus = (string) $pendingPause["status"];
-            } elseif ($alreadyPausedForReason) {
+            } elseif ($alreadyPausedForReason && $reason !== "EXCESSO") {
                 $lastPause = $this->repositorio->ultimaSolicitacaoComando($loadingId, "PAUSAR_CARREGAMENTO");
                 if ($lastPause && $lastPause["status"] === "APLICADO") {
                     $requestId = (int) $lastPause["id"];

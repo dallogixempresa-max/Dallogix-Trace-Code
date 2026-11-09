@@ -496,15 +496,17 @@ try {
         $automaticStop = ($targetStop["command_request_id"] ?? null) !== null;
         $nearEndWarning = $targetStop["operator_alert"];
         $targetAlreadyRecorded = $pdo->prepare(
-            "SELECT 1 FROM logs_auditoria
+            "SELECT id FROM logs_auditoria
              WHERE company_id = :company_id AND action = 'QUANTIDADE_PLANEJADA_ATINGIDA'
-               AND entity_type = 'carregamento' AND entity_id = :loading_id LIMIT 1",
+               AND entity_type = 'carregamento' AND entity_id = :loading_id
+             ORDER BY id DESC LIMIT 1",
         );
         $targetAlreadyRecorded->execute([
             "company_id" => $device["company_id"],
             "loading_id" => $loadingId,
         ]);
-        if (!$targetAlreadyRecorded->fetchColumn()) {
+        $targetAuditId = (int) ($targetAlreadyRecorded->fetchColumn() ?: 0);
+        if ($targetAuditId < 1) {
             record_operational_event(
                 $pdo,
                 ["id" => null, "company_id" => $device["company_id"]],
@@ -522,6 +524,32 @@ try {
                     "operator_action" => "CONFIRMAR_PARADA_E_CONFERIR_LEITURAS",
                 ],
             );
+        } elseif ($targetStop["command_request_id"] !== null) {
+            // Associa a solicitação de parada ao evento existente quando uma
+            // tentativa posterior conseguir enfileirar o comando no gateway.
+            $updateTargetAudit = $pdo->prepare(
+                "UPDATE logs_auditoria
+                 SET metadata = JSON_SET(
+                   COALESCE(metadata, JSON_OBJECT()),
+                   '$.automatic_stop', :automatic_stop,
+                   '$.physical_stop_request_status', :physical_stop_request_status,
+                   '$.command_request_id', :command_request_id,
+                   '$.detected_bags', :detected_bags,
+                   '$.updated_at', DATE_FORMAT(NOW(3), '%Y-%m-%d %H:%i:%s.%f')
+                 )
+                 WHERE id = :id AND company_id = :company_id
+                   AND action = 'QUANTIDADE_PLANEJADA_ATINGIDA'
+                   AND entity_type = 'carregamento' AND entity_id = :loading_id",
+            );
+            $updateTargetAudit->execute([
+                "automatic_stop" => $automaticStop ? 1 : 0,
+                "physical_stop_request_status" => $targetStop["physical_stop_request_status"],
+                "command_request_id" => (int) $targetStop["command_request_id"],
+                "detected_bags" => $detectedBags,
+                "id" => $targetAuditId,
+                "company_id" => (int) $device["company_id"],
+                "loading_id" => (int) $loadingId,
+            ]);
         }
     }
     $pdo->commit();

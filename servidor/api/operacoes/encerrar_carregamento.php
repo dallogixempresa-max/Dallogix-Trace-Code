@@ -146,6 +146,18 @@ if ((int) $pending->fetchColumn() > 0) {
         409,
     );
 }
+$failedEvidenceStatement = $pdo->prepare(
+    "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia
+     WHERE carregamento_id = :loading_id AND status = 'ERRO'",
+);
+$failedEvidenceStatement->execute(["loading_id" => $loadingId]);
+if ((int) $failedEvidenceStatement->fetchColumn() > 0) {
+    $pdo->rollBack();
+    json_response(
+        ["error" => "Há foto(s) de evidência com falha. Verifique o envio do Keyence/FTP antes de finalizar."],
+        409,
+    );
+}
 // Só códigos VALIDO satisfazem a quantidade do item; SEM_LEITURA permanece divergência auditável.
 $divergences = $pdo->prepare("SELECT ri.product_id, SUM(ri.planned_quantity) AS planned_quantity,
     GREATEST(0,
@@ -207,45 +219,16 @@ $excessEvidenceStatement->execute(["loading_id" => $loadingId]);
 $excessEvidenceCount = (int) $excessEvidenceStatement->fetchColumn();
 $hasExcess = $loadingDetectedQuantity > $loadingPlannedQuantity
     || $excessReadingCount > 0
-    || $excessEvidenceCount > 0;
-$uncapturedExcessEvidenceStatement = $pdo->prepare(
-    "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia
-     WHERE carregamento_id = :loading_id AND reason = 'EXCESSO' AND status <> 'CAPTURADA'",
-);
-$uncapturedExcessEvidenceStatement->execute(["loading_id" => $loadingId]);
-$uncapturedExcessEvidence = (int) $uncapturedExcessEvidenceStatement->fetchColumn();
-$uncoveredExcessPassagesStatement = $pdo->prepare(
-    "SELECT COUNT(*) FROM (
-       SELECT l.sensor_event_id
-       FROM leituras l
-       WHERE l.carregamento_id = :reading_loading_id AND l.result = 'EXCESSO'
-       UNION
-       SELECT s.id AS sensor_event_id
-       FROM eventos_sensor s
-       WHERE s.carregamento_id = :event_loading_id AND s.equipment_id = :equipment_id
-         AND (SELECT COUNT(*) FROM eventos_sensor earlier
-              WHERE earlier.carregamento_id = :position_loading_id
-                AND earlier.equipment_id = :position_equipment_id
-                AND earlier.id <= s.id) > :planned_quantity
-     ) excess_passages
-     WHERE excess_passages.sensor_event_id IS NULL
-        OR NOT EXISTS (
-          SELECT 1 FROM solicitacoes_imagens_evidencia evidence
-          WHERE evidence.sensor_event_id = excess_passages.sensor_event_id
-            AND evidence.carregamento_id = :evidence_loading_id
-            AND evidence.reason = 'EXCESSO' AND evidence.status = 'CAPTURADA'
-        )",
-);
-$uncoveredExcessPassagesStatement->execute([
-    "reading_loading_id" => $loadingId,
-    "event_loading_id" => $loadingId,
-    "equipment_id" => $loading["equipment_id"],
-    "position_loading_id" => $loadingId,
-    "position_equipment_id" => $loading["equipment_id"],
-    "planned_quantity" => $loadingPlannedQuantity,
-    "evidence_loading_id" => $loadingId,
-]);
-$uncoveredExcessPassages = (int) $uncoveredExcessPassagesStatement->fetchColumn();
+    || $excessEvidenceCount > 0
+    || $stopReason === "EXCESSO"
+    || $overfill > 0;
+if ($hasExcess) {
+    $pdo->rollBack();
+    json_response(
+        ["error" => "A quantidade detectada excedeu o previsto. O carregamento não pode ser finalizado; mantenha a esteira parada e trate a ocorrência."],
+        409,
+    );
+}
 $noReadCountStatement = $pdo->prepare(
     "SELECT COUNT(*) FROM leituras WHERE carregamento_id = :loading_id AND result = 'SEM_LEITURA'",
 );
@@ -285,9 +268,7 @@ $evidenceCoveredDivergence = $noReadCount > 0
     && $shortfall === $noReadCount
     && $otherNonValid === 0 && $returned === 0
     && $overfill === 0
-    && $uncoveredNoRead === 0
-    && $uncapturedExcessEvidence === 0
-    && $uncoveredExcessPassages === 0;
+    && $uncoveredNoRead === 0;
 if ($automatic) {
     $plannedQuantityStatement = $pdo->prepare(
         "SELECT COALESCE(SUM(ri.planned_quantity), 0)
@@ -349,20 +330,14 @@ if ($automatic) {
         ], 409);
     }
 }
-if ((($hasDivergence || $hasExcess) && !$evidenceCoveredDivergence)
+if (($hasDivergence && !$evidenceCoveredDivergence)
     && !in_array($user["role"], ["ADMIN_EMPRESA", "SUPERVISOR"], true)) {
     $pdo->rollBack();
-    json_response(["error" => "Somente supervisores ou administradores podem autorizar divergência ou excesso."], 403);
+    json_response(["error" => "Somente supervisores ou administradores podem autorizar uma divergência não coberta por evidência."], 403);
 }
-if ((($hasDivergence || $hasExcess) && !$evidenceCoveredDivergence) && $justification === "") {
+if (($hasDivergence && !$evidenceCoveredDivergence) && $justification === "") {
     $pdo->rollBack();
-    json_response(["error" => "Informe uma justificativa para finalizar com divergência ou excesso."], 422);
-}
-if ($hasExcess && ($uncapturedExcessEvidence > 0 || $uncoveredExcessPassages > 0)) {
-    $pdo->rollBack();
-    json_response([
-        "error" => "Não finalize a carga com excesso antes de receber a foto Keyence de cada passagem excedente.",
-    ], 409);
+    json_response(["error" => "Informe uma justificativa para finalizar com divergência não coberta por evidência."], 422);
 }
 
 try {
@@ -426,22 +401,6 @@ try {
             ],
         );
     }
-    if ($hasExcess) {
-        record_operational_event(
-            $pdo,
-            $user,
-            "EXCESSO_FINALIZADO_COM_JUSTIFICATIVA",
-            "carregamento",
-            (int) $loadingId,
-            [
-                "sensor_detected" => $loadingDetectedQuantity,
-                "planned_quantity" => $loadingPlannedQuantity,
-                "excess_readings" => $excessReadingCount,
-                "captured_excess_photos" => $excessEvidenceCount - $uncapturedExcessEvidence,
-                "justification" => $justification,
-            ],
-        );
-    }
     $remaining = $pdo->prepare(
         "SELECT COUNT(*) FROM carregamentos
          WHERE romaneio_id = :romaneio_id AND company_id = :company_id
@@ -453,7 +412,7 @@ try {
     ]);
     $romaneioProntoParaEncerrar = (int) $remaining->fetchColumn() === 0;
     $romaneioFinalizado = false;
-    if ($romaneioProntoParaEncerrar && !$hasDivergence) {
+    if ($romaneioProntoParaEncerrar && (!$hasDivergence || $evidenceCoveredDivergence)) {
         $manifestLoadings = $pdo->prepare(
             "SELECT id, truck_id, state, finish_justification
              FROM carregamentos
@@ -464,7 +423,7 @@ try {
             "romaneio_id" => $loading["romaneio_id"],
             "company_id" => $user["company_id"],
         ]);
-        $allLoadingsExact = true;
+        $allLoadingsHaveExactQuotaAndEvidence = true;
         $plannedForTruck = $pdo->prepare(
             "SELECT COALESCE(SUM(ri.planned_quantity), 0)
              FROM romaneio_itens ri
@@ -476,6 +435,51 @@ try {
         );
         $validForLoading = $pdo->prepare(
             "SELECT COUNT(*) FROM leituras WHERE carregamento_id = :loading_id AND result = 'VALIDO'",
+        );
+        $noReadForLoading = $pdo->prepare(
+            "SELECT COUNT(*) FROM leituras WHERE carregamento_id = :loading_id AND result = 'SEM_LEITURA'",
+        );
+        $otherNonValidForLoading = $pdo->prepare(
+            "SELECT COUNT(*) FROM leituras
+             WHERE carregamento_id = :loading_id AND result NOT IN ('VALIDO', 'SEM_LEITURA')",
+        );
+        $excessForLoading = $pdo->prepare(
+            "SELECT
+               (SELECT COUNT(*) FROM leituras WHERE carregamento_id = :reading_loading_id AND result = 'EXCESSO')
+               + (SELECT COUNT(*) FROM solicitacoes_imagens_evidencia WHERE carregamento_id = :evidence_loading_id AND reason = 'EXCESSO')",
+        );
+        $failedEvidenceForLoading = $pdo->prepare(
+            "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia
+             WHERE carregamento_id = :loading_id AND status = 'ERRO'",
+        );
+        $uncoveredNoReadForLoading = $pdo->prepare(
+            "SELECT COUNT(*) FROM leituras l
+             WHERE l.carregamento_id = :loading_id AND l.result = 'SEM_LEITURA'
+               AND (l.sensor_event_id IS NULL OR NOT EXISTS (
+                 SELECT 1 FROM solicitacoes_imagens_evidencia e
+                 WHERE e.carregamento_id = l.carregamento_id
+                   AND e.sensor_event_id = l.sensor_event_id
+                   AND e.reason = 'SEM_LEITURA' AND e.status = 'CAPTURADA'
+               ))",
+        );
+        $overfilledProductsForLoading = $pdo->prepare(
+            "SELECT COUNT(*) FROM (
+               SELECT ri.product_id, SUM(ri.planned_quantity) AS planned_quantity,
+                 GREATEST(0,
+                   COALESCE((SELECT COUNT(*) FROM leituras l
+                             WHERE l.carregamento_id = :loading_id
+                               AND l.product_id = ri.product_id AND l.result = 'VALIDO'), 0)
+                   - COALESCE((SELECT SUM(ret.quantity) FROM retornos ret
+                               JOIN leituras lr ON lr.id = ret.leitura_id
+                               WHERE ret.carregamento_id = :return_loading_id
+                                 AND lr.product_id = ri.product_id), 0)
+                 ) AS moved_quantity
+               FROM romaneio_itens ri
+               WHERE ri.romaneio_id = :romaneio_id
+                 AND (ri.truck_id = :truck_id OR ri.truck_id IS NULL)
+               GROUP BY ri.product_id
+             ) item_quantities
+             WHERE item_quantities.moved_quantity > item_quantities.planned_quantity",
         );
         $returnsForLoading = $pdo->prepare(
             "SELECT COALESCE(SUM(quantity), 0) FROM retornos WHERE carregamento_id = :loading_id",
@@ -491,6 +495,26 @@ try {
             $detectedForManifestLoading = (int) $detectedForLoading->fetchColumn();
             $validForLoading->execute(["loading_id" => $manifestLoadingId]);
             $validForManifestLoading = (int) $validForLoading->fetchColumn();
+            $noReadForLoading->execute(["loading_id" => $manifestLoadingId]);
+            $noReadForManifestLoading = (int) $noReadForLoading->fetchColumn();
+            $otherNonValidForLoading->execute(["loading_id" => $manifestLoadingId]);
+            $otherNonValidForManifestLoading = (int) $otherNonValidForLoading->fetchColumn();
+            $excessForLoading->execute([
+                "reading_loading_id" => $manifestLoadingId,
+                "evidence_loading_id" => $manifestLoadingId,
+            ]);
+            $excessForManifestLoading = (int) $excessForLoading->fetchColumn();
+            $failedEvidenceForLoading->execute(["loading_id" => $manifestLoadingId]);
+            $failedEvidenceCountForManifestLoading = (int) $failedEvidenceForLoading->fetchColumn();
+            $uncoveredNoReadForLoading->execute(["loading_id" => $manifestLoadingId]);
+            $uncoveredNoReadForManifestLoading = (int) $uncoveredNoReadForLoading->fetchColumn();
+            $overfilledProductsForLoading->execute([
+                "loading_id" => $manifestLoadingId,
+                "return_loading_id" => $manifestLoadingId,
+                "romaneio_id" => $loading["romaneio_id"],
+                "truck_id" => $manifestLoading["truck_id"],
+            ]);
+            $overfilledProductCount = (int) $overfilledProductsForLoading->fetchColumn();
             $returnsForLoading->execute(["loading_id" => $manifestLoadingId]);
             $returnedForManifestLoading = (int) $returnsForLoading->fetchColumn();
             if (
@@ -498,9 +522,15 @@ try {
                 || trim((string) ($manifestLoading["finish_justification"] ?? "")) !== ""
                 || $plannedForLoading < 1
                 || $detectedForManifestLoading !== $plannedForLoading
-                || max(0, $validForManifestLoading - $returnedForManifestLoading) !== $plannedForLoading
+                || max(0, $validForManifestLoading - $returnedForManifestLoading) + $noReadForManifestLoading !== $plannedForLoading
+                || $returnedForManifestLoading > 0
+                || $otherNonValidForManifestLoading > 0
+                || $excessForManifestLoading > 0
+                || $failedEvidenceCountForManifestLoading > 0
+                || $uncoveredNoReadForManifestLoading > 0
+                || $overfilledProductCount > 0
             ) {
-                $allLoadingsExact = false;
+                $allLoadingsHaveExactQuotaAndEvidence = false;
                 break;
             }
         }
@@ -514,7 +544,7 @@ try {
             "romaneio_id" => $loading["romaneio_id"],
             "company_id" => $user["company_id"],
         ]);
-        if ($allLoadingsExact && (int) $pendingManifestEvidence->fetchColumn() === 0
+        if ($allLoadingsHaveExactQuotaAndEvidence && (int) $pendingManifestEvidence->fetchColumn() === 0
             && $loading["romaneio_status"] === "EM_ANDAMENTO") {
             $finishManifest = $pdo->prepare(
                 "UPDATE romaneios SET status = 'FINALIZADO'
