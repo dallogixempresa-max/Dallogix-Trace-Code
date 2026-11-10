@@ -102,7 +102,20 @@
   overflow-wrap: anywhere;
 }
 
-#manifest-items tr.is-unmatched select {
+#manifest-items .pdf-item-source {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted, #6b7785);
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+#manifest-items .product-search-input {
+  min-width: 220px;
+}
+
+#manifest-items tr.is-unmatched .product-search-input {
   border-color: #d29724;
   background: #fffdf8;
 }

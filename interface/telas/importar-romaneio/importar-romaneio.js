@@ -9,7 +9,7 @@ import {
   statuses,
 } from "../../js/funcoes/view.js?v=202611050002";
 
-import { itemRow, industrialPcDate } from "../../js/funcoes/romaneio.js?v=202611050002";
+import { itemRow, industrialPcDate, listaBuscaProdutos } from "../../js/funcoes/romaneio.js?v=202611100001";
 export function importScreen(store) {
   const products = store.state.products || [];
   const today = industrialPcDate();
@@ -28,7 +28,7 @@ export function importScreen(store) {
 <label>Motorista<input name="driver_name" /></label>
 </div></section><br>
 <section class="panel"><div class="panel-heading"><h3>Itens do Romaneio</h3>${button("Adicionar item", "add-item", "secondary")}</div>
-<div class="table-wrap"><table id="manifest-items" class="mobile-card-table"><thead><tr><th>Produto</th><th>Quantidade</th><th></th></tr></thead><tbody>${itemRow(products)}</tbody></table></div>
+<div class="table-wrap"><table id="manifest-items" class="mobile-card-table"><thead><tr><th>Produto</th><th>Quantidade</th><th></th></tr></thead><tbody>${itemRow(products)}</tbody></table></div>${listaBuscaProdutos(products)}
 </section>
 <div class="manifest-submit-actions">${button("Cadastrar", "submit-manifest")}</div><p class="form-feedback" data-form-feedback role="status" aria-live="polite" hidden></p>
 </form>

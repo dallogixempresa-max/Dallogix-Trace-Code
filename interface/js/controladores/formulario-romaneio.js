@@ -1,6 +1,6 @@
 import { setFormFeedback } from "../componentes/form-feedback.js?v=202611050002";
 import { agora } from "../funcoes/relogio.js?v=202611050002";
-import { validarCadastroRomaneio } from "../funcoes/romaneio.js?v=202611050002";
+import { validarCadastroRomaneio } from "../funcoes/romaneio.js?v=202611100001";
 
 function dataLocalAtual(now) {
   const date = now();
@@ -22,6 +22,26 @@ function bloquearBotoes(form, disabled) {
   });
 }
 
+function vincularBuscaProdutos(form) {
+  if (form.dataset.productSearchBound === "1") return;
+  form.dataset.productSearchBound = "1";
+
+  const sincronizar = (event) => {
+    const input = event.target.closest?.("[data-product-search]");
+    if (!input || !form.contains(input)) return;
+    const productField = input.closest("tr")?.querySelector('[name="item_product"]');
+    if (!productField) return;
+
+    const option = [...form.querySelectorAll("#manifest-product-options option")]
+      .find((candidate) => candidate.value === input.value.trim());
+    productField.value = option?.dataset.productId || "";
+    if (option?.dataset.canonicalValue) input.value = option.dataset.canonicalValue;
+  };
+
+  form.addEventListener("input", sincronizar);
+  form.addEventListener("change", sincronizar);
+}
+
 export function bindManifestCreationForm({
   form,
   store,
@@ -32,6 +52,7 @@ export function bindManifestCreationForm({
   readItems = itensDoFormulario,
 } = {}) {
   if (!form) return false;
+  vincularBuscaProdutos(form);
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -102,6 +123,7 @@ export function bindManifestEditForm({
   readItems = itensDoFormulario,
 } = {}) {
   if (!form) return false;
+  vincularBuscaProdutos(form);
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
