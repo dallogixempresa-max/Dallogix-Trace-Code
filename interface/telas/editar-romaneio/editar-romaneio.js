@@ -9,7 +9,7 @@ import {
   statuses,
 } from "../../js/funcoes/view.js?v=202611040002";
 
-import { itemRow, industrialPcDate } from "../../js/funcoes/romaneio.js?v=202611040002";
+import { itemRow, industrialPcDate, listaBuscaProdutos } from "../../js/funcoes/romaneio.js?v=202611100001";
 export function manifestEdit(store) {
   const manifest = store.state.manifestDetail;
   if (!manifest) return `${pageHeader("Operação / romaneios", "Editar romaneio", "Carregando…")}`;
@@ -24,5 +24,5 @@ export function manifestEdit(store) {
   <label>Placa do caminhão<input name="plate" required value="${esc(manifest.plate || "")}" /></label>
   <label>Expedidor<input name="expedidor" value="${esc(manifest.expedidor || "")}" /></label>
   <label>Motorista<input name="driver_name" value="${esc(manifest.driver_name || "")}" /></label>
-  </div></section><br><section class="panel"><div class="panel-heading"><h3>Itens do romaneio</h3>${button("Adicionar item", "add-item", "secondary")}</div><div class="table-wrap"><table id="manifest-items" class="mobile-card-table"><thead><tr><th>Produto</th><th>Quantidade</th><th></th></tr></thead><tbody>${rows}</tbody></table></div></section><br><div class="actions"><button class="button secondary" data-action="goto-manifests" type="button">Cancelar</button>${button("Salvar alterações", "submit-manifest-edit")}</div></form>`;
+  </div></section><br><section class="panel"><div class="panel-heading"><h3>Itens do romaneio</h3>${button("Adicionar item", "add-item", "secondary")}</div><div class="table-wrap"><table id="manifest-items" class="mobile-card-table"><thead><tr><th>Produto</th><th>Quantidade</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>${listaBuscaProdutos(store.state.products || [])}</section><br><div class="actions"><button class="button secondary" data-action="goto-manifests" type="button">Cancelar</button>${button("Salvar alterações", "submit-manifest-edit")}</div></form>`;
 }

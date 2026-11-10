@@ -7,6 +7,43 @@ export function produtosDisponiveisParaRomaneio(products, selectedId = "") {
   );
 }
 
+function rotuloBuscaProduto(product) {
+  const name = String(product?.name || "Produto sem nome").trim();
+  const code = String(product?.code || "").trim();
+  return code ? `${name} — ${code}` : `${name} — ID ${product.id}`;
+}
+
+export function opcoesBuscaProduto(products) {
+  const choices = [];
+  const seenValues = new Set();
+  for (const product of products || []) {
+    if (Number(product.active) !== 1) continue;
+    const name = String(product.name || "Produto sem nome").trim();
+    const code = String(product.code || "").trim();
+    const canonicalValue = rotuloBuscaProduto(product);
+    const values = [canonicalValue];
+    if (code) values.push(`${code} — ${name}`);
+    for (const value of values) {
+      if (!value || seenValues.has(value)) continue;
+      seenValues.add(value);
+      choices.push({ productId: String(product.id), value, canonicalValue });
+    }
+  }
+  return choices;
+}
+
+export function campoBuscaProduto(products, selectedId = "") {
+  const selected = (products || []).find((product) => String(product.id) === String(selectedId));
+  const label = selected
+    ? `${rotuloBuscaProduto(selected)}${Number(selected.active) === 1 ? "" : " (inativo)"}`
+    : "";
+  return `<input class="product-search-input" type="search" name="item_product_search" list="manifest-product-options" value="${esc(label)}" placeholder="Buscar por nome ou código" autocomplete="off" aria-label="Buscar produto por nome ou código" data-product-search /><input type="hidden" name="item_product" value="${esc(selectedId)}" />`;
+}
+
+export function listaBuscaProdutos(products) {
+  return `<datalist id="manifest-product-options">${opcoesBuscaProduto(products).map((choice) => `<option value="${esc(choice.value)}" data-product-id="${esc(choice.productId)}" data-canonical-value="${esc(choice.canonicalValue)}"></option>`).join("")}</datalist>`;
+}
+
 export function validarCadastroRomaneio({ scheduledDate, todayString, items }) {
   if (!scheduledDate || scheduledDate < todayString) {
     return "Informe uma data igual ou posterior ao dia atual do PC industrial.";
@@ -29,7 +66,7 @@ export function validarCadastroRomaneio({ scheduledDate, todayString, items }) {
 }
 
 export const itemRow = (products, selectedId = "", quantity = 1) => `<tr class="manifest-item">
-  <td data-label="Produto"><select name="item_product"><option value="">Selecionar produto…</option>${produtosDisponiveisParaRomaneio(products, selectedId).map((product) => `<option value="${product.id}"${String(product.id) === String(selectedId) ? " selected" : ""}>${esc(product.name)}${product.code ? ` (${esc(product.code)})` : ""}${Number(product.active) !== 1 ? " (inativo — selecione um produto ativo)" : ""}</option>`).join("")}</select></td>
+  <td data-label="Produto">${campoBuscaProduto(products, selectedId)}</td>
   <td data-label="Quantidade"><input name="item_quantity" type="number" min="1" value="${Number(quantity) || 1}" /></td>
   <td data-label="Ações">${button("Remover", "remove-item", "ghost")}</td>
 </tr>`;

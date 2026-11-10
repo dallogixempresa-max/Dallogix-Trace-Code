@@ -1,5 +1,5 @@
 import { esc } from "../funcoes/html.js";
-import { produtosDisponiveisParaRomaneio } from "../funcoes/romaneio.js?v=202611040002";
+import { campoBuscaProduto } from "../funcoes/romaneio.js?v=202611100001";
 import { renderStatusDala } from "../funcoes/status-dala.js?v=202611040002";
 
 export function operationStructureSignature(state, clpAvailable) {
@@ -54,10 +54,15 @@ export function operationStructureSignature(state, clpAvailable) {
   ]);
 }
 
-export function linhaItemRomaneio(store, selectedId = "", quantity = 1) {
+export function linhaItemRomaneio(store, selectedId = "", quantity = 1, source = null) {
   const products = store.state.products || [];
-  const selectableProducts = produtosDisponiveisParaRomaneio(products, selectedId);
-  return `<tr class="manifest-item"><td><select name="item_product"><option value="">Selecionar produto…</option>${selectableProducts.map((product) => `<option value="${product.id}"${String(product.id) === String(selectedId) ? " selected" : ""}>${esc(product.name)}${product.code ? ` (${esc(product.code)})` : ""}${Number(product.active) !== 1 ? " (inativo — selecione um produto ativo)" : ""}</option>`).join("")}</select></td><td><input name="item_quantity" type="number" min="1" value="${Number(quantity) || 1}" /></td><td><button class="button ghost" data-action="remove-item" type="button">Remover</button></td></tr>`;
+  const sourceLabel = source
+    ? [source.identifier ? `Código no PDF: ${source.identifier}` : "", source.description || ""]
+        .filter(Boolean)
+        .join(" · ")
+    : "";
+  const unmatchedClass = source && !selectedId ? " is-unmatched" : "";
+  return `<tr class="manifest-item${unmatchedClass}"><td data-label="Produto">${campoBuscaProduto(products, selectedId)}${sourceLabel ? `<small class="pdf-item-source">${esc(sourceLabel)}</small>` : ""}</td><td data-label="Quantidade"><input name="item_quantity" type="number" min="1" value="${Number(quantity) || 1}" /></td><td data-label="Ações"><button class="button ghost" data-action="remove-item" type="button">Remover</button></td></tr>`;
 }
 
 export function renderDalaStatuses(store, error = null) {
