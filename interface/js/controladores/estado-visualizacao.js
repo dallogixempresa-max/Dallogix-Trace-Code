@@ -1,5 +1,5 @@
 import { apresentacaoConectividadePc, apresentacaoStatusDispositivo, renderStatusDalaBinario, resumoStatusDispositivos } from "../../telas/configuracoes/configuracoes.js?v=202611070001";
-import { operationStructureSignature, renderDalaStatuses } from "./operacao.js?v=202611090004";
+import { operationStructureSignature, renderDalaStatuses } from "./operacao.js?v=202611100001";
 import { numero, relativo, dataHora } from "../funcoes/formato.js?v=202611050002";
 import { el } from "../funcoes/html.js";
 import { refreshCompanyStatusCards } from "../funcoes/view.js?v=202611050002";
