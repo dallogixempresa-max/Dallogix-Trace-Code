@@ -18,30 +18,33 @@ export function opcoesBuscaProduto(products) {
   const seenValues = new Set();
   for (const product of products || []) {
     if (Number(product.active) !== 1) continue;
-    const name = String(product.name || "Produto sem nome").trim();
-    const code = String(product.code || "").trim();
     const canonicalValue = rotuloBuscaProduto(product);
-    const values = [canonicalValue];
-    if (code) values.push(`${code} — ${name}`);
-    for (const value of values) {
-      if (!value || seenValues.has(value)) continue;
-      seenValues.add(value);
-      choices.push({ productId: String(product.id), value, canonicalValue });
-    }
+    if (!canonicalValue || seenValues.has(canonicalValue)) continue;
+    seenValues.add(canonicalValue);
+    choices.push({
+      productId: String(product.id),
+      value: canonicalValue,
+      canonicalValue,
+      name: String(product.name || "Produto sem nome").trim(),
+      code: String(product.code || "").trim() || `ID ${product.id}`,
+    });
   }
   return choices;
 }
+
+let productSearchSequence = 0;
 
 export function campoBuscaProduto(products, selectedId = "") {
   const selected = (products || []).find((product) => String(product.id) === String(selectedId));
   const label = selected
     ? `${rotuloBuscaProduto(selected)}${Number(selected.active) === 1 ? "" : " (inativo)"}`
     : "";
-  return `<input class="product-search-input" type="search" name="item_product_search" list="manifest-product-options" value="${esc(label)}" placeholder="Buscar por nome ou código" autocomplete="off" aria-label="Buscar produto por nome ou código" data-product-search /><input type="hidden" name="item_product" value="${esc(selectedId)}" />`;
+  const resultsId = `manifest-product-results-${++productSearchSequence}`;
+  return `<div class="product-search-combobox" data-product-combobox><button class="product-picker-trigger" type="button" data-product-trigger aria-haspopup="listbox" aria-expanded="false" aria-controls="${resultsId}" title="${esc(label || "Selecione um produto")}"><span class="product-picker-label${label ? "" : " is-placeholder"}" data-product-label>${esc(label || "Selecione um produto")}</span><span class="product-picker-chevron" aria-hidden="true"></span></button><input type="hidden" name="item_product" value="${esc(selectedId)}" /><div class="product-search-menu" data-product-menu popover="manual"><input class="product-picker-search" type="search" placeholder="Buscar por nome ou código" autocomplete="off" aria-label="Buscar produto por nome ou código" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-expanded="false" aria-controls="${resultsId}" data-product-search /><div class="product-search-results" id="${resultsId}" role="listbox"></div></div></div>`;
 }
 
 export function listaBuscaProdutos(products) {
-  return `<datalist id="manifest-product-options">${opcoesBuscaProduto(products).map((choice) => `<option value="${esc(choice.value)}" data-product-id="${esc(choice.productId)}" data-canonical-value="${esc(choice.canonicalValue)}"></option>`).join("")}</datalist>`;
+  return `<div class="product-search-catalog" id="manifest-product-options" hidden aria-hidden="true">${opcoesBuscaProduto(products).map((choice) => `<span data-product-id="${esc(choice.productId)}" data-value="${esc(choice.value)}" data-name="${esc(choice.name)}" data-code="${esc(choice.code)}"></span>`).join("")}</div>`;
 }
 
 export function validarCadastroRomaneio({ scheduledDate, todayString, items }) {
