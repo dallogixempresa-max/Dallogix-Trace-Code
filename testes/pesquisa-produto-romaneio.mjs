@@ -16,25 +16,23 @@ const products = [
   { id: 9, name: "Ração Inativa", code: "7890009", active: 0 },
 ];
 
-test("sugere produtos ativos pelo nome e pelo código e exclui inativos novos", () => {
+test("sugere uma opção canônica por produto ativo e exclui inativos novos", () => {
   const choices = opcoesBuscaProduto(products);
   assert.deepEqual(choices.map(({ value, productId }) => [value, productId]), [
     ["Ração Cão Adulto — 7890007", "7"],
-    ["7890007 — Ração Cão Adulto", "7"],
     ["Ração Gato — 7890008", "8"],
-    ["7890008 — Ração Gato", "8"],
   ]);
-  assert.ok(choices.some(({ value, productId }) => value === "7890008 — Ração Gato" && productId === "8"));
-  assert.ok(choices.some(({ value }) => value.startsWith("Ração Gato")));
+  assert.ok(choices.some(({ value, productId }) => value === "Ração Gato — 7890008" && productId === "8"));
 });
 
-test("campo mantém o ID existente e gera opções sem inserir texto do catálogo como HTML", () => {
+test("seletor mantém o ID em campo oculto e gera catálogo sem inserir texto como HTML", () => {
   const row = itemRow([{ id: 12, name: "Ração <especial>", code: "X&Y", active: 1 }], "12", 3);
   const options = listaBuscaProdutos([{ id: 12, name: "Ração <especial>", code: "X&Y", active: 1 }]);
-  assert.match(row, /name="item_product_search"/);
+  assert.match(row, /data-product-search/);
   assert.match(row, /name="item_product" value="12"/);
   assert.match(row, /name="item_quantity"[^>]*value="3"/);
-  assert.match(options, /Ração &lt;especial&gt; — X&amp;Y/);
+  assert.match(options, /data-value="Ração &lt;especial&gt; — X&amp;Y"/);
+  assert.equal((options.match(/data-product-id=/g) || []).length, 1);
   assert.doesNotMatch(options, /<especial>/);
   assert.match(campoBuscaProduto(products, "9"), /Ração Inativa — 7890009 \(inativo\)/);
 });
@@ -53,35 +51,63 @@ test("linha de item reconhecido pelo PDF permite busca e destaca produto sem cor
   assert.match(row, /name="item_quantity"[^>]*value="2"/);
 });
 
-test("escolher uma sugestão grava o ID; editar o texto sem escolher limpa a seleção anterior", () => {
+test("escolher uma opção grava o ID e atualiza o rótulo do produto", () => {
   const callbacks = {};
   const productField = { value: "7" };
-  const row = { querySelector: () => productField };
+  const trigger = {
+    title: "Ração Cão Adulto — 7890007",
+    setAttribute() {},
+    focus() {},
+  };
+  const label = {
+    textContent: "Ração Cão Adulto — 7890007",
+    classList: { remove() {} },
+  };
+  const menu = { dataset: {}, classList: { remove() {} }, hidden: false };
+  const results = { id: "manifest-product-results-1", replaceChildren() {} };
   const input = {
-    value: "7890008 — Ração Gato",
+    value: "gato",
     closest(selector) {
       if (selector === "[data-product-search]") return this;
-      if (selector === "tr") return row;
+      if (selector === "[data-product-combobox]") return wrapper;
+      return null;
+    },
+    setAttribute() {},
+    removeAttribute() {},
+  };
+  const wrapper = {
+    querySelector(selector) {
+      return {
+        "[name=\"item_product\"]": productField,
+        "[data-product-trigger]": trigger,
+        "[data-product-label]": label,
+        "[data-product-search]": input,
+        "[data-product-menu]": menu,
+        ".product-search-results": results,
+      }[selector] || null;
+    },
+    contains: () => true,
+  };
+  const option = {
+    dataset: { productId: "8", value: "Ração Gato — 7890008" },
+    closest(selector) {
+      if (selector === "[data-product-option]") return this;
+      if (selector === "[data-product-combobox]") return wrapper;
       return null;
     },
   };
-  const options = [
-    { value: "Ração Cão Adulto — 7890007", dataset: { productId: "7", canonicalValue: "Ração Cão Adulto — 7890007" } },
-    { value: "7890008 — Ração Gato", dataset: { productId: "8", canonicalValue: "Ração Gato — 7890008" } },
-  ];
   const form = {
     dataset: {},
+    ownerDocument: {
+      defaultView: { addEventListener() {}, removeEventListener() {} },
+    },
     addEventListener(type, callback) { callbacks[type] = callback; },
-    contains: () => true,
-    querySelectorAll: () => options,
+    contains: (element) => element === option,
   };
 
   bindManifestCreationForm({ form });
-  callbacks.input({ target: input });
+  callbacks.click({ target: option });
   assert.equal(productField.value, "8");
-  assert.equal(input.value, "Ração Gato — 7890008");
-
-  input.value = "Ração Gato (incompleto)";
-  callbacks.input({ target: input });
-  assert.equal(productField.value, "");
+  assert.equal(label.textContent, "Ração Gato — 7890008");
+  assert.equal(trigger.title, "Ração Gato — 7890008");
 });

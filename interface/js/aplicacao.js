@@ -23,8 +23,8 @@ import { criarTratadorAcoesInterface, instalarInteracoesGlobaisInterface } from 
 import { criarTratadorAcoesRelatorios } from "./controladores/acoes-relatorios.js?v=202611050002";
 import { criarDelegacaoAcoes, criarDespachanteAcoes } from "./controladores/despachante-acoes.js?v=202611050002";
 import { criarCarregadorPaginas } from "./controladores/carregador-paginas.js?v=202611050002";
-import { createLiveViewController } from "./controladores/estado-visualizacao.js?v=202611100001";
-import { createHidScannerCapture, isScannerNoReadMarker } from "./controladores/captura-leitor-hid.js?v=202611100001";
+import { createLiveViewController } from "./controladores/estado-visualizacao.js?v=202611100002";
+import { createHidScannerCapture, isScannerNoReadMarker } from "./controladores/captura-leitor-hid.js?v=202611100002";
 import { createLocalConnectivityController } from "./controladores/conectividade-local.js?v=202611050002";
 import { bindManifestCreationForm, bindManifestEditForm } from "./controladores/formulario-romaneio.js?v=202611100002";
 import { bindProductForm } from "./controladores/formulario-produto.js?v=202611050002";
@@ -481,7 +481,7 @@ const conectividadeLocal = createLocalConnectivityController({
   refreshSettingsView: () => refreshSettingsStatusView(),
   render: () => render(),
   logWarning: (...args) => logFrontend.aviso(...args),
-  serviceWorkerUrl: "/service-worker.js?v=202611100001",
+  serviceWorkerUrl: "/service-worker.js?v=202611100002",
 });
 
 function waitForDocumentStyles() {
@@ -503,7 +503,7 @@ function waitForDocumentStyles() {
 // primeiro render, inclusive quando a rota inicial veio de outra página.
 const SCREEN_STYLES = {
   work: "/telas/operacao/operacao.css?v=202611050002",
-  import: "/telas/importar-romaneio/importar-romaneio.css?v=202611100001",
+  import: "/telas/importar-romaneio/importar-romaneio.css?v=202611100002",
   settings: "/telas/configuracoes/configuracoes.css?v=202611050002",
   dalas: "/telas/dalas/dalas.css?v=202611050002",
   dala: "/telas/dalas/dalas.css?v=202611050002",
