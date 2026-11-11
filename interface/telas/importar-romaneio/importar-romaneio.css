@@ -111,11 +111,11 @@
   overflow-wrap: anywhere;
 }
 
-#manifest-items .product-search-input {
+#manifest-items .product-picker-trigger {
   min-width: 220px;
 }
 
-#manifest-items tr.is-unmatched .product-search-input {
+#manifest-items tr.is-unmatched .product-picker-trigger {
   border-color: #d29724;
   background: #fffdf8;
 }

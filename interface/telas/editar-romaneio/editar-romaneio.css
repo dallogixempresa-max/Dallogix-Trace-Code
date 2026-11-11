@@ -1,6 +1,6 @@
 /* Estilos da tela editar-romaneio; a base responsiva é compartilhada. */
 @import url("/css/responsive.css");
 
-#manifest-items .product-search-input {
+#manifest-items .product-picker-trigger {
   min-width: 220px;
 }
