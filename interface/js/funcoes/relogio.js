@@ -1,4 +1,4 @@
-import { ClienteApi } from "../api/ClienteApi.js?v=202611120003";
+import { ClienteApi } from "../api/ClienteApi.js?v=202611120004";
 
 const state = {
   offsetMs: 0,

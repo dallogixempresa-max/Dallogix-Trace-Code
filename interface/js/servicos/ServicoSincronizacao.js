@@ -1,5 +1,5 @@
-import { exigirRespostaHttp } from "../api/ClienteApi.js?v=202611120003";
-import { logFrontend } from "../utilitarios/LogFrontend.js?v=202611120003";
+import { exigirRespostaHttp } from "../api/ClienteApi.js?v=202611120004";
+import { logFrontend } from "../utilitarios/LogFrontend.js?v=202611120004";
 
 const LIMITE_QUADRO_EVENTO = 256 * 1024;
 const LIMITE_DADOS_EVENTO = 128 * 1024;

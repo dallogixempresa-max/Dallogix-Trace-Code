@@ -1,6 +1,6 @@
-import { setFormFeedback } from "../componentes/form-feedback.js?v=202611120003";
-import { agora } from "../funcoes/relogio.js?v=202611120003";
-import { validarCadastroRomaneio } from "../funcoes/romaneio.js?v=202611120003";
+import { setFormFeedback } from "../componentes/form-feedback.js?v=202611120004";
+import { agora } from "../funcoes/relogio.js?v=202611120004";
+import { validarCadastroRomaneio } from "../funcoes/romaneio.js?v=202611120004";
 
 function dataLocalAtual(now) {
   const date = now();
@@ -14,6 +14,13 @@ function itensDoFormulario(form) {
     product_id: row.querySelector('[name="item_product"]')?.value,
     quantity: row.querySelector('[name="item_quantity"]')?.value,
   }));
+}
+
+function lerDadosFormulario(form, readForm) {
+  const dados = { ...(readForm(form) || {}) };
+  const campoExpedidor = form.querySelector('input[name="expedidor"]');
+  if (campoExpedidor) dados.expedidor = campoExpedidor.value;
+  return dados;
 }
 
 function bloquearBotoes(form, disabled) {
@@ -338,7 +345,7 @@ export function bindManifestCreationForm({
     event.preventDefault();
     if (form.dataset.submitting === "1") return;
 
-    const raw = readForm(form);
+    const raw = lerDadosFormulario(form, readForm);
     const scheduledDate = raw.scheduled_date;
     const items = readItems(form);
     const validationError = validarCadastroRomaneio({
@@ -410,7 +417,7 @@ export function bindManifestEditForm({
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const raw = readForm(form);
+    const raw = lerDadosFormulario(form, readForm);
     const todayString = dataLocalAtual(now);
     if (!raw.scheduled_date || raw.scheduled_date < todayString) {
       notify("Informe uma data igual ou posterior ao dia atual do PC industrial.");
