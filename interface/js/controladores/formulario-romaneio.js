@@ -1,6 +1,6 @@
-import { setFormFeedback } from "../componentes/form-feedback.js?v=202611050002";
-import { agora } from "../funcoes/relogio.js?v=202611050002";
-import { validarCadastroRomaneio } from "../funcoes/romaneio.js?v=202611100002";
+import { setFormFeedback } from "../componentes/form-feedback.js?v=202611120002";
+import { agora } from "../funcoes/relogio.js?v=202611120002";
+import { validarCadastroRomaneio } from "../funcoes/romaneio.js?v=202611120002";
 
 function dataLocalAtual(now) {
   const date = now();
@@ -36,9 +36,8 @@ function vincularBuscaProdutos(form) {
   function fechar(input, restoreFocus = false) {
     const wrapper = input.closest("[data-product-combobox]");
     const menu = wrapper?.querySelector("[data-product-menu]");
-    const trigger = wrapper?.querySelector("[data-product-trigger]");
     const results = wrapper?.querySelector(".product-search-results");
-    if (!wrapper || !menu || !trigger || !results) return;
+    if (!wrapper || !menu || !results) return;
     menu.classList.remove("is-open");
     if (menu.dataset.popoverOpen === "1" && typeof menu.hidePopover === "function") {
       menu.hidePopover();
@@ -47,17 +46,15 @@ function vincularBuscaProdutos(form) {
       menu.hidden = true;
     }
     results.replaceChildren();
-    input.value = "";
     input.setAttribute("aria-expanded", "false");
     input.removeAttribute("aria-activedescendant");
-    trigger.setAttribute("aria-expanded", "false");
     if (activeSearchInput === input) {
       activeSearchInput = null;
       view.removeEventListener("scroll", closeOnScroll, true);
       view.removeEventListener("resize", closeOnResize);
       view.removeEventListener("pointerdown", closeOnOutsidePointer, true);
     }
-    if (restoreFocus) trigger.focus({ preventScroll: true });
+    if (restoreFocus) input.focus({ preventScroll: true });
   }
 
   function closeOnScroll(event) {
@@ -98,48 +95,36 @@ function vincularBuscaProdutos(form) {
   const escolher = (input, option) => {
     const wrapper = input.closest("[data-product-combobox]");
     const productField = wrapper?.querySelector('[name="item_product"]');
-    const trigger = wrapper?.querySelector("[data-product-trigger]");
-    const label = wrapper?.querySelector("[data-product-label]");
-    if (!wrapper || !productField || !trigger || !label) return;
+    if (!wrapper || !productField) return;
     productField.value = option.dataset.productId || "";
-    label.textContent = option.dataset.value || "";
-    label.classList.remove("is-placeholder");
-    trigger.title = option.dataset.value || "";
+    input.value = option.dataset.value || "";
+    input.dataset.selectedValue = input.value;
+    input.classList.remove("is-placeholder");
     fechar(input);
-    trigger.focus({ preventScroll: true });
+    input.focus({ preventScroll: true });
   };
 
   const posicionarMenu = (input) => {
     const wrapper = input.closest("[data-product-combobox]");
     const menu = wrapper?.querySelector("[data-product-menu]");
-    const trigger = wrapper?.querySelector("[data-product-trigger]");
-    if (!menu || !trigger) return;
-    const triggerRect = trigger.getBoundingClientRect();
-    const maxWidth = Math.max(160, view.innerWidth - 32);
-    const menuWidth = Math.min(Math.max(triggerRect.width, Math.min(320, maxWidth)), maxWidth);
+    if (!menu) return;
+    const inputRect = input.getBoundingClientRect();
+    const maxWidth = Math.max(160, view.innerWidth - 24);
+    const menuWidth = Math.min(inputRect.width, maxWidth);
+    const maxHeight = Math.max(80, Math.min(360, view.innerHeight - inputRect.bottom - 16));
     menu.style.width = `${menuWidth}px`;
-    menu.style.maxHeight = `${Math.min(360, view.innerHeight * 0.45)}px`;
-    menu.style.left = `${Math.max(16, Math.min(triggerRect.left, view.innerWidth - menuWidth - 16))}px`;
-    menu.style.top = "8px";
-
-    const menuHeight = menu.getBoundingClientRect().height;
-    const spaceBelow = view.innerHeight - triggerRect.bottom - 8;
-    const spaceAbove = triggerRect.top - 8;
-    const opensUp = spaceBelow < menuHeight && spaceAbove > spaceBelow;
-    const top = opensUp
-      ? Math.max(8, triggerRect.top - menuHeight - 6)
-      : Math.min(view.innerHeight - menuHeight - 8, triggerRect.bottom + 6);
-    menu.style.top = `${top}px`;
+    menu.style.maxHeight = `${maxHeight}px`;
+    menu.style.left = `${Math.max(12, Math.min(inputRect.left, view.innerWidth - menuWidth - 12))}px`;
+    menu.style.top = `${inputRect.bottom + 5}px`;
   };
 
   const mostrarResultados = (input) => {
     const wrapper = input.closest("[data-product-combobox]");
     const menu = wrapper?.querySelector("[data-product-menu]");
-    const trigger = wrapper?.querySelector("[data-product-trigger]");
     const results = wrapper?.querySelector(".product-search-results");
     const catalog = form.querySelectorAll("#manifest-product-options [data-product-id]");
     const query = normalized(input.value.trim());
-    if (!wrapper || !menu || !trigger || !results) return;
+    if (!wrapper || !menu || !results) return;
 
     const matches = [...catalog]
       .filter((option) => !query || normalized(option.dataset.value).includes(query))
@@ -209,20 +194,17 @@ function vincularBuscaProdutos(form) {
 
     posicionarMenu(input);
     input.setAttribute("aria-expanded", "true");
-    trigger.setAttribute("aria-expanded", "true");
   };
 
-  const abrir = (trigger) => {
-    const wrapper = trigger.closest("[data-product-combobox]");
-    const input = wrapper?.querySelector("[data-product-search]");
+  const abrir = (input) => {
+    const wrapper = input.closest("[data-product-combobox]");
     const menu = wrapper?.querySelector("[data-product-menu]");
     if (!wrapper || !input || !menu) return;
     if (menu.classList.contains("is-open")) {
-      fechar(input);
+      mostrarResultados(input);
       return;
     }
     fecharOutros(wrapper);
-    input.value = "";
     menu.classList.add("is-open");
     if (typeof menu.showPopover === "function") {
       menu.showPopover();
@@ -237,12 +219,23 @@ function vincularBuscaProdutos(form) {
 
   form.addEventListener("input", (event) => {
     const input = event.target.closest?.("[data-product-search]");
-    if (input && form.contains(input)) mostrarResultados(input);
+    if (!input || !form.contains(input)) return;
+    if (input.value !== input.dataset.selectedValue) {
+      const productField = input.closest("[data-product-combobox]")?.querySelector('[name="item_product"]');
+      if (productField) productField.value = "";
+      input.dataset.selectedValue = "";
+    }
+    input.classList.remove("is-placeholder");
+    abrir(input);
   });
 
   form.addEventListener("focusin", (event) => {
     const wrapper = event.target.closest?.("[data-product-combobox]");
     fecharOutros(wrapper && form.contains(wrapper) ? wrapper : null);
+    const input = event.target.closest?.("[data-product-search]");
+    if (input && form.contains(input)) {
+      abrir(input);
+    }
   });
 
   form.addEventListener("focusout", (event) => {
@@ -251,15 +244,16 @@ function vincularBuscaProdutos(form) {
     form.ownerDocument.defaultView.setTimeout(() => {
       const wrapper = input.closest("[data-product-combobox]");
       if (!wrapper?.contains(form.ownerDocument.activeElement)) fechar(input);
-    }, 0);
+    }, 100);
+  });
+
+  form.addEventListener("pointerdown", (event) => {
+    if (event.target.closest?.("[data-product-option]") && event.pointerType === "mouse") {
+      event.preventDefault();
+    }
   });
 
   form.addEventListener("click", (event) => {
-    const trigger = event.target.closest?.("[data-product-trigger]");
-    if (trigger && form.contains(trigger)) {
-      abrir(trigger);
-      return;
-    }
     const option = event.target.closest?.("[data-product-option]");
     if (option && form.contains(option)) {
       const input = option.closest("[data-product-combobox]")?.querySelector("[data-product-search]");
@@ -270,15 +264,9 @@ function vincularBuscaProdutos(form) {
   });
 
   form.addEventListener("keydown", (event) => {
-    const trigger = event.target.closest?.("[data-product-trigger]");
-    if (trigger && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
-      event.preventDefault();
-      abrir(trigger);
-      return;
-    }
-
     const input = event.target.closest?.("[data-product-search]");
     if (!input) return;
+    if (!input.closest("[data-product-menu]")?.classList.contains("is-open")) abrir(input);
     const results = input.closest("[data-product-combobox]")?.querySelector(".product-search-results");
     const options = [...(results?.querySelectorAll("[data-product-option]") || [])];
     const activeIndex = options.findIndex((option) => option.getAttribute("aria-selected") === "true");
@@ -337,7 +325,7 @@ export function bindManifestCreationForm({
   vincularBuscaProdutos(form);
 
   // Carregar instalações disponíveis para o select
-  const installationSelect = form.querySelector("[name='installation_id']");
+  const installationSelect = form.querySelector?.("[name='installation_id']");
   if (installationSelect) {
     store.loadInstallations().then(() => {
       preencherSelectInstalacoes(installationSelect, store.state.installations);

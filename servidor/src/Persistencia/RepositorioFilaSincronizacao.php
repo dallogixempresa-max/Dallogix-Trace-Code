@@ -136,7 +136,7 @@ final class RepositorioFilaSincronizacao
     }
 
     /** @param list<array<string,mixed>> $events */
-    public function marcarComoFalha(array $events, string $error, bool $permanent, int $maxAttempts): void
+    public function marcarComoFalha(array $events, string $error, bool $permanent): void
     {
         $incrementPermanentAttempts = $permanent ? 1 : 0;
         $this->connection->beginTransaction();
@@ -159,10 +159,6 @@ final class RepositorioFilaSincronizacao
                 ]);
                 if ($failed->rowCount() !== 1) {
                     throw new RuntimeException("Evento de sincronização não está mais reservado para falha.");
-                }
-                $nextPermanentAttempts = (int) ($event["attempts"] ?? 0) + $incrementPermanentAttempts;
-                if ($permanent && $nextPermanentAttempts >= $maxAttempts) {
-                    $this->moverParaFilaMorta($event, $error);
                 }
             }
             $this->connection->commit();
@@ -233,38 +229,4 @@ final class RepositorioFilaSincronizacao
         ], $statement->fetchAll());
     }
 
-    /** @param array<string,mixed> $event */
-    private function moverParaFilaMorta(array $event, string $error): void
-    {
-        $insert = $this->connection->prepare(
-            "INSERT INTO sync_dead_letter_queue
-                (original_event_id, company_id, event_uuid, event_type, aggregate_id, payload, last_error, failed_attempts)
-             SELECT id, company_id, event_uuid, aggregate_type, aggregate_id, payload, :last_error, attempts
-             FROM fila_sincronizacao
-             WHERE id = :id AND company_id = :company_id AND status = 'ERRO'
-             ON DUPLICATE KEY UPDATE
-                last_error = VALUES(last_error), failed_attempts = VALUES(failed_attempts),
-                resolved_at = NULL, resolved_by = NULL, resolution_note = NULL",
-        );
-        $insert->execute([
-            "id" => (int) $event["id"],
-            "company_id" => (int) $event["company_id"],
-            "last_error" => $error,
-        ]);
-        if ($insert->rowCount() < 1) {
-            throw new RuntimeException("Não foi possível arquivar o evento na fila morta.");
-        }
-
-        $delete = $this->connection->prepare(
-            "DELETE FROM fila_sincronizacao
-             WHERE id = :id AND company_id = :company_id AND status = 'ERRO'",
-        );
-        $delete->execute([
-            "id" => (int) $event["id"],
-            "company_id" => (int) $event["company_id"],
-        ]);
-        if ($delete->rowCount() !== 1) {
-            throw new RuntimeException("Evento não foi removido da fila após arquivamento.");
-        }
-    }
 }

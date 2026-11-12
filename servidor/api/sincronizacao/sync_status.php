@@ -37,12 +37,6 @@ if ($oldestQueueAt !== null && trim((string) $oldestQueueAt) !== "") {
     }
 }
 $maximumQueueAgeSeconds = max(60, (int) (getenv("HEALTH_MAX_QUEUE_AGE_SECONDS") ?: 604800));
-$deadLetter = $pdo->prepare(
-    "SELECT COUNT(*) FROM sync_dead_letter_queue
-     WHERE resolved_at IS NULL AND company_id = :company_id",
-);
-$deadLetter->execute($params);
-$deadLetterPending = (int) $deadLetter->fetchColumn();
 $remoteUrl = trim((string) (getenv("SYNC_REMOTE_BATCH_URL") ?: ""));
 if ($remoteUrl === "") {
     $remoteUrl = trim((string) (getenv("SYNC_REMOTE_URL") ?: ""));
@@ -136,7 +130,6 @@ json_response([
             "oldest_age_seconds" => $oldestQueueAgeSeconds,
             "maximum_age_seconds" => $maximumQueueAgeSeconds,
             "stale" => $oldestQueueAgeSeconds !== null && $oldestQueueAgeSeconds > $maximumQueueAgeSeconds,
-            "dead_letter_pending" => $deadLetterPending,
         ],
         "remote_configured" => $remoteConfigured,
         "central_sync" => $centralSync,

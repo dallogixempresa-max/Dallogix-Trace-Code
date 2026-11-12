@@ -1,6 +1,6 @@
 import { esc } from "../../js/funcoes/html.js";
-import { dataHora, numero } from "../../js/funcoes/formato.js?v=202611050002";
-import { companyGrid, pageHeader } from "../../js/funcoes/view.js?v=202611050002";
+import { dataHora, numero } from "../../js/funcoes/formato.js?v=202611120002";
+import { companyGrid, pageHeader } from "../../js/funcoes/view.js?v=202611120002";
 
 export function masterHome(store) {
   const companies = Array.isArray(store.state.companies) ? store.state.companies : [];

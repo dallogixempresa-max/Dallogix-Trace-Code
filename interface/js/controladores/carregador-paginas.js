@@ -48,11 +48,7 @@ export function criarCarregadorPaginas({
     dalas: () => [store.loadEquipments(), store.loadDalaStatuses()],
     dala: () => [carregarDetalheDala(idDaConsulta())],
     "dala-edit": () => [store.loadEquipment(idDaConsulta())],
-    "error-logs": () => [
-      store.loadErrorLogs(),
-      store.loadTechnicalDiagnostics(),
-      store.loadDeadLetters(),
-    ],
+    "error-logs": () => [store.loadErrorLogs(), store.loadTechnicalDiagnostics()],
     users: () => [store.loadUsers()],
   };
 
@@ -75,7 +71,7 @@ export function criarCarregadorPaginas({
     companies: () => [store.loadCompanies()],
     "master-home": () => [store.loadCompanies()],
     company: () => [store.loadCompanyDetail()],
-    "error-logs": () => [store.loadErrorLogs(), store.loadTechnicalDiagnostics(), store.loadDeadLetters()],
+    "error-logs": () => [store.loadErrorLogs(), store.loadTechnicalDiagnostics()],
   };
 
   async function carregarStatusEquipamentos() {

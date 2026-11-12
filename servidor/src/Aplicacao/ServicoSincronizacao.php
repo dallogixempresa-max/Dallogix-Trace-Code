@@ -147,6 +147,86 @@ final class ServicoSincronizacao
         }
     }
 
+    /** Recupera uma vez todos os eventos arquivados para a fila de envio automático. */
+    public function reenfileirarEventosArquivadosUmaVez(): int
+    {
+        if (!function_exists("\\trace_e_instalacao_local") || !\trace_e_instalacao_local()) {
+            return 0;
+        }
+
+        $this->connection->beginTransaction();
+        try {
+            $marker = $this->connection->prepare(
+                "INSERT IGNORE INTO sync_backfill_runs (backfill_key)
+                 VALUES ('replay_dead_letter_queue_202611')",
+            );
+            $marker->execute();
+            if ($marker->rowCount() !== 1) {
+                $this->connection->commit();
+                return 0;
+            }
+
+            $entries = $this->connection->query(
+                "SELECT id, company_id, event_uuid, event_type, aggregate_id, payload
+                 FROM sync_dead_letter_queue
+                 WHERE resolved_at IS NULL AND company_id IS NOT NULL
+                 ORDER BY id ASC FOR UPDATE",
+            );
+            $rows = $entries->fetchAll(PDO::FETCH_ASSOC);
+            $exists = $this->connection->prepare(
+                "SELECT id FROM fila_sincronizacao
+                 WHERE company_id = :company_id AND event_uuid = :event_uuid LIMIT 1",
+            );
+            $requeue = $this->connection->prepare(
+                "INSERT INTO fila_sincronizacao
+                    (company_id, event_uuid, aggregate_type, aggregate_id, payload, status, attempts, last_error, available_at)
+                 VALUES (:company_id, :event_uuid, :event_type, :aggregate_id, :payload, 'PENDENTE', 0, NULL, NOW())",
+            );
+            $resolve = $this->connection->prepare(
+                "UPDATE sync_dead_letter_queue
+                 SET resolved_at = NOW(3), resolved_by = NULL,
+                     resolution_note = 'Recuperado automaticamente para nova tentativa de sincronização.'
+                 WHERE id = :id AND resolved_at IS NULL",
+            );
+            $requeued = 0;
+            foreach ($rows as $entry) {
+                $companyId = (int) $entry["company_id"];
+                $exists->execute([
+                    "company_id" => $companyId,
+                    "event_uuid" => $entry["event_uuid"],
+                ]);
+                if ($exists->fetchColumn() === false) {
+                    $requeue->execute([
+                        "company_id" => $companyId,
+                        "event_uuid" => $entry["event_uuid"],
+                        "event_type" => $entry["event_type"],
+                        "aggregate_id" => (int) $entry["aggregate_id"],
+                        "payload" => $entry["payload"],
+                    ]);
+                    $requeued++;
+                }
+                $resolve->execute(["id" => (int) $entry["id"]]);
+                if ($resolve->rowCount() !== 1) {
+                    throw new \RuntimeException("Evento arquivado mudou durante a recuperação automática.");
+                }
+            }
+
+            $saveCount = $this->connection->prepare(
+                "UPDATE sync_backfill_runs SET affected_events = :affected_events
+                 WHERE backfill_key = 'replay_dead_letter_queue_202611'",
+            );
+            $saveCount->execute(["affected_events" => $requeued]);
+            $this->connection->commit();
+
+            return $requeued;
+        } catch (\Throwable $exception) {
+            if ($this->connection->inTransaction()) {
+                $this->connection->rollBack();
+            }
+            throw $exception;
+        }
+    }
+
     /**
      * Reprocessa uma vez leituras arquivadas por não encontrarem o carregamento
      * remoto, desde que o carregamento local já possua esse mapeamento.
@@ -644,13 +724,12 @@ final class ServicoSincronizacao
         bool $permanentOverride = false,
     ): void
     {
-        $maxAttempts = max(1, min(100, (int) (getenv("SYNC_MAX_ATTEMPTS") ?: 5)));
         $permanent = $permanentOverride || (
             $httpCode >= 400 &&
             $httpCode < 500 &&
             !in_array($httpCode, [408, 429], true)
         );
-        $this->repositorioFila->marcarComoFalha($events, $error, $permanent, $maxAttempts);
+        $this->repositorioFila->marcarComoFalha($events, $error, $permanent);
     }
 
     private function recuperarReservasVencidas(): void

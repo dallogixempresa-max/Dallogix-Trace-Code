@@ -1,4 +1,4 @@
-import { erroRespostaHttp } from "../api/ClienteApi.js?v=202611050002";
+import { erroRespostaHttp } from "../api/ClienteApi.js?v=202611120002";
 
 const PAGINACAO_COMANDOS_PADRAO = { page: 1, per_page: 30, total: 0, pages: 1 };
 const PAGINACAO_LOGS_PADRAO = { page: 1, per_page: 100, total: 0, pages: 1 };
@@ -162,21 +162,4 @@ export class ServicoObservabilidade {
     return this.state.technicalDiagnostics;
   }
 
-  async loadDeadLetters() {
-    const response = await this.api.fetch("/api/sync_dead_letter.php");
-    const result = await this.jsonResponse(response, "Não foi possível carregar a fila morta.");
-    this.state.deadLetters = result.data || [];
-    return this.state.deadLetters;
-  }
-
-  async updateDeadLetter(id, action, resolutionNote) {
-    const response = await this.api.fetch(`/api/sync_dead_letter.php?id=${encodeURIComponent(id)}`, {
-      method: "PATCH",
-      headers: this.jsonHeaders(),
-      body: JSON.stringify({ id, action, resolution_note: resolutionNote }),
-    });
-    const result = await this.jsonResponse(response, "Não foi possível atualizar a fila morta.");
-    await Promise.all([this.loadDeadLetters(), this.loadTechnicalDiagnostics()]);
-    return result.data;
-  }
 }

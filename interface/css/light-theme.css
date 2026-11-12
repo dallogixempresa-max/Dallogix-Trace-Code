@@ -3072,18 +3072,15 @@ textarea {
   position: relative;
   z-index: 1;
   width: 100%;
-  min-width: 220px;
+  min-width: 0;
 }
 
 .product-search-combobox:focus-within {
   z-index: 20;
 }
 
-.product-search-combobox > .product-picker-trigger {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+.product-search-combobox > .product-picker-search {
+  display: block;
   box-sizing: border-box;
   width: 100%;
   min-height: var(--trace-altura-controle, 46px);
@@ -3097,48 +3094,23 @@ textarea {
   font-size: 14px;
   font-weight: 400;
   line-height: 1.3;
-  text-align: left;
-  box-shadow: none;
-  cursor: pointer;
-}
-
-.product-search-combobox > .product-picker-trigger:hover:not(:disabled) {
-  border-color: #b8cbd6;
-  background: #fff;
-  transform: none;
   box-shadow: none;
 }
 
-.product-search-combobox > .product-picker-trigger[aria-expanded="true"] {
-  border-color: var(--blue);
-  box-shadow: 0 0 0 3px rgba(14, 159, 193, 0.16);
-}
-
-.product-picker-label {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.product-picker-label.is-placeholder {
+.product-search-combobox > .product-picker-search::placeholder {
   color: #8793a0;
 }
 
-.product-picker-chevron {
-  width: 8px;
-  height: 8px;
-  flex: 0 0 8px;
-  margin-top: -4px;
-  border-right: 2px solid #617586;
-  border-bottom: 2px solid #617586;
-  transform: rotate(45deg);
-  transition: transform 120ms ease, margin 120ms ease;
+.product-search-combobox > .product-picker-search:hover:not(:disabled) {
+  border-color: #b8cbd6;
+  background: #fff;
+  box-shadow: none;
 }
 
-.product-picker-trigger[aria-expanded="true"] .product-picker-chevron {
-  margin-top: 4px;
-  transform: rotate(225deg);
+.product-search-combobox > .product-picker-search:focus {
+  outline: 0;
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px rgba(14, 159, 193, 0.16);
 }
 
 .product-search-menu {
@@ -3146,13 +3118,12 @@ textarea {
   z-index: 9999;
   inset: auto;
   display: none;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 6px;
+  grid-template-rows: minmax(0, 1fr);
   box-sizing: border-box;
   max-height: min(360px, 45vh);
-  overflow: hidden;
+  overflow: auto;
   margin: 0;
-  padding: 8px;
+  padding: 5px;
   border: 1px solid #d7e2e9;
   border-radius: 10px;
   background: #fff;
@@ -3163,23 +3134,11 @@ textarea {
   display: grid;
 }
 
-.product-search-menu .product-picker-search {
-  box-sizing: border-box;
-  width: 100%;
-  min-height: 42px;
-  margin: 0;
-  padding: 9px 11px;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  font: inherit;
-  font-size: 14px;
-}
-
 .product-search-results {
   display: grid;
   min-height: 0;
-  max-height: min(294px, calc(45vh - 64px));
-  overflow: auto;
+  max-height: inherit;
+  overflow: visible;
   align-content: start;
   overscroll-behavior: contain;
 }
@@ -3191,8 +3150,9 @@ textarea {
   justify-content: space-between;
   gap: 14px;
   width: 100%;
+  min-height: 42px;
   margin: 0;
-  padding-inline: 11px;
+  padding: 9px 11px;
   border: 0;
   border-radius: 7px;
   background: transparent;

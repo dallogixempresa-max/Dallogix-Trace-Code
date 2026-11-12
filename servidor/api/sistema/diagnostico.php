@@ -58,12 +58,6 @@ $errors = $pdo->prepare(
 );
 $errors->execute($companyParams);
 
-$deadLetter = $pdo->prepare(
-    "SELECT COUNT(*) FROM sync_dead_letter_queue WHERE resolved_at IS NULL"
-        . ($companyId === null ? "" : " AND company_id = :company_id"),
-);
-$deadLetter->execute($companyParams);
-
 $installation = null;
 if ($companyId !== null) {
     $installationQuery = $pdo->prepare(
@@ -149,7 +143,6 @@ json_response([
         "devices" => $devices->fetchAll(),
         "commands" => $commands->fetchAll(),
         "errors" => $errors->fetchAll(),
-        "dead_letter_pending" => (int) $deadLetter->fetchColumn(),
         "installation" => $installation,
         "disk" => $disk,
         "checked_at" => date("c"),

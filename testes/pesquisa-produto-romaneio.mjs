@@ -51,22 +51,16 @@ test("linha de item reconhecido pelo PDF permite busca e destaca produto sem cor
   assert.match(row, /name="item_quantity"[^>]*value="2"/);
 });
 
-test("escolher uma opção grava o ID e atualiza o rótulo do produto", () => {
+test("escolher uma opção grava o ID e mantém o texto pesquisável", () => {
   const callbacks = {};
   const productField = { value: "7" };
-  const trigger = {
-    title: "Ração Cão Adulto — 7890007",
-    setAttribute() {},
-    focus() {},
-  };
-  const label = {
-    textContent: "Ração Cão Adulto — 7890007",
-    classList: { remove() {} },
-  };
   const menu = { dataset: {}, classList: { remove() {} }, hidden: false };
   const results = { id: "manifest-product-results-1", replaceChildren() {} };
   const input = {
     value: "gato",
+    dataset: {},
+    classList: { remove() {} },
+    focus() {},
     closest(selector) {
       if (selector === "[data-product-search]") return this;
       if (selector === "[data-product-combobox]") return wrapper;
@@ -79,8 +73,6 @@ test("escolher uma opção grava o ID e atualiza o rótulo do produto", () => {
     querySelector(selector) {
       return {
         "[name=\"item_product\"]": productField,
-        "[data-product-trigger]": trigger,
-        "[data-product-label]": label,
         "[data-product-search]": input,
         "[data-product-menu]": menu,
         ".product-search-results": results,
@@ -108,6 +100,6 @@ test("escolher uma opção grava o ID e atualiza o rótulo do produto", () => {
   bindManifestCreationForm({ form });
   callbacks.click({ target: option });
   assert.equal(productField.value, "8");
-  assert.equal(label.textContent, "Ração Gato — 7890008");
-  assert.equal(trigger.title, "Ração Gato — 7890008");
+  assert.equal(input.value, "Ração Gato — 7890008");
+  assert.equal(input.dataset.selectedValue, "Ração Gato — 7890008");
 });
