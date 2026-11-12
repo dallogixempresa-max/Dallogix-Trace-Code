@@ -1,6 +1,6 @@
-import { setFormFeedback } from "../componentes/form-feedback.js?v=202611120001";
-import { agora } from "../funcoes/relogio.js?v=202611120001";
-import { validarCadastroRomaneio } from "../funcoes/romaneio.js?v=202611120001";
+import { setFormFeedback } from "../componentes/form-feedback.js?v=202611120002";
+import { agora } from "../funcoes/relogio.js?v=202611120002";
+import { validarCadastroRomaneio } from "../funcoes/romaneio.js?v=202611120002";
 
 function dataLocalAtual(now) {
   const date = now();
@@ -325,7 +325,7 @@ export function bindManifestCreationForm({
   vincularBuscaProdutos(form);
 
   // Carregar instalações disponíveis para o select
-  const installationSelect = form.querySelector("[name='installation_id']");
+  const installationSelect = form.querySelector?.("[name='installation_id']");
   if (installationSelect) {
     store.loadInstallations().then(() => {
       preencherSelectInstalacoes(installationSelect, store.state.installations);
