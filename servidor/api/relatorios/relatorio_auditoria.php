@@ -213,9 +213,12 @@ if ($publishedStorageRoot !== false) {
 if ($loadIds !== []) {
     expirar_solicitacoes_imagem_keyence($pdo, null, $loadIds);
     $pendingCaptures = $pdo->prepare(
-        "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia
-         WHERE carregamento_id IN (" . implode(",", array_fill(0, count($loadIds), "?")) . ")
-           AND status IN ('PENDENTE', 'CAPTURANDO')",
+        "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia i
+         WHERE i.carregamento_id IN (" . implode(",", array_fill(0, count($loadIds), "?")) . ")
+           AND i.status IN ('PENDENTE', 'CAPTURANDO')
+           AND (i.sensor_event_id IS NULL OR EXISTS (
+             SELECT 1 FROM eventos_sensor s WHERE s.id = i.sensor_event_id AND s.conta_na_meta = 1
+           ))",
     );
     $pendingCaptures->execute($loadIds);
     if ((int) $pendingCaptures->fetchColumn() > 0) {
@@ -227,7 +230,7 @@ if ($loadIds !== []) {
            ON r.sensor_event_id = l.sensor_event_id
           AND r.carregamento_id = l.carregamento_id AND r.reason = 'SEM_LEITURA'
          WHERE l.carregamento_id IN (" . implode(",", array_fill(0, count($loadIds), "?")) . ")
-           AND l.result = 'SEM_LEITURA'
+           AND l.result = 'SEM_LEITURA' AND l.conta_na_meta = 1
            AND (r.id IS NULL OR r.status <> 'CAPTURADA')",
     );
     $missingRequests->execute($loadIds);
@@ -239,9 +242,12 @@ if ($loadIds !== []) {
         ], 409);
     }
     $uncapturedExcessRequests = $pdo->prepare(
-        "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia
-         WHERE carregamento_id IN (" . implode(",", array_fill(0, count($loadIds), "?")) . ")
-           AND reason = 'EXCESSO' AND status <> 'CAPTURADA'",
+        "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia i
+         WHERE i.carregamento_id IN (" . implode(",", array_fill(0, count($loadIds), "?")) . ")
+           AND i.reason = 'EXCESSO' AND i.status <> 'CAPTURADA'
+           AND (i.sensor_event_id IS NULL OR EXISTS (
+             SELECT 1 FROM eventos_sensor s WHERE s.id = i.sensor_event_id AND s.conta_na_meta = 1
+           ))",
     );
     $uncapturedExcessRequests->execute($loadIds);
     $uncapturedExcessCount = (int) $uncapturedExcessRequests->fetchColumn();
@@ -257,7 +263,7 @@ if ($loadIds !== []) {
            ON r.sensor_event_id = l.sensor_event_id
           AND r.carregamento_id = l.carregamento_id AND r.reason = 'EXCESSO'
          WHERE l.carregamento_id IN (" . implode(",", array_fill(0, count($loadIds), "?")) . ")
-           AND l.result = 'EXCESSO' AND l.sensor_event_id IS NOT NULL
+           AND l.result = 'EXCESSO' AND l.conta_na_meta = 1 AND l.sensor_event_id IS NOT NULL
            AND (r.id IS NULL OR r.status <> 'CAPTURADA')",
     );
     $missingExcessEvidence->execute($loadIds);
@@ -274,16 +280,17 @@ $excessEvidenceCount = 0;
 $excessImagesCount = 0;
 if ($loadIds !== []) {
     $noReadCountQuery = $pdo->prepare(
-        "SELECT COUNT(*) FROM leituras WHERE carregamento_id IN (" . implode(",", array_fill(0, count($loadIds), "?")) . ") AND result = 'SEM_LEITURA'",
+        "SELECT COUNT(*) FROM leituras WHERE carregamento_id IN (" . implode(",", array_fill(0, count($loadIds), "?")) . ") AND result = 'SEM_LEITURA' AND conta_na_meta = 1",
     );
     $noReadCountQuery->execute($loadIds);
     $noReadCount = (int) $noReadCountQuery->fetchColumn();
     $excessEvidenceCountQuery = $pdo->prepare(
         "SELECT COUNT(*) AS total,
                 SUM(CASE WHEN status = 'CAPTURADA' THEN 1 ELSE 0 END) AS captured
-         FROM solicitacoes_imagens_evidencia
-         WHERE carregamento_id IN (" . implode(",", array_fill(0, count($loadIds), "?")) . ")
-           AND reason = 'EXCESSO'",
+         FROM solicitacoes_imagens_evidencia i
+         LEFT JOIN eventos_sensor s ON s.id = i.sensor_event_id
+         WHERE i.carregamento_id IN (" . implode(",", array_fill(0, count($loadIds), "?")) . ")
+           AND i.reason = 'EXCESSO' AND (i.sensor_event_id IS NULL OR s.conta_na_meta = 1)",
     );
     $excessEvidenceCountQuery->execute($loadIds);
     $excessEvidenceCounts = $excessEvidenceCountQuery->fetch(PDO::FETCH_ASSOC) ?: [];
@@ -394,13 +401,14 @@ $lastLoad = $loadRows !== [] ? $loadRows[array_key_last($loadRows)] : [];
 $items = $pdo->prepare("SELECT p.name, COALESCE(MIN(pc.barcode), p.code, '—') AS barcode, SUM(ri.planned_quantity) AS planned_quantity,
     GREATEST(0, COALESCE((SELECT COUNT(*) FROM leituras l JOIN carregamentos c ON c.id = l.carregamento_id
       WHERE c.romaneio_id = ri.romaneio_id
-        AND l.result = 'VALIDO' AND l.product_id = ri.product_id), 0) - COALESCE((SELECT SUM(ret.quantity) FROM retornos ret
+        AND l.result = 'VALIDO' AND l.conta_na_meta = 1 AND l.product_id = ri.product_id), 0) - COALESCE((SELECT SUM(ret.quantity) FROM retornos ret
       JOIN carregamentos c ON c.id = ret.carregamento_id
       JOIN leituras lr ON lr.id = ret.leitura_id
-      WHERE c.romaneio_id = ri.romaneio_id AND lr.product_id = ri.product_id), 0)) AS moved_quantity,
+      WHERE c.romaneio_id = ri.romaneio_id AND lr.conta_na_meta = 1
+        AND lr.product_id = ri.product_id), 0)) AS moved_quantity,
     (SELECT COUNT(*) FROM leituras l JOIN carregamentos c ON c.id = l.carregamento_id
       WHERE c.romaneio_id = ri.romaneio_id
-        AND l.result = 'SEM_LEITURA'
+        AND l.result = 'SEM_LEITURA' AND l.conta_na_meta = 1
         AND NOT EXISTS (SELECT 1 FROM retornos rt WHERE rt.leitura_id = l.id)
         AND (
           l.product_id = ri.product_id
@@ -436,15 +444,17 @@ foreach ($loadIds as $index => $loadingId) {
 }
 if ($loadIds !== []) {
     $passageQuery = $pdo->prepare(
-        "SELECT id, carregamento_id, device_detected_at,
+        "SELECT id, carregamento_id, device_detected_at, event_at_epoch_ms, conta_na_meta,
                 CAST(ROUND(UNIX_TIMESTAMP(detected_at) * 1000) AS UNSIGNED) AS server_detected_at_epoch_ms
          FROM eventos_sensor WHERE carregamento_id IN ({$placeholders})",
     );
     $passageQuery->execute($loadIds);
     $passages = array_map(static function (array $passage): array {
-        $passage["event_at_epoch_ms"] = $passage["device_detected_at"] !== null
-            ? trace_sql_datetime_to_epoch_ms((string) $passage["device_detected_at"])
-            : (int) $passage["server_detected_at_epoch_ms"];
+        $passage["event_at_epoch_ms"] = $passage["event_at_epoch_ms"] !== null
+            ? (int) $passage["event_at_epoch_ms"]
+            : ($passage["device_detected_at"] !== null
+                ? trace_sql_datetime_to_epoch_ms((string) $passage["device_detected_at"])
+                : (int) $passage["server_detected_at_epoch_ms"]);
         return $passage;
     }, $passageQuery->fetchAll(PDO::FETCH_ASSOC));
     usort($passages, static fn(array $left, array $right): int =>
@@ -455,6 +465,10 @@ if ($loadIds !== []) {
     $passageNumbers = [];
     foreach ($passages as $passage) {
         $loadingId = (int) $passage["carregamento_id"];
+        if ((int) $passage["conta_na_meta"] !== 1) {
+            $sackReferencesByEvent[(int) $passage["id"]] = "Passagem durante pausa · não contabilizada";
+            continue;
+        }
         $passageNumbers[$loadingId] = ($passageNumbers[$loadingId] ?? 0) + 1;
         $operationSummary["passages"]++;
         $sackReferencesByEvent[(int) $passage["id"]] =
@@ -463,7 +477,7 @@ if ($loadIds !== []) {
 
     $readingCounts = $pdo->prepare(
         "SELECT result, COUNT(*) AS quantity FROM leituras
-         WHERE carregamento_id IN ({$placeholders}) GROUP BY result",
+         WHERE carregamento_id IN ({$placeholders}) AND conta_na_meta = 1 GROUP BY result",
     );
     $readingCounts->execute($loadIds);
     foreach ($readingCounts->fetchAll(PDO::FETCH_ASSOC) as $readingCount) {
@@ -473,7 +487,7 @@ if ($loadIds !== []) {
     }
     $scannerCount = $pdo->prepare(
         "SELECT COUNT(*) FROM leituras
-         WHERE carregamento_id IN ({$placeholders}) AND barcode IS NOT NULL
+         WHERE carregamento_id IN ({$placeholders}) AND conta_na_meta = 1 AND barcode IS NOT NULL
            AND result IN ('VALIDO', 'PRODUTO_INCORRETO', 'EXCESSO')",
     );
     $scannerCount->execute($loadIds);
@@ -481,7 +495,9 @@ if ($loadIds !== []) {
     $operationSummary["excesses"] = $excessEvidenceCount;
     $operationSummary["excess_images"] = $excessImagesCount;
     $returnCount = $pdo->prepare(
-        "SELECT COALESCE(SUM(quantity), 0) FROM retornos WHERE carregamento_id IN ({$placeholders})",
+        "SELECT COALESCE(SUM(ret.quantity), 0) FROM retornos ret
+         LEFT JOIN leituras l ON l.id = ret.leitura_id
+         WHERE ret.carregamento_id IN ({$placeholders}) AND (l.id IS NULL OR l.conta_na_meta = 1)",
     );
     $returnCount->execute($loadIds);
     $operationSummary["returned_bags"] = (int) $returnCount->fetchColumn();
@@ -507,7 +523,7 @@ if ($loadIds !== []) {
          LEFT JOIN solicitacoes_imagens_evidencia r
            ON r.sensor_event_id = l.sensor_event_id
           AND r.carregamento_id = l.carregamento_id AND r.reason = 'SEM_LEITURA'
-         WHERE l.carregamento_id IN ({$placeholders}) AND l.result = 'SEM_LEITURA'
+         WHERE l.carregamento_id IN ({$placeholders}) AND l.result = 'SEM_LEITURA' AND l.conta_na_meta = 1
          ORDER BY l.read_at, l.id",
     );
     $noReadQuery->execute($loadIds);
@@ -558,6 +574,12 @@ if ($loadIds !== []) {
            ON i.reading_id IS NULL AND r.carregamento_id = i.carregamento_id
           AND i.path LIKE CONCAT('%keyence-', r.id, '-%')
          WHERE i.carregamento_id IN ({$placeholders}) AND i.reason <> 'NORMAL'
+           AND (i.reason <> 'EXCESSO'
+             OR COALESCE(l.sensor_event_id, r.sensor_event_id) IS NULL
+             OR EXISTS (
+               SELECT 1 FROM eventos_sensor s
+               WHERE s.id = COALESCE(l.sensor_event_id, r.sensor_event_id) AND s.conta_na_meta = 1
+             ))
          ORDER BY i.captured_at",
     );
     $imageQuery->execute($loadIds);

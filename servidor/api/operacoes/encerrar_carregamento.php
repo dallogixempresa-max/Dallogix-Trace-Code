@@ -99,6 +99,7 @@ if ($automaticQuotaStopReason) {
 $pendingSensorEvents = $pdo->prepare(
     "SELECT COUNT(*) FROM eventos_sensor s
      WHERE s.carregamento_id = :loading_id
+       AND s.conta_na_meta = 1
        AND NOT EXISTS (SELECT 1 FROM leituras l WHERE l.sensor_event_id = s.id)",
 );
 $pendingSensorEvents->execute(["loading_id" => $loadingId]);
@@ -133,7 +134,10 @@ if (!$sensorOutboxFresh || $pendingEvents === null || (int) $pendingEvents > 0) 
 
 expirar_solicitacoes_imagem_keyence($pdo, null, [(int) $loadingId]);
 $pending = $pdo->prepare(
-    "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia WHERE carregamento_id = :id AND status IN ('PENDENTE','CAPTURANDO')",
+    "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia i WHERE i.carregamento_id = :id AND i.status IN ('PENDENTE','CAPTURANDO')
+     AND (i.sensor_event_id IS NULL OR EXISTS (
+       SELECT 1 FROM eventos_sensor s WHERE s.id = i.sensor_event_id AND s.conta_na_meta = 1
+     ))",
 );
 $pending->execute(["id" => $loadingId]);
 if ((int) $pending->fetchColumn() > 0) {
@@ -147,8 +151,11 @@ if ((int) $pending->fetchColumn() > 0) {
     );
 }
 $failedEvidenceStatement = $pdo->prepare(
-    "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia
-     WHERE carregamento_id = :loading_id AND status = 'ERRO'",
+    "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia i
+     WHERE i.carregamento_id = :loading_id AND i.status = 'ERRO'
+       AND (i.sensor_event_id IS NULL OR EXISTS (
+         SELECT 1 FROM eventos_sensor s WHERE s.id = i.sensor_event_id AND s.conta_na_meta = 1
+       ))",
 );
 $failedEvidenceStatement->execute(["loading_id" => $loadingId]);
 if ((int) $failedEvidenceStatement->fetchColumn() > 0) {
@@ -161,9 +168,10 @@ if ((int) $failedEvidenceStatement->fetchColumn() > 0) {
 // Só códigos VALIDO satisfazem a quantidade do item; SEM_LEITURA permanece divergência auditável.
 $divergences = $pdo->prepare("SELECT ri.product_id, SUM(ri.planned_quantity) AS planned_quantity,
     GREATEST(0,
-      COALESCE((SELECT COUNT(*) FROM leituras l WHERE l.carregamento_id = :loading_id AND l.product_id = ri.product_id AND l.result = 'VALIDO'), 0)
+      COALESCE((SELECT COUNT(*) FROM leituras l WHERE l.carregamento_id = :loading_id AND l.product_id = ri.product_id AND l.result = 'VALIDO' AND l.conta_na_meta = 1), 0)
       - COALESCE((SELECT SUM(ret.quantity) FROM retornos ret JOIN leituras lr ON lr.id = ret.leitura_id
-                  WHERE ret.carregamento_id = :return_loading_id AND lr.product_id = ri.product_id), 0)
+                  WHERE ret.carregamento_id = :return_loading_id
+                    AND lr.conta_na_meta = 1 AND lr.product_id = ri.product_id), 0)
     ) AS moved_quantity,
     p.name FROM romaneio_itens ri JOIN produtos p ON p.id = ri.product_id
     WHERE ri.romaneio_id = :romaneio_id AND (ri.truck_id = :truck_id OR ri.truck_id IS NULL)
@@ -199,7 +207,7 @@ $loadingPlannedQuantityStatement->execute([
 $loadingPlannedQuantity = (int) $loadingPlannedQuantityStatement->fetchColumn();
 $loadingDetectedQuantityStatement = $pdo->prepare(
     "SELECT COUNT(*) FROM eventos_sensor
-     WHERE carregamento_id = :loading_id AND equipment_id = :equipment_id",
+     WHERE carregamento_id = :loading_id AND equipment_id = :equipment_id AND conta_na_meta = 1",
 );
 $loadingDetectedQuantityStatement->execute([
     "loading_id" => $loadingId,
@@ -207,20 +215,22 @@ $loadingDetectedQuantityStatement->execute([
 ]);
 $loadingDetectedQuantity = (int) $loadingDetectedQuantityStatement->fetchColumn();
 $excessReadingsStatement = $pdo->prepare(
-    "SELECT COUNT(*) FROM leituras WHERE carregamento_id = :loading_id AND result = 'EXCESSO'",
+    "SELECT COUNT(*) FROM leituras WHERE carregamento_id = :loading_id AND result = 'EXCESSO' AND conta_na_meta = 1",
 );
 $excessReadingsStatement->execute(["loading_id" => $loadingId]);
 $excessReadingCount = (int) $excessReadingsStatement->fetchColumn();
 $excessEvidenceStatement = $pdo->prepare(
-    "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia
-     WHERE carregamento_id = :loading_id AND reason = 'EXCESSO'",
+    "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia i
+     WHERE i.carregamento_id = :loading_id AND i.reason = 'EXCESSO'
+       AND (i.sensor_event_id IS NULL OR EXISTS (
+         SELECT 1 FROM eventos_sensor s WHERE s.id = i.sensor_event_id AND s.conta_na_meta = 1
+       ))",
 );
 $excessEvidenceStatement->execute(["loading_id" => $loadingId]);
 $excessEvidenceCount = (int) $excessEvidenceStatement->fetchColumn();
 $hasExcess = $loadingDetectedQuantity > $loadingPlannedQuantity
     || $excessReadingCount > 0
     || $excessEvidenceCount > 0
-    || $stopReason === "EXCESSO"
     || $overfill > 0;
 if ($hasExcess) {
     $pdo->rollBack();
@@ -230,13 +240,13 @@ if ($hasExcess) {
     );
 }
 $noReadCountStatement = $pdo->prepare(
-    "SELECT COUNT(*) FROM leituras WHERE carregamento_id = :loading_id AND result = 'SEM_LEITURA'",
+    "SELECT COUNT(*) FROM leituras WHERE carregamento_id = :loading_id AND result = 'SEM_LEITURA' AND conta_na_meta = 1",
 );
 $noReadCountStatement->execute(["loading_id" => $loadingId]);
 $noReadCount = (int) $noReadCountStatement->fetchColumn();
 $uncoveredNoReadStatement = $pdo->prepare(
     "SELECT COUNT(*) FROM leituras l
-     WHERE l.carregamento_id = :loading_id AND l.result = 'SEM_LEITURA'
+     WHERE l.carregamento_id = :loading_id AND l.result = 'SEM_LEITURA' AND l.conta_na_meta = 1
        AND (l.sensor_event_id IS NULL OR NOT EXISTS (
          SELECT 1 FROM solicitacoes_imagens_evidencia e
          WHERE e.carregamento_id = l.carregamento_id
@@ -252,12 +262,14 @@ if ($uncoveredNoRead > 0) {
 }
 $otherNonValidStatement = $pdo->prepare(
     "SELECT COUNT(*) FROM leituras WHERE carregamento_id = :loading_id
-       AND result NOT IN ('VALIDO', 'SEM_LEITURA', 'EXCESSO')",
+       AND conta_na_meta = 1 AND result NOT IN ('VALIDO', 'SEM_LEITURA', 'EXCESSO')",
 );
 $otherNonValidStatement->execute(["loading_id" => $loadingId]);
 $otherNonValid = (int) $otherNonValidStatement->fetchColumn();
 $returnedStatement = $pdo->prepare(
-    "SELECT COALESCE(SUM(quantity), 0) FROM retornos WHERE carregamento_id = :loading_id",
+    "SELECT COALESCE(SUM(ret.quantity), 0) FROM retornos ret
+     LEFT JOIN leituras lr ON lr.id = ret.leitura_id
+     WHERE ret.carregamento_id = :loading_id AND (lr.id IS NULL OR lr.conta_na_meta = 1)",
 );
 $returnedStatement->execute(["loading_id" => $loadingId]);
 $returned = (int) $returnedStatement->fetchColumn();
@@ -283,7 +295,7 @@ if ($automatic) {
     $plannedQuantity = (int) $plannedQuantityStatement->fetchColumn();
     $detectedQuantityStatement = $pdo->prepare(
         "SELECT COUNT(*) FROM eventos_sensor
-         WHERE carregamento_id = :loading_id AND equipment_id = :equipment_id",
+         WHERE carregamento_id = :loading_id AND equipment_id = :equipment_id AND conta_na_meta = 1",
     );
     $detectedQuantityStatement->execute([
         "loading_id" => $loadingId,
@@ -291,12 +303,12 @@ if ($automatic) {
     ]);
     $detectedQuantity = (int) $detectedQuantityStatement->fetchColumn();
     $nonValidReadings = $pdo->prepare(
-        "SELECT COUNT(*) FROM leituras WHERE carregamento_id = :loading_id AND result <> 'VALIDO'",
+        "SELECT COUNT(*) FROM leituras WHERE carregamento_id = :loading_id AND result <> 'VALIDO' AND conta_na_meta = 1",
     );
     $nonValidReadings->execute(["loading_id" => $loadingId]);
     $scannerEventsRead = $pdo->prepare(
         "SELECT COUNT(*) FROM leituras
-         WHERE carregamento_id = :loading_id AND result = 'VALIDO'
+         WHERE carregamento_id = :loading_id AND result = 'VALIDO' AND conta_na_meta = 1
            AND sensor_event_id IS NOT NULL",
     );
     $scannerEventsRead->execute(["loading_id" => $loadingId]);
@@ -431,30 +443,37 @@ try {
                AND (ri.truck_id = :truck_id OR ri.truck_id IS NULL)",
         );
         $detectedForLoading = $pdo->prepare(
-            "SELECT COUNT(*) FROM eventos_sensor WHERE carregamento_id = :loading_id",
+            "SELECT COUNT(*) FROM eventos_sensor WHERE carregamento_id = :loading_id AND conta_na_meta = 1",
         );
         $validForLoading = $pdo->prepare(
-            "SELECT COUNT(*) FROM leituras WHERE carregamento_id = :loading_id AND result = 'VALIDO'",
+            "SELECT COUNT(*) FROM leituras WHERE carregamento_id = :loading_id AND result = 'VALIDO' AND conta_na_meta = 1",
         );
         $noReadForLoading = $pdo->prepare(
-            "SELECT COUNT(*) FROM leituras WHERE carregamento_id = :loading_id AND result = 'SEM_LEITURA'",
+            "SELECT COUNT(*) FROM leituras WHERE carregamento_id = :loading_id AND result = 'SEM_LEITURA' AND conta_na_meta = 1",
         );
         $otherNonValidForLoading = $pdo->prepare(
             "SELECT COUNT(*) FROM leituras
-             WHERE carregamento_id = :loading_id AND result NOT IN ('VALIDO', 'SEM_LEITURA')",
+             WHERE carregamento_id = :loading_id AND conta_na_meta = 1 AND result NOT IN ('VALIDO', 'SEM_LEITURA')",
         );
         $excessForLoading = $pdo->prepare(
             "SELECT
-               (SELECT COUNT(*) FROM leituras WHERE carregamento_id = :reading_loading_id AND result = 'EXCESSO')
-               + (SELECT COUNT(*) FROM solicitacoes_imagens_evidencia WHERE carregamento_id = :evidence_loading_id AND reason = 'EXCESSO')",
+               (SELECT COUNT(*) FROM leituras WHERE carregamento_id = :reading_loading_id AND result = 'EXCESSO' AND conta_na_meta = 1)
+               + (SELECT COUNT(*) FROM solicitacoes_imagens_evidencia i
+                  WHERE i.carregamento_id = :evidence_loading_id AND i.reason = 'EXCESSO'
+                    AND (i.sensor_event_id IS NULL OR EXISTS (
+                      SELECT 1 FROM eventos_sensor s WHERE s.id = i.sensor_event_id AND s.conta_na_meta = 1
+                    )))",
         );
         $failedEvidenceForLoading = $pdo->prepare(
-            "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia
-             WHERE carregamento_id = :loading_id AND status = 'ERRO'",
+            "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia i
+             WHERE i.carregamento_id = :loading_id AND i.status = 'ERRO'
+               AND (i.sensor_event_id IS NULL OR EXISTS (
+                 SELECT 1 FROM eventos_sensor s WHERE s.id = i.sensor_event_id AND s.conta_na_meta = 1
+               ))",
         );
         $uncoveredNoReadForLoading = $pdo->prepare(
             "SELECT COUNT(*) FROM leituras l
-             WHERE l.carregamento_id = :loading_id AND l.result = 'SEM_LEITURA'
+             WHERE l.carregamento_id = :loading_id AND l.result = 'SEM_LEITURA' AND l.conta_na_meta = 1
                AND (l.sensor_event_id IS NULL OR NOT EXISTS (
                  SELECT 1 FROM solicitacoes_imagens_evidencia e
                  WHERE e.carregamento_id = l.carregamento_id
@@ -468,10 +487,11 @@ try {
                  GREATEST(0,
                    COALESCE((SELECT COUNT(*) FROM leituras l
                              WHERE l.carregamento_id = :loading_id
-                               AND l.product_id = ri.product_id AND l.result = 'VALIDO'), 0)
+                               AND l.product_id = ri.product_id AND l.result = 'VALIDO' AND l.conta_na_meta = 1), 0)
                    - COALESCE((SELECT SUM(ret.quantity) FROM retornos ret
                                JOIN leituras lr ON lr.id = ret.leitura_id
                                WHERE ret.carregamento_id = :return_loading_id
+                                 AND lr.conta_na_meta = 1
                                  AND lr.product_id = ri.product_id), 0)
                  ) AS moved_quantity
                FROM romaneio_itens ri
@@ -482,7 +502,9 @@ try {
              WHERE item_quantities.moved_quantity > item_quantities.planned_quantity",
         );
         $returnsForLoading = $pdo->prepare(
-            "SELECT COALESCE(SUM(quantity), 0) FROM retornos WHERE carregamento_id = :loading_id",
+            "SELECT COALESCE(SUM(ret.quantity), 0) FROM retornos ret
+             LEFT JOIN leituras lr ON lr.id = ret.leitura_id
+             WHERE ret.carregamento_id = :loading_id AND (lr.id IS NULL OR lr.conta_na_meta = 1)",
         );
         foreach ($manifestLoadings->fetchAll(PDO::FETCH_ASSOC) as $manifestLoading) {
             $manifestLoadingId = (int) $manifestLoading["id"];
@@ -538,7 +560,8 @@ try {
             "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia i
              JOIN carregamentos c ON c.id = i.carregamento_id
              WHERE c.romaneio_id = :romaneio_id AND c.company_id = :company_id
-               AND i.status IN ('PENDENTE', 'CAPTURANDO')",
+               AND i.status IN ('PENDENTE', 'CAPTURANDO')
+               AND EXISTS (SELECT 1 FROM eventos_sensor s WHERE s.id = i.sensor_event_id AND s.conta_na_meta = 1)",
         );
         $pendingManifestEvidence->execute([
             "romaneio_id" => $loading["romaneio_id"],
@@ -583,7 +606,7 @@ try {
     // o romaneio tem múltiplos produtos e o código não foi lido. São rastreáveis
     // pelas fotos do Keyence mas não são atribuídas a nenhum produto específico.
     $semProdutoQuery = $pdo->prepare(
-        "SELECT COUNT(*) FROM leituras WHERE carregamento_id = :loading_id AND result = 'SEM_LEITURA' AND product_id IS NULL",
+        "SELECT COUNT(*) FROM leituras WHERE carregamento_id = :loading_id AND result = 'SEM_LEITURA' AND conta_na_meta = 1 AND product_id IS NULL",
     );
     $semProdutoQuery->execute(["loading_id" => $loadingId]);
     $leiturasSemProduto = (int) $semProdutoQuery->fetchColumn();

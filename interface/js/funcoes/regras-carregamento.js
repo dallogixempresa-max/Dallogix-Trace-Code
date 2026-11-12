@@ -13,8 +13,10 @@ export function motivoBloqueioFinalizacao(state) {
     return "Aguarde o CLP confirmar o comando da máquina antes de finalizar.";
   }
   const automaticQuotaStop = ["COTA_ROMANEIO_ATINGIDA", "EXCESSO"].includes(state?.stopReason)
-    && String(state?.plcCommand?.command || "").toUpperCase() === "PAUSAR_CARREGAMENTO"
-    && String(state?.plcCommand?.status || "").toUpperCase() === "APLICADO";
+    && (loading.parada_automatica_confirmada === true
+      || Number(loading.parada_automatica_confirmada) === 1
+      || (String(state?.plcCommand?.command || "").toUpperCase() === "PAUSAR_CARREGAMENTO"
+        && String(state?.plcCommand?.status || "").toUpperCase() === "APLICADO"));
   if (state?.stopReason && !automaticQuotaStop) {
     return "Confirme a parada física solicitada antes de finalizar.";
   }
@@ -26,9 +28,9 @@ export function motivoBloqueioFinalizacao(state) {
   if (planned <= 0) {
     return "A quantidade prevista do romaneio não está informada.";
   }
-  const excessDetected = String(state?.stopReason || "").toUpperCase() === "EXCESSO"
-    || detected > planned
-    || Number(state?.excessEvidenceRequests ?? loading.excess_evidence_requests ?? loading.excessos_detectados ?? 0) > 0
+  const excessDetected = detected > planned
+    || Number(loading.leituras_excesso) > 0
+    || Number(loading.excessos_detectados ?? loading.excess_evidence_requests ?? state?.excessEvidenceRequests ?? 0) > 0
     || (state?.loadingItems || []).some((item) =>
       Number(item.loaded_quantity || 0) > Number(item.planned_quantity || 0),
     );

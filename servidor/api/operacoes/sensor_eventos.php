@@ -6,8 +6,10 @@ define("TRACE_SKIP_SESSION", true);
 require_once __DIR__ . "/../../configuracao/bootstrap.php";
 require_once __DIR__ . "/temporizacao_leitor.php";
 require_once __DIR__ . "/../../src/Aplicacao/ServicoComandoClp.php";
+require_once __DIR__ . "/../../src/Aplicacao/ServicoPausasCarregamento.php";
 
 use App\Aplicacao\ServicoComandoClp;
+use App\Aplicacao\ServicoPausasCarregamento;
 
 exigir_metodo_http(["POST"]);
 $device = require_device_token(["CLP", "SENSOR"]);
@@ -56,17 +58,19 @@ if ($action === "FINALIZE_EXPIRED") {
         $deviceDeadlineMs = (int) round(microtime(true) * 1000) - $timeoutMs;
         $timeoutMicroseconds = $timeoutMs * 1000;
         $events = $pdo->prepare(
-            "SELECT s.id
+            "SELECT s.id, s.event_at_epoch_ms, s.device_detected_at,
+                    CAST(ROUND(UNIX_TIMESTAMP(s.detected_at) * 1000) AS UNSIGNED) AS server_detected_at_epoch_ms
              FROM eventos_sensor s
              WHERE s.carregamento_id = :loading_id
                AND s.equipment_id = :equipment_id
+               AND s.conta_na_meta = 1
                AND (
                  (s.device_detected_at IS NOT NULL AND s.device_detected_at <= :device_deadline)
                  OR (s.device_detected_at IS NULL
                    AND s.detected_at <= DATE_SUB(NOW(3), INTERVAL {$timeoutMicroseconds} MICROSECOND))
                )
                AND NOT EXISTS (SELECT 1 FROM leituras l WHERE l.sensor_event_id = s.id)
-             ORDER BY s.id ASC LIMIT 20 FOR UPDATE SKIP LOCKED",
+            ORDER BY s.event_at_epoch_ms, s.id ASC LIMIT 20 FOR UPDATE SKIP LOCKED",
         );
         $events->execute([
             "loading_id" => (int) $loadingId,
@@ -75,16 +79,30 @@ if ($action === "FINALIZE_EXPIRED") {
         ]);
 
         $finalized = [];
-        foreach ($events->fetchAll(PDO::FETCH_COLUMN) as $sensorEventId) {
+        foreach ($events->fetchAll(PDO::FETCH_ASSOC) as $pendingSensorEvent) {
+            $sensorEventId = (int) $pendingSensorEvent["id"];
+            $eventAtEpochMs = (int) ($pendingSensorEvent["event_at_epoch_ms"] ?? 0);
+            if ($eventAtEpochMs < 1) {
+                $eventAtEpochMs = $pendingSensorEvent["device_detected_at"] !== null
+                    ? trace_sql_datetime_to_epoch_ms((string) $pendingSensorEvent["device_detected_at"])
+                    : (int) $pendingSensorEvent["server_detected_at_epoch_ms"];
+            }
             $positionStatement = $pdo->prepare(
                 "SELECT COUNT(*) FROM eventos_sensor
                  WHERE carregamento_id = :loading_id AND equipment_id = :equipment_id
-                   AND id <= :sensor_event_id",
+                   AND conta_na_meta = 1 AND (
+                     (event_at_epoch_ms IS NULL AND id <= :legacy_sensor_event_id)
+                     OR event_at_epoch_ms < :event_at_before
+                     OR (event_at_epoch_ms = :event_at_equal AND id <= :sensor_event_id)
+                   )",
             );
             $positionStatement->execute([
                 "loading_id" => (int) $loadingId,
                 "equipment_id" => $device["equipment_id"],
-                "sensor_event_id" => (int) $sensorEventId,
+                "legacy_sensor_event_id" => $sensorEventId,
+                "event_at_before" => $eventAtEpochMs,
+                "event_at_equal" => $eventAtEpochMs,
+                "sensor_event_id" => $sensorEventId,
             ]);
             $physicalExcess = $plannedQuantity > 0
                 && (int) $positionStatement->fetchColumn() > $plannedQuantity;
@@ -299,14 +317,21 @@ try {
     // o fuso da aplicação. Cada ramo das comparações abaixo precisa continuar usando
     // a referência do seu próprio relógio: comparar as duas colunas entre si, ou medir
     // latência entre elas, dá um erro silencioso do tamanho do deslocamento do fuso.
-    $debounceReferenceMs = $deviceDetectedAt !== null
+    $eventAtEpochMs = $deviceDetectedAt !== null
         ? (int) round(((float) $parsedDeviceDate->format("U.u")) * 1000)
         : (int) round(microtime(true) * 1000);
+    $countsTowardPlan = !ServicoPausasCarregamento::estaNaPausa(
+        $pdo,
+        (int) $loadingId,
+        $eventAtEpochMs,
+    );
+    $debounceReferenceMs = $eventAtEpochMs;
     $debounceStartMs = $debounceReferenceMs - $debounceMs;
     $debounce = $pdo->prepare(
         "SELECT id FROM eventos_sensor
          WHERE carregamento_id = :carregamento_id
            AND equipment_id = :equipment_id
+           AND conta_na_meta = :counts_toward_plan
            AND (
              (device_detected_at IS NOT NULL AND device_detected_at BETWEEN :device_debounce_start AND :device_debounce_end)
              OR (device_detected_at IS NULL
@@ -318,6 +343,7 @@ try {
     $debounce->execute([
         "carregamento_id" => $loadingId,
         "equipment_id" => $equipmentId,
+        "counts_toward_plan" => $countsTowardPlan ? 1 : 0,
         "device_debounce_start" => trace_epoch_ms_to_sql_datetime($debounceStartMs),
         "device_debounce_end" => trace_epoch_ms_to_sql_datetime($debounceReferenceMs),
         "server_debounce_start_ms" => $debounceStartMs,
@@ -336,14 +362,20 @@ try {
         ]);
     }
     $insert = $pdo->prepare(
-        "INSERT INTO eventos_sensor (carregamento_id, equipment_id, event_uuid, detected_at, device_detected_at, debounce_ms)
-         VALUES (:carregamento_id, :equipment_id, :event_uuid, NOW(3), :device_detected_at, :debounce_ms)",
+        "INSERT INTO eventos_sensor
+            (carregamento_id, equipment_id, event_uuid, detected_at, device_detected_at,
+             event_at_epoch_ms, conta_na_meta_origem, conta_na_meta, debounce_ms)
+         VALUES (:carregamento_id, :equipment_id, :event_uuid, NOW(3), :device_detected_at,
+                 :event_at_epoch_ms, :conta_na_meta_origem, :conta_na_meta, :debounce_ms)",
     );
     $insert->execute([
         "carregamento_id" => $loadingId,
         "equipment_id" => $equipmentId,
         "event_uuid" => $eventUuid,
         "device_detected_at" => $deviceDetectedAt,
+        "event_at_epoch_ms" => $eventAtEpochMs,
+        "conta_na_meta_origem" => $countsTowardPlan ? 1 : 0,
+        "conta_na_meta" => $countsTowardPlan ? 1 : 0,
         "debounce_ms" => $debounceMs,
     ]);
     $eventId = (int) $pdo->lastInsertId();
@@ -358,6 +390,8 @@ try {
             "event_uuid" => $eventUuid,
             "device_id" => $device["id"],
             "device_code" => $device["device_code"],
+            "event_at_epoch_ms" => $eventAtEpochMs,
+            "conta_na_meta" => $countsTowardPlan,
             "scanner_correlated_reading_id" => null,
         ],
     );
@@ -374,7 +408,8 @@ try {
     $plannedQuantity = (int) $planned->fetchColumn();
     $detected = $pdo->prepare(
         "SELECT COUNT(*) FROM eventos_sensor
-         WHERE carregamento_id = :loading_id AND equipment_id = :equipment_id",
+         WHERE carregamento_id = :loading_id AND equipment_id = :equipment_id
+           AND conta_na_meta = 1",
     );
     $detected->execute([
         "loading_id" => $loadingId,
@@ -382,7 +417,7 @@ try {
     ]);
     $detectedBags = (int) $detected->fetchColumn();
     $excessEvidenceRequested = false;
-    if ($plannedQuantity > 0 && $detectedBags > $plannedQuantity) {
+    if ($countsTowardPlan && $plannedQuantity > 0 && $detectedBags > $plannedQuantity) {
         $evidenceRequest = $pdo->prepare(
             "INSERT INTO solicitacoes_imagens_evidencia
              (sensor_event_id, carregamento_id, equipment_id, reason, requested_at)
@@ -454,6 +489,7 @@ try {
     $excessStop = null;
     $automaticStop = false;
     if (
+        $countsTowardPlan &&
         $plannedQuantity > 0 &&
         $detectedBags > $plannedQuantity &&
         in_array($loading["state"], ["CARREGANDO", "FINALIZANDO", "PAUSADO"], true)
@@ -484,6 +520,7 @@ try {
     // O ramo de EXCESSO acima trata quantidades maiores; ao atingir a meta,
     // também solicitamos pausa se o carregamento estiver em transição.
     } elseif (
+        $countsTowardPlan &&
         in_array($loading["state"], ["CARREGANDO", "FINALIZANDO"], true)
         && $plannedQuantity > 0
         && $detectedBags === $plannedQuantity
@@ -561,6 +598,7 @@ try {
                 "id" => $eventId,
                 "duplicate" => false,
                 "detected_bags" => $detectedBags,
+                "counted_toward_plan" => $countsTowardPlan,
                 "planned_quantity" => $plannedQuantity,
                 "operator_warning" => $nearEndWarning,
                 "automatic_stop" => $automaticStop,

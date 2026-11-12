@@ -200,6 +200,7 @@ final class RepositorioMonitoramento
                 FROM eventos_sensor se
                 JOIN carregamentos_ativos ca
                   ON ca.id = se.carregamento_id AND ca.equipment_id = se.equipment_id
+                WHERE se.conta_na_meta = 1
                 GROUP BY se.carregamento_id, se.equipment_id
             ), leituras_scanner AS (
                 SELECT l.carregamento_id, COUNT(*) AS scanner_readings
@@ -207,6 +208,7 @@ final class RepositorioMonitoramento
                 JOIN carregamentos_ativos ca
                   ON ca.id = l.carregamento_id AND ca.company_id = l.company_id
                 WHERE l.barcode IS NOT NULL
+                  AND l.conta_na_meta = 1
                   AND l.result IN ('VALIDO', 'PRODUTO_INCORRETO', 'EXCESSO')
                 GROUP BY l.carregamento_id
             ), evidencias_excesso AS (
@@ -218,6 +220,7 @@ final class RepositorioMonitoramento
                 FROM solicitacoes_imagens_evidencia r
                 JOIN carregamentos_ativos ca ON ca.id = r.carregamento_id
                 WHERE r.reason = 'EXCESSO'
+                  AND EXISTS (SELECT 1 FROM eventos_sensor se WHERE se.id = r.sensor_event_id AND se.conta_na_meta = 1)
                 GROUP BY r.carregamento_id
             ), leituras_recentes AS (
                 SELECT l.carregamento_id, l.barcode, l.result, l.read_at,
@@ -228,6 +231,7 @@ final class RepositorioMonitoramento
                 FROM leituras l
                 JOIN carregamentos_ativos ca
                   ON ca.id = l.carregamento_id AND ca.company_id = l.company_id
+                WHERE l.conta_na_meta = 1
             ), alertas_fim_carga AS (
                 SELECT la.entity_id AS carregamento_id,
                        JSON_UNQUOTE(JSON_EXTRACT(la.metadata, '$.message')) AS end_product_alert,
@@ -329,7 +333,7 @@ final class RepositorioMonitoramento
                 SELECT l.carregamento_id, l.product_id, COUNT(*) AS loaded_quantity
                 FROM leituras l
                 WHERE l.company_id = :reading_company_id
-                  AND l.result = 'VALIDO'
+                  AND l.result = 'VALIDO' AND l.conta_na_meta = 1
                   AND l.carregamento_id IN (" . implode(", ", $readingPlaceholders) . ")
                 GROUP BY l.carregamento_id, l.product_id
             ), leituras_sem_leitura AS (
@@ -337,7 +341,7 @@ final class RepositorioMonitoramento
                 SELECT l.carregamento_id, l.product_id, COUNT(*) AS quantity
                 FROM leituras l
                 WHERE l.company_id = :product_no_read_company_id
-                  AND l.result = 'SEM_LEITURA' AND l.product_id IS NOT NULL
+                  AND l.result = 'SEM_LEITURA' AND l.conta_na_meta = 1 AND l.product_id IS NOT NULL
                   AND NOT EXISTS (SELECT 1 FROM retornos r WHERE r.leitura_id = l.id)
                   AND l.carregamento_id IN (" . implode(", ", $productNoReadPlaceholders) . ")
                 GROUP BY l.carregamento_id, l.product_id
@@ -345,7 +349,7 @@ final class RepositorioMonitoramento
                 SELECT l.carregamento_id, COUNT(*) AS quantity
                 FROM leituras l
                 WHERE l.company_id = :no_read_company_id
-                  AND l.result = 'SEM_LEITURA' AND l.product_id IS NULL
+                  AND l.result = 'SEM_LEITURA' AND l.conta_na_meta = 1 AND l.product_id IS NULL
                   AND NOT EXISTS (SELECT 1 FROM retornos r WHERE r.leitura_id = l.id)
                   AND l.carregamento_id IN (" . implode(", ", $noReadPlaceholders) . ")
                 GROUP BY l.carregamento_id
@@ -363,6 +367,7 @@ final class RepositorioMonitoramento
                 FROM retornos r
                 JOIN leituras l ON l.id = r.leitura_id
                 WHERE r.carregamento_id IN (" . implode(", ", $returnReadingPlaceholders) . ")
+                  AND l.conta_na_meta = 1
                 GROUP BY r.carregamento_id, l.product_id
             )
             SELECT c.id AS loading_id, ri.product_id, p.name, p.code,

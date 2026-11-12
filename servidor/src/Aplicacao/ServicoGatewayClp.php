@@ -9,6 +9,7 @@ use RuntimeException;
 use Throwable;
 
 require_once __DIR__ . "/../Persistencia/RepositorioComandosClp.php";
+require_once __DIR__ . "/ServicoPausasCarregamento.php";
 
 final class ExcecaoGatewayClp extends RuntimeException
 {
@@ -323,6 +324,22 @@ final class ServicoGatewayClp
                 );
             }
 
+            $pauseAppliedAtEpochMs = null;
+            $pauseStartedAtEpochMs = null;
+            if (
+                $status === "APLICADO"
+                && in_array($request["command"], ["INICIAR_CARREGAMENTO", "PAUSAR_CARREGAMENTO"], true)
+            ) {
+                $pauseAppliedAtEpochMs = (int) round(microtime(true) * 1000);
+                $pauseStartedAtEpochMs = ServicoPausasCarregamento::registrarComandoAplicado(
+                    $this->connection,
+                    (int) $request["company_id"],
+                    (int) $request["carregamento_id"],
+                    (string) $request["command"],
+                    $pauseAppliedAtEpochMs,
+                );
+            }
+
             $actor = $this->atorDoDispositivo((int) $request["company_id"]);
             \record_operational_event(
                 $this->connection,
@@ -335,6 +352,8 @@ final class ServicoGatewayClp
                     "carregamento_id" => (int) $request["carregamento_id"],
                     "command" => $request["command"],
                     "status" => $status,
+                    "applied_at_epoch_ms" => $pauseAppliedAtEpochMs,
+                    "pause_started_at_epoch_ms" => $pauseStartedAtEpochMs,
                     "message" => $message,
                     "device_id" => $deviceId,
                     "remote_command_id" => $request["remote_command_id"] === null

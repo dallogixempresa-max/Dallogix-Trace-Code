@@ -395,7 +395,7 @@ final class ServicoComandoClp
                AND EXISTS (
                    SELECT 1 FROM leituras l
                    WHERE l.company_id = c.company_id AND l.carregamento_id = c.id
-                     AND l.result = 'EXCESSO'
+                     AND l.result = 'EXCESSO' AND l.conta_na_meta = 1
                )
              ORDER BY c.id",
         );

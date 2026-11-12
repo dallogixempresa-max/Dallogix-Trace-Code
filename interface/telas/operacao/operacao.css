@@ -1064,6 +1064,10 @@ body.work-page:has(.work-operation-screen) .work-header-finish-actions .button {
   font-size: clamp(16px, 1.25vw, 20px);
 }
 
+body.work-page:has(.work-operation-screen) .work-header-finish-actions .button:disabled {
+  opacity: 0.9;
+}
+
 body.work-page:has(.work-operation-screen) .work-screen-heading {
   grid-column: 2;
   justify-self: center;

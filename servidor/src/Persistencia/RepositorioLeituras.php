@@ -42,7 +42,7 @@ final class RepositorioLeituras
              WHERE l.company_id = :reading_company_id
                AND l.carregamento_id = :loading_id
                AND c.company_id = :loading_company_id
-               AND l.result = 'SEM_LEITURA'",
+               AND l.result = 'SEM_LEITURA' AND l.conta_na_meta = 1",
         );
         $statement->execute([
             "reading_company_id" => $companyId,
@@ -94,7 +94,7 @@ final class RepositorioLeituras
              WHERE l.company_id = :reading_company_id
                AND l.carregamento_id = :loading_id
                AND c.company_id = :loading_company_id
-               AND l.result = 'SEM_LEITURA'
+               AND l.result = 'SEM_LEITURA' AND l.conta_na_meta = 1
              ORDER BY l.id DESC
              LIMIT :per_page OFFSET :offset",
         );
@@ -128,14 +128,16 @@ final class RepositorioLeituras
                             (SELECT COUNT(*) FROM leituras l
                              WHERE l.company_id = :reading_company_id
                                AND l.carregamento_id = :loading_id
-                               AND l.result = 'VALIDO')
+                               AND l.result = 'VALIDO' AND l.conta_na_meta = 1)
                             - (SELECT COALESCE(SUM(r.quantity), 0) FROM retornos r
-                               WHERE r.carregamento_id = :return_loading_id)
+                               LEFT JOIN leituras lr ON lr.id = r.leitura_id
+                               WHERE r.carregamento_id = :return_loading_id
+                                 AND (lr.id IS NULL OR lr.conta_na_meta = 1))
                         ) AS loading_valid_count,
                         (SELECT COUNT(*) FROM leituras l
                          WHERE l.company_id = :sem_read_company_id
                            AND l.carregamento_id = :sem_read_loading_id
-                           AND l.result = 'SEM_LEITURA') AS loading_sem_leitura_count
+                           AND l.result = 'SEM_LEITURA' AND l.conta_na_meta = 1) AS loading_sem_leitura_count
                  FROM romaneio_itens ri
                  WHERE ri.company_id = :company_id
                    AND ri.romaneio_id = :manifest_id
@@ -172,35 +174,38 @@ final class RepositorioLeituras
                          FROM leituras l
                          WHERE l.company_id = :loading_reading_company_id
                            AND l.carregamento_id = :loading_count_id
-                           AND l.result = 'VALIDO')
+                           AND l.result = 'VALIDO' AND l.conta_na_meta = 1)
                         - (SELECT COALESCE(SUM(r.quantity), 0)
                            FROM retornos r
-                           WHERE r.carregamento_id = :loading_return_id)
+                           LEFT JOIN leituras lr ON lr.id = r.leitura_id
+                           WHERE r.carregamento_id = :loading_return_id
+                             AND (lr.id IS NULL OR lr.conta_na_meta = 1))
                     ) AS loading_valid_count,
                     (SELECT COUNT(*) FROM leituras l
                      WHERE l.company_id = :loading_sem_read_company_id
                        AND l.carregamento_id = :loading_sem_read_id
-                       AND l.result = 'SEM_LEITURA') AS loading_sem_leitura_count,
+                       AND l.result = 'SEM_LEITURA' AND l.conta_na_meta = 1) AS loading_sem_leitura_count,
                     GREATEST(0, COALESCE((
                         SELECT COUNT(*)
                         FROM leituras l
                         WHERE l.company_id = :reading_company_id
                           AND l.carregamento_id = :loading_id
                           AND l.product_id = :count_product_id
-                          AND l.result = 'VALIDO'
+                          AND l.result = 'VALIDO' AND l.conta_na_meta = 1
                     ), 0) - COALESCE((
                         SELECT SUM(r.quantity)
                         FROM retornos r
                         JOIN leituras lr ON lr.id = r.leitura_id
                         WHERE r.carregamento_id = :product_return_loading_id
                           AND lr.company_id = :return_reading_company_id
+                          AND lr.conta_na_meta = 1
                           AND lr.product_id = :return_product_id
                     ), 0)) AS product_valid_count,
                     (SELECT COUNT(*) FROM leituras l
                      WHERE l.company_id = :product_sem_read_company_id
                        AND l.carregamento_id = :product_sem_read_loading_id
                        AND l.product_id = :product_sem_read_product_id
-                       AND l.result = 'SEM_LEITURA') AS product_sem_leitura_count
+                       AND l.result = 'SEM_LEITURA' AND l.conta_na_meta = 1) AS product_sem_leitura_count
              FROM romaneio_itens ri
              WHERE ri.company_id = :company_id
                AND ri.romaneio_id = :manifest_id

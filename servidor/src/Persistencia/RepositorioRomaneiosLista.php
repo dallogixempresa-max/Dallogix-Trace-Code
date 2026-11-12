@@ -67,11 +67,12 @@ final class RepositorioRomaneiosLista
                            (SELECT COUNT(*) FROM leituras l
                             JOIN carregamentos c ON c.id = l.carregamento_id
                             WHERE c.romaneio_id = ri.romaneio_id
-                              AND l.result = 'VALIDO' AND l.product_id = ri.product_id)
+                              AND l.result = 'VALIDO' AND l.conta_na_meta = 1 AND l.product_id = ri.product_id)
                            - COALESCE((SELECT SUM(ret.quantity) FROM retornos ret
                                        JOIN carregamentos c ON c.id = ret.carregamento_id
                                        JOIN leituras lr ON lr.id = ret.leitura_id
-                                       WHERE c.romaneio_id = ri.romaneio_id AND lr.product_id = ri.product_id), 0)
+                                       WHERE c.romaneio_id = ri.romaneio_id AND lr.product_id = ri.product_id
+                                         AND lr.conta_na_meta = 1), 0)
                        ) AS moved_quantity
                 FROM (
                     SELECT DISTINCT ri0.romaneio_id, ri0.product_id

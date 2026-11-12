@@ -34,7 +34,7 @@ final class RepositorioDashboard
                 JOIN leituras l
                   ON l.carregamento_id = c.id
                  AND l.company_id = :company_id_leituras
-                 AND l.result = 'VALIDO'
+                 AND l.result = 'VALIDO' AND l.conta_na_meta = 1
                 WHERE c.company_id = :company_id_carregamentos_leituras
                 GROUP BY c.romaneio_id
             ), retornos_registrados AS (
@@ -42,7 +42,9 @@ final class RepositorioDashboard
                 FROM romaneios_finalizados rf
                 JOIN carregamentos c ON c.romaneio_id = rf.id
                 JOIN retornos ret ON ret.carregamento_id = c.id
+                LEFT JOIN leituras lr ON lr.id = ret.leitura_id AND lr.conta_na_meta = 1
                 WHERE c.company_id = :company_id_carregamentos_retornos
+                  AND (ret.leitura_id IS NULL OR lr.id IS NOT NULL)
                 GROUP BY c.romaneio_id
             ), ocorrencias_carregamento AS (
                 SELECT c.romaneio_id, COUNT(*) AS total_ocorrencias
