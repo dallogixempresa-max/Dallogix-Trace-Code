@@ -1,16 +1,16 @@
-import { OfflineOperationBuffer, secureRandomId } from "./OfflineOperationBuffer.js?v=202611050002";
-import { ClienteApi, erroRespostaHttp } from "../api/ClienteApi.js?v=202611050002";
-import { ServicoSincronizacao } from "../servicos/ServicoSincronizacao.js?v=202611050002";
-import { ServicoDalas } from "../servicos/ServicoDalas.js?v=202611050002";
-import { ServicoObservabilidade } from "../servicos/ServicoObservabilidade.js?v=202611050002";
-import { ServicoCarregamentoAtivo } from "../servicos/ServicoCarregamentoAtivo.js?v=202611050002";
-import { ServicoComandosMaquina } from "../servicos/ServicoComandosMaquina.js?v=202611050002";
-import { ServicoLeiturasOperacionais } from "../servicos/ServicoLeiturasOperacionais.js?v=202611050002";
-import { resolverComandoAtual } from "../funcoes/estado-comando.js?v=202611050002";
+import { OfflineOperationBuffer, secureRandomId } from "./OfflineOperationBuffer.js?v=202611120001";
+import { ClienteApi, erroRespostaHttp } from "../api/ClienteApi.js?v=202611120001";
+import { ServicoSincronizacao } from "../servicos/ServicoSincronizacao.js?v=202611120001";
+import { ServicoDalas } from "../servicos/ServicoDalas.js?v=202611120001";
+import { ServicoObservabilidade } from "../servicos/ServicoObservabilidade.js?v=202611120001";
+import { ServicoCarregamentoAtivo } from "../servicos/ServicoCarregamentoAtivo.js?v=202611120001";
+import { ServicoComandosMaquina } from "../servicos/ServicoComandosMaquina.js?v=202611120001";
+import { ServicoLeiturasOperacionais } from "../servicos/ServicoLeiturasOperacionais.js?v=202611120001";
+import { resolverComandoAtual } from "../funcoes/estado-comando.js?v=202611120001";
 import {
   buscarTodasPaginas,
   validarCursorPaginacao as validarCursorPaginacaoApi,
-} from "../funcoes/paginacao-api.js?v=202611050002";
+} from "../funcoes/paginacao-api.js?v=202611120001";
 
 const LIMITE_IDADE_MONITORAMENTO_OPERACIONAL_MS = 6000;
 
@@ -99,7 +99,6 @@ export class ArmazenamentoTrace {
       errorLogsRequestedPage: 1,
       errorLogRetentionDays: 365,
       technicalDiagnostics: null,
-      deadLetters: [],
       plcCommand: null,
       // Intenção visível enquanto o gateway ainda não confirmou o ACK físico.
       commandIntent: null,
@@ -209,7 +208,7 @@ export class ArmazenamentoTrace {
   obterServicoRomaneios() {
     return this.obterServicoSobDemanda(
       "servicoRomaneios",
-      () => import("../servicos/ServicoRomaneios.js?v=202611050002"),
+      () => import("../servicos/ServicoRomaneios.js?v=202611120001"),
       ({ ServicoRomaneios }) => new ServicoRomaneios({
         api: this.api,
         state: this.state,
@@ -223,7 +222,7 @@ export class ArmazenamentoTrace {
   obterServicoCatalogoProdutos() {
     return this.obterServicoSobDemanda(
       "servicoCatalogoProdutos",
-      () => import("../servicos/ServicoCatalogoProdutos.js?v=202611050002"),
+      () => import("../servicos/ServicoCatalogoProdutos.js?v=202611120001"),
       ({ ServicoCatalogoProdutos }) => new ServicoCatalogoProdutos({
         api: this.api,
         state: this.state,
@@ -236,7 +235,7 @@ export class ArmazenamentoTrace {
   obterServicoAdministracaoContas() {
     return this.obterServicoSobDemanda(
       "servicoAdministracaoContas",
-      () => import("../servicos/ServicoAdministracaoContas.js?v=202611050002"),
+      () => import("../servicos/ServicoAdministracaoContas.js?v=202611120001"),
       ({ ServicoAdministracaoContas }) => new ServicoAdministracaoContas({
         api: this.api,
         state: this.state,
@@ -250,7 +249,7 @@ export class ArmazenamentoTrace {
   obterServicoInstalacoesIndustriais() {
     return this.obterServicoSobDemanda(
       "servicoInstalacoesIndustriais",
-      () => import("../servicos/ServicoInstalacoesIndustriais.js?v=202611050002"),
+      () => import("../servicos/ServicoInstalacoesIndustriais.js?v=202611120001"),
       ({ ServicoInstalacoesIndustriais }) => new ServicoInstalacoesIndustriais({
         api: this.api,
         state: this.state,
@@ -263,7 +262,7 @@ export class ArmazenamentoTrace {
   obterServicoAcoesDala() {
     return this.obterServicoSobDemanda(
       "servicoAcoesDala",
-      () => import("../servicos/ServicoAcoesDala.js?v=202611050002"),
+      () => import("../servicos/ServicoAcoesDala.js?v=202611120001"),
       ({ ServicoAcoesDala }) => new ServicoAcoesDala({
         api: this.api,
         state: this.state,
@@ -462,12 +461,6 @@ export class ArmazenamentoTrace {
   async loadTechnicalDiagnostics() {
     return this.obterServicoObservabilidade().loadTechnicalDiagnostics();
   }
-  async loadDeadLetters() {
-    return this.obterServicoObservabilidade().loadDeadLetters();
-  }
-  async updateDeadLetter(id, action, resolutionNote) {
-    return this.obterServicoObservabilidade().updateDeadLetter(id, action, resolutionNote);
-  }
   updateEquipment(data) {
     return this.servicoDalas.update(data);
   }
@@ -652,11 +645,6 @@ export class ArmazenamentoTrace {
   }
   async loadSyncStatus() {
     this.state.syncStatus = await this.sincronizacao.statusFila();
-  }
-  async retrySync(id) {
-    const result = await this.sincronizacao.reprocessarEvento(id, this.jsonHeaders());
-    await this.loadSyncStatus();
-    return result;
   }
   loadProducts(options) {
     return this.delegarParaServico(this.obterServicoCatalogoProdutos, "load", options);

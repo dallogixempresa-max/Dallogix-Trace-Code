@@ -57,6 +57,13 @@ if (trace_e_instalacao_local()) {
             $leiturasRecuperadas,
         ));
     }
+    $eventosArquivadosRecuperados = $sincronizacao->reenfileirarEventosArquivadosUmaVez();
+    if ($eventosArquivadosRecuperados > 0) {
+        fwrite(STDOUT, sprintf(
+            "sync-worker: eventos arquivados recuperados para nova tentativa=%d\n",
+            $eventosArquivadosRecuperados,
+        ));
+    }
     $eventosSensorReenfileirados = $sincronizacao->reenfileirarPassagensSensorELeiturasEnviadasUmaVez();
     if ($eventosSensorReenfileirados > 0) {
         fwrite(STDOUT, sprintf(

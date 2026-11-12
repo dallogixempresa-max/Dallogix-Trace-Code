@@ -1,4 +1,4 @@
-import { logFrontend } from "../utilitarios/LogFrontend.js?v=202611050002";
+import { logFrontend } from "../utilitarios/LogFrontend.js?v=202611120001";
 
 const TELAS_COM_STATUS_DALAS = new Set(["dashboard", "settings", "dalas", "dala"]);
 

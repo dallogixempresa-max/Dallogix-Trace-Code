@@ -1,4 +1,4 @@
-import { agora } from "./relogio.js?v=202611050002";
+import { agora } from "./relogio.js?v=202611120001";
 import { button, esc } from "./html.js";
 
 export function produtosDisponiveisParaRomaneio(products, selectedId = "") {
@@ -40,7 +40,7 @@ export function campoBuscaProduto(products, selectedId = "") {
     ? `${rotuloBuscaProduto(selected)}${Number(selected.active) === 1 ? "" : " (inativo)"}`
     : "";
   const resultsId = `manifest-product-results-${++productSearchSequence}`;
-  return `<div class="product-search-combobox" data-product-combobox><button class="product-picker-trigger" type="button" data-product-trigger aria-haspopup="listbox" aria-expanded="false" aria-controls="${resultsId}" title="${esc(label || "Selecione um produto")}"><span class="product-picker-label${label ? "" : " is-placeholder"}" data-product-label>${esc(label || "Selecione um produto")}</span><span class="product-picker-chevron" aria-hidden="true"></span></button><input type="hidden" name="item_product" value="${esc(selectedId)}" /><div class="product-search-menu" data-product-menu popover="manual"><input class="product-picker-search" type="search" placeholder="Buscar por nome ou código" autocomplete="off" aria-label="Buscar produto por nome ou código" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-expanded="false" aria-controls="${resultsId}" data-product-search /><div class="product-search-results" id="${resultsId}" role="listbox"></div></div></div>`;
+  return `<div class="product-search-combobox" data-product-combobox><input class="product-picker-search${label ? "" : " is-placeholder"}" type="search" value="${esc(label)}" data-selected-value="${esc(label)}" placeholder="Digite o nome ou código do produto" autocomplete="off" aria-label="Produto do romaneio" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-expanded="false" aria-controls="${resultsId}" data-product-search /><input type="hidden" name="item_product" value="${esc(selectedId)}" /><div class="product-search-menu" data-product-menu popover="manual"><div class="product-search-results" id="${resultsId}" role="listbox"></div></div></div>`;
 }
 
 export function listaBuscaProdutos(products) {

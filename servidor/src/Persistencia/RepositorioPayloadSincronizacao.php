@@ -115,8 +115,22 @@ final class RepositorioPayloadSincronizacao
             "CARREGAMENTO_DALA_DESVINCULADO",
             "ESTADO_CARREGAMENTO_ALTERADO",
             "CARREGAMENTO_FINALIZADO",
+            "EXCESSO_DETECTADO",
+            "PARADA_PRODUTO_INCORRETO",
+            "REMOCAO_UNIDADE_E_PARADA_FISICA_CONFIRMADAS",
+            "PARADA_FISICA_META_PRODUTO_CONFIRMADA",
+            "COTA_PRODUTO_ATINGIDA",
+            "QUANTIDADE_PLANEJADA_ATINGIDA",
+            "PARADA_FISICA_META_ROMANEIO_CONFIRMADA",
         ], true)) {
-            $loading = $this->buscarCarregamento($companyId, $entityId);
+            $sourceLoadingId = filter_var(
+                $data["carregamento_id"] ?? $data["source_carregamento_id"] ?? null,
+                FILTER_VALIDATE_INT,
+            );
+            if ($sourceLoadingId === false || (int) $sourceLoadingId <= 0) {
+                $sourceLoadingId = $entityId;
+            }
+            $loading = $this->buscarCarregamento($companyId, (int) $sourceLoadingId);
             if ($loading !== null) {
                 $payload["data"] = array_merge($data, $loading);
             }
