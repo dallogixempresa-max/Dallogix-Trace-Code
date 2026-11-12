@@ -1,4 +1,4 @@
-import { logFrontend } from "../utilitarios/LogFrontend.js?v=202611120002";
+import { logFrontend } from "../utilitarios/LogFrontend.js?v=202611120003";
 
 /** Compartilha SSE e polling rápido entre Operação e Emergência. */
 export function createOperationalRealtimeController({

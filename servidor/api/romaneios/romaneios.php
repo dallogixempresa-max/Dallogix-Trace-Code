@@ -6,7 +6,9 @@ require_once __DIR__ . "/../../configuracao/bootstrap.php";
 require_once __DIR__ . "/../../src/Persistencia/RepositorioRomaneiosLista.php";
 require_once __DIR__ . "/../../src/Persistencia/RepositorioItensRomaneio.php";
 require_once __DIR__ . "/../../src/Persistencia/RepositorioProdutosRomaneio.php";
+require_once __DIR__ . "/../../src/Aplicacao/ResolvedorInstalacaoDestinatariaRomaneio.php";
 
+use App\Aplicacao\ResolvedorInstalacaoDestinatariaRomaneio;
 use App\Persistencia\RepositorioRomaneiosLista;
 use App\Persistencia\RepositorioItensRomaneio;
 use App\Persistencia\RepositorioProdutosRomaneio;
@@ -566,7 +568,7 @@ $scheduledDate = trim((string) ($payload["scheduled_date"] ?? date("Y-m-d")));
 $plate = strtoupper(trim((string) ($payload["plate"] ?? "")));
 $driverName = trim((string) ($payload["driver_name"] ?? ""));
 $expedidor = trim((string) ($payload["expedidor"] ?? ""));
-$installationId = filter_var($payload["installation_id"] ?? null, FILTER_VALIDATE_INT);
+$installationId = $payload["installation_id"] ?? null;
 
 if ($number === "" || !placa_caminhao_valida($plate) || mb_strlen($number) > 80 || !preg_match('/^[A-Za-z0-9À-ÿ _.,\/-]{1,80}$/u', $number)) {
     responder_json(["error" => "Número e placa do caminhão são obrigatórios."], 422);
@@ -658,21 +660,16 @@ try {
         ];
     }
 
-    // Validar e resolver a instalação industrial destinatária, se informada.
-    $resolvedInstallationId = null;
-    if ($installationId !== false && $installationId !== null && $installationId > 0) {
-        $installationCheck = $pdo->prepare(
-            "SELECT id FROM instalacoes_industriais
-             WHERE id = :id AND company_id = :company_id
-               AND archived_at IS NULL AND access_blocked_at IS NULL
-             LIMIT 1",
+    try {
+        $resolvedInstallationId = ResolvedorInstalacaoDestinatariaRomaneio::resolver(
+            $pdo,
+            $companyId,
+            (int) $usuarioAtor["id"],
+            $installationId,
         );
-        $installationCheck->execute(["id" => $installationId, "company_id" => $companyId]);
-        if (!$installationCheck->fetchColumn()) {
-            $pdo->rollBack();
-            responder_json(["error" => "Instalação industrial não encontrada ou inacessível."], 422);
-        }
-        $resolvedInstallationId = (int) $installationId;
+    } catch (DomainException $exception) {
+        $pdo->rollBack();
+        responder_json(["error" => $exception->getMessage()], 422);
     }
 
     $romaneioStatement = $pdo->prepare(
