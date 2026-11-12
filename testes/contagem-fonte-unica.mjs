@@ -38,8 +38,8 @@ test("telas contam só leituras VALIDO como lidas; sem leitura fica fora", () =>
 
 test("relatório operacional conta só lidas; sem leitura vem na coluna própria", async () => {
   const operacional = await readFile(new URL("../servidor/api/relatorios/relatorio_operacional.php", import.meta.url), "utf8");
-  assert.match(operacional, /SUM\(l\.result = .VALIDO.\) AS loaded_quantity/);
-  assert.match(operacional, /SUM\(l\.result = .SEM_LEITURA. AND NOT EXISTS \(SELECT 1 FROM retornos rt WHERE rt\.leitura_id = l\.id\)\) AS no_readings/);
+  assert.match(operacional, /SUM\(l\.result = .VALIDO. AND l\.conta_na_meta = 1\) AS loaded_quantity/);
+  assert.match(operacional, /SUM\(l\.result = .SEM_LEITURA. AND l\.conta_na_meta = 1 AND NOT EXISTS \(SELECT 1 FROM retornos rt WHERE rt\.leitura_id = l\.id\)\) AS no_readings/);
 });
 
 test("retirada de passagem sem código entra por retornos e sai da contagem sem leitura", () => {
@@ -51,7 +51,7 @@ test("retirada de passagem sem código entra por retornos e sai da contagem sem 
 });
 
 test("PDF de auditoria: Movido conta só lidas e Sem leitura é coluna própria", () => {
-  assert.match(reportEndpoint, /AND l\.result = .VALIDO. AND l\.product_id = ri\.product_id/);
+  assert.match(reportEndpoint, /AND l\.result = .VALIDO. AND l\.conta_na_meta = 1 AND l\.product_id = ri\.product_id/);
   assert.match(reportEndpoint, /"Sem leitura"/);
   assert.match(reportEndpoint, /AS no_read_quantity/);
 });
@@ -59,7 +59,7 @@ test("PDF de auditoria: Movido conta só lidas e Sem leitura é coluna própria"
 test("card de produto na operação separa lidas de sem leitura", async () => {
   const monitoramento = await readFile(new URL("../servidor/src/Persistencia/RepositorioMonitoramento.php", import.meta.url), "utf8");
   assert.match(monitoramento, /leituras_validas AS \([\s\S]{0,300}?l\.result = 'VALIDO'/);
-  assert.match(monitoramento, /leituras_sem_leitura AS \([\s\S]{0,300}?l\.result = 'SEM_LEITURA' AND l\.product_id IS NOT NULL/);
+  assert.match(monitoramento, /leituras_sem_leitura AS \([\s\S]{0,300}?l\.result = 'SEM_LEITURA' AND l\.conta_na_meta = 1 AND l\.product_id IS NOT NULL/);
   assert.match(monitoramento, /"no_read_quantity" => \(int\) \$item\["no_read_quantity"\]/);
 });
 
