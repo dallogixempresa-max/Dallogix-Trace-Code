@@ -2,7 +2,7 @@ import {
   divergenciaCobertaPorEvidencia,
   motivoBloqueioFinalizacao,
   podeFinalizarCarregamento,
-} from "../funcoes/regras-carregamento.js?v=202611120003";
+} from "../funcoes/regras-carregamento.js?v=202611120004";
 
 const ACOES_COMANDO_MAQUINA = new Set([
   "start-machine",

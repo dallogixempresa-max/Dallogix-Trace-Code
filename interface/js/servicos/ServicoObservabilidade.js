@@ -1,4 +1,4 @@
-import { erroRespostaHttp } from "../api/ClienteApi.js?v=202611120003";
+import { erroRespostaHttp } from "../api/ClienteApi.js?v=202611120004";
 
 const PAGINACAO_COMANDOS_PADRAO = { page: 1, per_page: 30, total: 0, pages: 1 };
 const PAGINACAO_LOGS_PADRAO = { page: 1, per_page: 100, total: 0, pages: 1 };

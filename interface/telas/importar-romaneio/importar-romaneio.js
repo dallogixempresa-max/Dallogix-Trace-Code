@@ -1,15 +1,15 @@
 import { button, esc } from "../../js/funcoes/html.js";
-import { data, numero } from "../../js/funcoes/formato.js?v=202611120003";
-import { agora } from "../../js/funcoes/relogio.js?v=202611120003";
-import { rotuloComando, rotuloEstado, rotuloStatusComando, rotuloStatusRomaneio } from "../../js/funcoes/rotulos.js?v=202611120003";
+import { data, numero } from "../../js/funcoes/formato.js?v=202611120004";
+import { agora } from "../../js/funcoes/relogio.js?v=202611120004";
+import { rotuloComando, rotuloEstado, rotuloStatusComando, rotuloStatusRomaneio } from "../../js/funcoes/rotulos.js?v=202611120004";
 import {
   pageHeader,
   manifestsTable,
   emergencyPanel,
   statuses,
-} from "../../js/funcoes/view.js?v=202611120003";
+} from "../../js/funcoes/view.js?v=202611120004";
 
-import { itemRow, industrialPcDate, listaBuscaProdutos } from "../../js/funcoes/romaneio.js?v=202611120003";
+import { itemRow, industrialPcDate, listaBuscaProdutos } from "../../js/funcoes/romaneio.js?v=202611120004";
 export function importScreen(store) {
   const products = store.state.products || [];
   const today = industrialPcDate();
@@ -24,7 +24,7 @@ export function importScreen(store) {
 <label>Data do Carregamento<input name="scheduled_date" type="date" min="${today}" value="${today}" required /></label>
 <label>Placa do caminhão<input name="plate" required /></label>
 </div><div class="manifest-form-grid manifest-form-grid-secondary">
-<label>Expedidor<input name="expedidor" /></label>
+<label>Expedidor<input name="expedidor" autocomplete="organization" /></label>
 <label>Motorista<input name="driver_name" /></label>
 </div></section><br>
 <section class="panel"><div class="panel-heading"><h3>Itens do Romaneio</h3>${button("Adicionar item", "add-item", "secondary")}</div>
