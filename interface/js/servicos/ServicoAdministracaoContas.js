@@ -1,4 +1,4 @@
-import { ServicoAtivacaoLocal } from "./ServicoAtivacaoLocal.js?v=202611120002";
+import { ServicoAtivacaoLocal } from "./ServicoAtivacaoLocal.js?v=202611120003";
 
 export class ServicoAdministracaoContas {
   constructor({ api, state, jsonHeaders, jsonResponse, fetchAllPages, loadIndustrialInstallations }) {

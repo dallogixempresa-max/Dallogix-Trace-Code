@@ -1,8 +1,8 @@
 import { button, esc } from "../../js/funcoes/html.js";
-import { numero, relativo } from "../../js/funcoes/formato.js?v=202611120002";
+import { numero, relativo } from "../../js/funcoes/formato.js?v=202611120003";
 import { rotuloEstado } from "../../js/funcoes/rotulos.js";
-import { deviceBadge, pageHeader, physicalStateBadge } from "../../js/funcoes/view.js?v=202611120002";
-import { estadoErro, estadoVazio } from "../../js/componentes/estados.js?v=202611120002";
+import { deviceBadge, pageHeader, physicalStateBadge } from "../../js/funcoes/view.js?v=202611120003";
+import { estadoErro, estadoVazio } from "../../js/componentes/estados.js?v=202611120003";
 
 function dalaAlbumCard(equipment, machines, role) {
   const machine =

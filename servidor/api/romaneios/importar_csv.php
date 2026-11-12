@@ -3,10 +3,12 @@ declare(strict_types=1);
 
 require_once __DIR__ . "/../../configuracao/bootstrap.php";
 require_once __DIR__ . "/../../src/Aplicacao/AgrupadorItensImportacaoRomaneio.php";
+require_once __DIR__ . "/../../src/Aplicacao/ResolvedorInstalacaoDestinatariaRomaneio.php";
 require_once __DIR__ . "/../../src/Persistencia/RepositorioItensRomaneio.php";
 require_once __DIR__ . "/../../src/Persistencia/RepositorioProdutosRomaneio.php";
 
 use App\Aplicacao\AgrupadorItensImportacaoRomaneio;
+use App\Aplicacao\ResolvedorInstalacaoDestinatariaRomaneio;
 use App\Persistencia\RepositorioItensRomaneio;
 use App\Persistencia\RepositorioProdutosRomaneio;
 
@@ -27,20 +29,15 @@ if (!in_array($user["role"], ["ADMIN_EMPRESA", "SUPERVISOR"], true)) {
     json_response(["error" => "Perfil sem permissão para importar romaneio."], 403);
 }
 
-$installationIdRaw = filter_var($_POST["installation_id"] ?? null, FILTER_VALIDATE_INT);
-$resolvedInstallationId = null;
-if ($installationIdRaw !== false && $installationIdRaw !== null && $installationIdRaw > 0) {
-    $installationCheck = $pdo->prepare(
-        "SELECT id FROM instalacoes_industriais
-         WHERE id = :id AND company_id = :company_id
-           AND archived_at IS NULL AND access_blocked_at IS NULL
-         LIMIT 1",
+try {
+    $resolvedInstallationId = ResolvedorInstalacaoDestinatariaRomaneio::resolver(
+        $pdo,
+        $companyId,
+        (int) $user["id"],
+        $_POST["installation_id"] ?? null,
     );
-    $installationCheck->execute(["id" => $installationIdRaw, "company_id" => $companyId]);
-    if (!$installationCheck->fetchColumn()) {
-        json_response(["error" => "Instalação industrial não encontrada ou inacessível."], 422);
-    }
-    $resolvedInstallationId = (int) $installationIdRaw;
+} catch (DomainException $exception) {
+    json_response(["error" => $exception->getMessage()], 422);
 }
 if (!isset($_FILES["file"]) || $_FILES["file"]["error"] !== UPLOAD_ERR_OK || !is_uploaded_file($_FILES["file"]["tmp_name"])) {
     json_response(["error" => "Envie um arquivo CSV válido."], 422);

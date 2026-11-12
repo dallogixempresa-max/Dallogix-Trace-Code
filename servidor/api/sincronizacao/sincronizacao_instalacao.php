@@ -239,7 +239,20 @@ $availableManifestsStatement = $pdo->prepare(
      FROM romaneios r
      JOIN romaneio_caminhoes t ON t.romaneio_id = r.id
      WHERE r.company_id = :company_id
-       AND r.assigned_installation_id = :installation_id
+       AND (
+         r.assigned_installation_id = :installation_id
+         OR (
+           r.assigned_installation_id IS NULL
+           AND r.remote_installation_id IS NULL
+           AND NOT EXISTS (
+             SELECT 1 FROM instalacoes_industriais other_installation
+             WHERE other_installation.company_id = r.company_id
+               AND other_installation.id <> :other_installation_id
+               AND other_installation.archived_at IS NULL
+               AND other_installation.access_blocked_at IS NULL
+           )
+         )
+       )
        AND r.status IN ('IMPORTADO', 'AGUARDANDO')
        AND NOT EXISTS (
          SELECT 1 FROM carregamentos c
@@ -250,6 +263,7 @@ $availableManifestsStatement = $pdo->prepare(
 $availableManifestsStatement->execute([
     "company_id" => $companyId,
     "installation_id" => $installationId,
+    "other_installation_id" => $installationId,
 ]);
 $manifestsById = [];
 $availableManifestTruckIds = [];
