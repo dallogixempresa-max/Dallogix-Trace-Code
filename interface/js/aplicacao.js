@@ -910,6 +910,21 @@ function bindForms() {
     api,
     store,
   });
+  // Popular selects de instalação nos forms de importação CSV
+  const csvInstallationSelect = document.querySelector("#csv-installation-select");
+  if (csvInstallationSelect) {
+    store.loadInstallations().then(() => {
+      const insts = store.state.installations || [];
+      while (csvInstallationSelect.options.length > 1) csvInstallationSelect.remove(1);
+      for (const inst of insts) {
+        const opt = document.createElement("option");
+        opt.value = inst.id;
+        opt.textContent = inst.name || `Instalação ${inst.id}`;
+        csvInstallationSelect.appendChild(opt);
+      }
+      if (insts.length === 1) csvInstallationSelect.value = insts[0].id;
+    }).catch(() => {});
+  }
   bindAdministrativeForms({ root: document, store, render, notify: notificar });
   bindOperationalForms({
     root: document,

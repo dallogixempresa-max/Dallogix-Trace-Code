@@ -26,6 +26,22 @@ $companyId = (int) $user["company_id"];
 if (!in_array($user["role"], ["ADMIN_EMPRESA", "SUPERVISOR"], true)) {
     json_response(["error" => "Perfil sem permissão para importar romaneio."], 403);
 }
+
+$installationIdRaw = filter_var($_POST["installation_id"] ?? null, FILTER_VALIDATE_INT);
+$resolvedInstallationId = null;
+if ($installationIdRaw !== false && $installationIdRaw !== null && $installationIdRaw > 0) {
+    $installationCheck = $pdo->prepare(
+        "SELECT id FROM instalacoes_industriais
+         WHERE id = :id AND company_id = :company_id
+           AND archived_at IS NULL AND access_blocked_at IS NULL
+         LIMIT 1",
+    );
+    $installationCheck->execute(["id" => $installationIdRaw, "company_id" => $companyId]);
+    if (!$installationCheck->fetchColumn()) {
+        json_response(["error" => "Instalação industrial não encontrada ou inacessível."], 422);
+    }
+    $resolvedInstallationId = (int) $installationIdRaw;
+}
 if (!isset($_FILES["file"]) || $_FILES["file"]["error"] !== UPLOAD_ERR_OK || !is_uploaded_file($_FILES["file"]["tmp_name"])) {
     json_response(["error" => "Envie um arquivo CSV válido."], 422);
 }
@@ -172,10 +188,12 @@ try {
 
         if (!isset($romaneioIds[$number])) {
             $romaneioStatement = $pdo->prepare(
-                'INSERT INTO romaneios (company_id, number, scheduled_date, expedidor, status) VALUES (:company_id, :number, :scheduled_date, :expedidor, \'IMPORTADO\')',
+                'INSERT INTO romaneios (company_id, assigned_installation_id, assigned_installation_company_id, number, scheduled_date, expedidor, status) VALUES (:company_id, :installation_id, :installation_company_id, :number, :scheduled_date, :expedidor, \'IMPORTADO\')',
             );
             $romaneioStatement->execute([
-                "company_id" => $user["company_id"],
+                "company_id" => $companyId,
+                "installation_id" => $resolvedInstallationId,
+                "installation_company_id" => $resolvedInstallationId !== null ? $companyId : null,
                 "number" => $number,
                 "scheduled_date" => $dateValue,
                 "expedidor" => $shipper === "" ? null : $shipper,

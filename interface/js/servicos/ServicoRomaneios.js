@@ -77,6 +77,12 @@ export class ServicoRomaneios {
     this.state.manifestDetail = respostaRomaneio.data;
   }
 
+  async loadInstallations() {
+    const response = await this.api.fetch("/api/instalacoes_industriais.php?limit=50");
+    const data = await this.jsonResponse(response, "Não foi possível carregar as instalações.");
+    this.state.installations = data.data ?? [];
+  }
+
   async createManifest(payload) {
     const response = await this.api.fetch("/api/romaneios.php", {
       method: "POST",

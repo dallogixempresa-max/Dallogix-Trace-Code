@@ -306,6 +306,24 @@ function vincularBuscaProdutos(form) {
   });
 }
 
+function preencherSelectInstalacoes(select, installations) {
+  if (!select) return;
+  const valorAtual = select.value;
+  // Manter opção vazia
+  while (select.options.length > 1) select.remove(1);
+  for (const inst of installations || []) {
+    const option = document.createElement("option");
+    option.value = inst.id;
+    option.textContent = inst.name || `Instalação ${inst.id}`;
+    select.appendChild(option);
+  }
+  if (valorAtual) select.value = valorAtual;
+  // Se há somente uma instalação, selecionar automaticamente
+  if ((installations || []).length === 1 && select.options.length === 2) {
+    select.value = installations[0].id;
+  }
+}
+
 export function bindManifestCreationForm({
   form,
   store,
@@ -317,6 +335,16 @@ export function bindManifestCreationForm({
 } = {}) {
   if (!form) return false;
   vincularBuscaProdutos(form);
+
+  // Carregar instalações disponíveis para o select
+  const installationSelect = form.querySelector("[name='installation_id']");
+  if (installationSelect) {
+    store.loadInstallations().then(() => {
+      preencherSelectInstalacoes(installationSelect, store.state.installations);
+    }).catch(() => {
+      // Falha silenciosa — o usuário pode continuar sem instalação selecionada
+    });
+  }
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -339,6 +367,8 @@ export function bindManifestCreationForm({
     bloquearBotoes(form, true);
     setFormFeedback(form, "Salvando romaneio…");
 
+    const installationId = raw.installation_id ? Number(raw.installation_id) : undefined;
+
     try {
       await store.createManifest({
         number: raw.number,
@@ -346,6 +376,7 @@ export function bindManifestCreationForm({
         plate: raw.plate,
         expedidor: raw.expedidor,
         driver_name: raw.driver_name,
+        ...(installationId ? { installation_id: installationId } : {}),
         items: items.map((item) => ({
           product_id: item.product_id,
           quantity: Number(item.quantity),

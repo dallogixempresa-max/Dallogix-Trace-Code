@@ -566,6 +566,7 @@ $scheduledDate = trim((string) ($payload["scheduled_date"] ?? date("Y-m-d")));
 $plate = strtoupper(trim((string) ($payload["plate"] ?? "")));
 $driverName = trim((string) ($payload["driver_name"] ?? ""));
 $expedidor = trim((string) ($payload["expedidor"] ?? ""));
+$installationId = filter_var($payload["installation_id"] ?? null, FILTER_VALIDATE_INT);
 
 if ($number === "" || !placa_caminhao_valida($plate) || mb_strlen($number) > 80 || !preg_match('/^[A-Za-z0-9À-ÿ _.,\/-]{1,80}$/u', $number)) {
     responder_json(["error" => "Número e placa do caminhão são obrigatórios."], 422);
@@ -657,11 +658,31 @@ try {
         ];
     }
 
+    // Validar e resolver a instalação industrial destinatária, se informada.
+    $resolvedInstallationId = null;
+    if ($installationId !== false && $installationId !== null && $installationId > 0) {
+        $installationCheck = $pdo->prepare(
+            "SELECT id FROM instalacoes_industriais
+             WHERE id = :id AND company_id = :company_id
+               AND archived_at IS NULL AND access_blocked_at IS NULL
+             LIMIT 1",
+        );
+        $installationCheck->execute(["id" => $installationId, "company_id" => $companyId]);
+        if (!$installationCheck->fetchColumn()) {
+            $pdo->rollBack();
+            responder_json(["error" => "Instalação industrial não encontrada ou inacessível."], 422);
+        }
+        $resolvedInstallationId = (int) $installationId;
+    }
+
     $romaneioStatement = $pdo->prepare(
-        'INSERT INTO romaneios (company_id, number, scheduled_date, status, expedidor) VALUES (:company_id, :number, :scheduled_date, \'AGUARDANDO\', :expedidor)',
+        'INSERT INTO romaneios (company_id, assigned_installation_id, assigned_installation_company_id, number, scheduled_date, status, expedidor)
+         VALUES (:company_id, :installation_id, :installation_company_id, :number, :scheduled_date, \'AGUARDANDO\', :expedidor)',
     );
     $romaneioStatement->execute([
         "company_id" => $companyId,
+        "installation_id" => $resolvedInstallationId,
+        "installation_company_id" => $resolvedInstallationId !== null ? $companyId : null,
         "number" => $number,
         "scheduled_date" => $scheduledDate,
         "expedidor" => $expedidor !== "" ? $expedidor : null,

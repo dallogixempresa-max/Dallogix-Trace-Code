@@ -392,6 +392,9 @@ export class ArmazenamentoTrace {
   loadManifest(id) {
     return this.delegarParaServico(this.obterServicoRomaneios, "loadManifest", id);
   }
+  loadInstallations() {
+    return this.delegarParaServico(this.obterServicoRomaneios, "loadInstallations");
+  }
   createManifest(payload) {
     return this.delegarParaServico(this.obterServicoRomaneios, "createManifest", payload);
   }
