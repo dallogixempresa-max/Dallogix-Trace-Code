@@ -51,7 +51,7 @@ test("linha de item reconhecido pelo PDF permite busca e destaca produto sem cor
   assert.match(row, /name="item_quantity"[^>]*value="2"/);
 });
 
-test("escolher uma opção grava o ID e atualiza o rótulo do produto", () => {
+test("escolher uma opção grava o ID e mantém o texto pesquisável", () => {
   const callbacks = {};
   const productField = { value: "7" };
   const menu = { dataset: {}, classList: { remove() {} }, hidden: false };
@@ -60,6 +60,7 @@ test("escolher uma opção grava o ID e atualiza o rótulo do produto", () => {
     value: "gato",
     dataset: {},
     classList: { remove() {} },
+    focus() {},
     closest(selector) {
       if (selector === "[data-product-search]") return this;
       if (selector === "[data-product-combobox]") return wrapper;
