@@ -90,7 +90,8 @@ test("fila durável do M2052 é reprocessada após reinício e fechamento aguard
   assert.match(operationalRealtime, /store\.loadSummaryMonitoring\(\)/);
   assert.match(loadingFinishRules, /outboxPending === null/);
   assert.match(loadingFinishRules, /outboxPending === undefined/);
-  assert.match(loadingFinishRules, /Number\.isFinite\(pendingOutboxCount\)/);
+  assert.match(loadingFinishRules, /!Number\.isInteger\(pendingOutboxCount\)/);
+  assert.match(loadingFinishRules, /pendingOutboxCount < 0/);
   assert.match(loadingFinishRules, /pendingOutboxCount > 0/);
 });
 
