@@ -112,7 +112,7 @@ final class RepositorioLeituras
      * Soma itens da empresa, do romaneio e do caminhão, incluindo itens globais.
      * Quantidades líquidas descontam os retornos já associados às leituras válidas.
      *
-     * @return array{loading_planned_quantity:int,loading_valid_count:int,loading_sem_leitura_count:int,product_planned_quantity:int,product_valid_count:int,product_sem_leitura_count:int}
+     * @return array{loading_planned_quantity:int,loading_valid_count:int,loading_sem_leitura_count:int,loading_produto_incorreto_count:int,product_planned_quantity:int,product_valid_count:int,product_sem_leitura_count:int,product_produto_incorreto_count:int}
      */
     public function obterQuantidadesParaClassificar(
         int $companyId,
@@ -137,7 +137,11 @@ final class RepositorioLeituras
                         (SELECT COUNT(*) FROM leituras l
                          WHERE l.company_id = :sem_read_company_id
                            AND l.carregamento_id = :sem_read_loading_id
-                           AND l.result = 'SEM_LEITURA' AND l.conta_na_meta = 1) AS loading_sem_leitura_count
+                           AND l.result = 'SEM_LEITURA' AND l.conta_na_meta = 1) AS loading_sem_leitura_count,
+                        (SELECT COUNT(*) FROM leituras l
+                         WHERE l.company_id = :prod_inc_company_id
+                           AND l.carregamento_id = :prod_inc_loading_id
+                           AND l.result = 'PRODUTO_INCORRETO' AND l.conta_na_meta = 1) AS loading_produto_incorreto_count
                  FROM romaneio_itens ri
                  WHERE ri.company_id = :company_id
                    AND ri.romaneio_id = :manifest_id
@@ -152,6 +156,8 @@ final class RepositorioLeituras
                 "return_loading_id" => $loadingId,
                 "sem_read_company_id" => $companyId,
                 "sem_read_loading_id" => $loadingId,
+                "prod_inc_company_id" => $companyId,
+                "prod_inc_loading_id" => $loadingId,
             ]);
             $row = $statement->fetch(PDO::FETCH_ASSOC) ?: [];
 
@@ -159,9 +165,11 @@ final class RepositorioLeituras
                 "loading_planned_quantity" => (int) ($row["loading_planned_quantity"] ?? 0),
                 "loading_valid_count" => (int) ($row["loading_valid_count"] ?? 0),
                 "loading_sem_leitura_count" => (int) ($row["loading_sem_leitura_count"] ?? 0),
+                "loading_produto_incorreto_count" => (int) ($row["loading_produto_incorreto_count"] ?? 0),
                 "product_planned_quantity" => 0,
                 "product_valid_count" => 0,
                 "product_sem_leitura_count" => 0,
+                "product_produto_incorreto_count" => 0,
             ];
         }
 
@@ -185,6 +193,10 @@ final class RepositorioLeituras
                      WHERE l.company_id = :loading_sem_read_company_id
                        AND l.carregamento_id = :loading_sem_read_id
                        AND l.result = 'SEM_LEITURA' AND l.conta_na_meta = 1) AS loading_sem_leitura_count,
+                    (SELECT COUNT(*) FROM leituras l
+                     WHERE l.company_id = :loading_prod_inc_company_id
+                       AND l.carregamento_id = :loading_prod_inc_id
+                       AND l.result = 'PRODUTO_INCORRETO' AND l.conta_na_meta = 1) AS loading_produto_incorreto_count,
                     GREATEST(0, COALESCE((
                         SELECT COUNT(*)
                         FROM leituras l
@@ -205,7 +217,12 @@ final class RepositorioLeituras
                      WHERE l.company_id = :product_sem_read_company_id
                        AND l.carregamento_id = :product_sem_read_loading_id
                        AND l.product_id = :product_sem_read_product_id
-                       AND l.result = 'SEM_LEITURA' AND l.conta_na_meta = 1) AS product_sem_leitura_count
+                       AND l.result = 'SEM_LEITURA' AND l.conta_na_meta = 1) AS product_sem_leitura_count,
+                    (SELECT COUNT(*) FROM leituras l
+                     WHERE l.company_id = :product_prod_inc_company_id
+                       AND l.carregamento_id = :product_prod_inc_loading_id
+                       AND l.product_id = :product_prod_inc_product_id
+                       AND l.result = 'PRODUTO_INCORRETO' AND l.conta_na_meta = 1) AS product_produto_incorreto_count
              FROM romaneio_itens ri
              WHERE ri.company_id = :company_id
                AND ri.romaneio_id = :manifest_id
@@ -218,6 +235,8 @@ final class RepositorioLeituras
             "loading_return_id" => $loadingId,
             "loading_sem_read_company_id" => $companyId,
             "loading_sem_read_id" => $loadingId,
+            "loading_prod_inc_company_id" => $companyId,
+            "loading_prod_inc_id" => $loadingId,
             "reading_company_id" => $companyId,
             "loading_id" => $loadingId,
             "count_product_id" => $productId,
@@ -227,6 +246,9 @@ final class RepositorioLeituras
             "product_sem_read_company_id" => $companyId,
             "product_sem_read_loading_id" => $loadingId,
             "product_sem_read_product_id" => $productId,
+            "product_prod_inc_company_id" => $companyId,
+            "product_prod_inc_loading_id" => $loadingId,
+            "product_prod_inc_product_id" => $productId,
             "company_id" => $companyId,
             "manifest_id" => $manifestId,
             "truck_id" => $truckId,
@@ -237,9 +259,11 @@ final class RepositorioLeituras
             "loading_planned_quantity" => (int) ($row["loading_planned_quantity"] ?? 0),
             "loading_valid_count" => (int) ($row["loading_valid_count"] ?? 0),
             "loading_sem_leitura_count" => (int) ($row["loading_sem_leitura_count"] ?? 0),
+            "loading_produto_incorreto_count" => (int) ($row["loading_produto_incorreto_count"] ?? 0),
             "product_planned_quantity" => (int) ($row["product_planned_quantity"] ?? 0),
             "product_valid_count" => (int) ($row["product_valid_count"] ?? 0),
             "product_sem_leitura_count" => (int) ($row["product_sem_leitura_count"] ?? 0),
+            "product_produto_incorreto_count" => (int) ($row["product_produto_incorreto_count"] ?? 0),
         ];
     }
 }

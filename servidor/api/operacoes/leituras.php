@@ -297,9 +297,11 @@ $quantities = $readingRepository->obterQuantidadesParaClassificar(
 $loadingPlannedQuantity = $quantities["loading_planned_quantity"];
 $loadingValidCount = $quantities["loading_valid_count"];
 $loadingSemLeituraCount = $quantities["loading_sem_leitura_count"];
+$loadingProdutoIncorretoCount = $quantities["loading_produto_incorreto_count"];
 $productPlannedQuantity = $quantities["product_planned_quantity"];
 $productValidCount = $quantities["product_valid_count"];
 $productSemLeituraCount = $quantities["product_sem_leitura_count"];
+$productProdutoIncorretoCount = $quantities["product_produto_incorreto_count"];
 $physicalExcess = false;
 $physicalEventPosition = null;
 if ($sensorEventId && $loadingPlannedQuantity > 0) {
@@ -341,6 +343,8 @@ $classification = (new ClassificadorLeitura())->classificar(
     $physicalExcess,
     $productSemLeituraCount,
     $loadingSemLeituraCount,
+    $productProdutoIncorretoCount,
+    $loadingProdutoIncorretoCount,
 );
 $result = $classification["result"];
 $productId = $classification["product_id"];
