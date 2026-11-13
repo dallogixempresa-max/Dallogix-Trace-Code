@@ -241,7 +241,53 @@ final class ServicoComandoClp
                 $operatorAlert = (string) ($loading["operator_alert"] ?? "Já existe uma parada aguardando confirmação.");
                 $requestId = null;
                 $requestStatus = "BLOQUEIO_EXISTENTE";
-                if ($reason === "EXCESSO") {
+                if ($reason === "PRODUTO_INCORRETO" && in_array($existingReason, [
+                    "EXCESSO",
+                    "COTA_PRODUTO_ATINGIDA",
+                    "COTA_ROMANEIO_ATINGIDA",
+                ], true)) {
+                    $operatorAlert = "Produto fora do romaneio. Remova a unidade e confirme somente quando a esteira estiver fisicamente parada.";
+                    $pendingPause = $this->repositorio->comandoPendente($loadingId, "PAUSAR_CARREGAMENTO");
+                    if ($pendingPause) {
+                        $requestId = (int) $pendingPause["id"];
+                        $requestStatus = (string) $pendingPause["status"];
+                        $operatorAlert = "Produto fora do romaneio. A parada física aguarda confirmação do CLP; remova a unidade somente após a esteira parar.";
+                    } else {
+                        $lastPause = $this->repositorio->ultimaSolicitacaoComando($loadingId, "PAUSAR_CARREGAMENTO");
+                        if ($lastPause && $lastPause["status"] === "APLICADO") {
+                            $requestId = (int) $lastPause["id"];
+                            $requestStatus = "APLICADO";
+                            $operatorAlert = "Produto fora do romaneio. O CLP confirmou a parada física; remova a unidade e confirme antes de retomar.";
+                        } else {
+                            try {
+                                $request = $this->solicitarOperacao($user, $loadingId, "PAUSAR_CARREGAMENTO");
+                                $requestId = (int) $request["command_request_id"];
+                                $requestStatus = (string) $request["status"];
+                                $operatorAlert = "Produto fora do romaneio. Foi solicitada a parada da esteira; remova a unidade somente após a parada física.";
+                            } catch (ExcecaoComandoClp|ExcecaoDisponibilidadeClp $exception) {
+                                if ($exception->httpStatus >= 500) {
+                                    throw $exception;
+                                }
+                                $requestStatus = "NAO_SOLICITADA";
+                                $operatorAlert .= " A parada pelo CLP não foi confirmada: "
+                                    . $exception->getMessage()
+                                    . " Mantenha a esteira parada e verifique a máquina.";
+                            }
+                        }
+                    }
+                    $saveExistingAlert = $this->connection->prepare(
+                        "UPDATE carregamentos
+                         SET state = 'PAUSADO', stop_reason = 'PRODUTO_INCORRETO', operator_alert = :operator_alert
+                         WHERE id = :id AND company_id = :company_id AND stop_reason = :stop_reason",
+                    );
+                    $saveExistingAlert->execute([
+                        "operator_alert" => $operatorAlert,
+                        "id" => $loadingId,
+                        "company_id" => (int) $user["company_id"],
+                        "stop_reason" => $existingReason,
+                    ]);
+                    $existingReason = "PRODUTO_INCORRETO";
+                } elseif ($reason === "EXCESSO") {
                     $existingLabel = match ($existingReason) {
                         "COTA_PRODUTO_ATINGIDA" => "meta do produto atingida",
                         "COTA_ROMANEIO_ATINGIDA" => "quantidade do romaneio atingida",

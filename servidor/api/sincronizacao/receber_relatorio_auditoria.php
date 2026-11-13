@@ -12,6 +12,8 @@ $evidenceNoReadCount = filter_var($_SERVER["HTTP_X_TRACE_REPORT_NO_READ_COUNT"] 
 $evidenceCount = filter_var($_SERVER["HTTP_X_TRACE_REPORT_EVIDENCE_COUNT"] ?? "0", FILTER_VALIDATE_INT);
 $excessCount = filter_var($_SERVER["HTTP_X_TRACE_REPORT_EXCESS_COUNT"] ?? "0", FILTER_VALIDATE_INT);
 $excessEvidenceCount = filter_var($_SERVER["HTTP_X_TRACE_REPORT_EXCESS_EVIDENCE_COUNT"] ?? "0", FILTER_VALIDATE_INT);
+$wrongProductCount = filter_var($_SERVER["HTTP_X_TRACE_REPORT_WRONG_PRODUCT_COUNT"] ?? "0", FILTER_VALIDATE_INT);
+$wrongProductEvidenceCount = filter_var($_SERVER["HTTP_X_TRACE_REPORT_WRONG_PRODUCT_EVIDENCE_COUNT"] ?? "0", FILTER_VALIDATE_INT);
 $contentType = strtolower(trim(explode(";", (string) ($_SERVER["CONTENT_TYPE"] ?? ""))[0]));
 $contentLength = filter_var($_SERVER["CONTENT_LENGTH"] ?? null, FILTER_VALIDATE_INT);
 $maximumBytes = 24 * 1024 * 1024;
@@ -25,6 +27,8 @@ if ($contentType !== "application/pdf"
     || $evidenceCount === false || (int) $evidenceCount < (int) $evidenceNoReadCount
     || $excessCount === false || (int) $excessCount < 0
     || $excessEvidenceCount === false || (int) $excessEvidenceCount < (int) $excessCount
+    || $wrongProductCount === false || (int) $wrongProductCount < 0
+    || $wrongProductEvidenceCount === false || (int) $wrongProductEvidenceCount < (int) $wrongProductCount
     || ($contentLength !== false && (int) $contentLength > $maximumBytes)) {
     responder_json(["error" => "Metadados do relatório de romaneio inválidos."], 422);
 }
@@ -73,12 +77,14 @@ if (file_put_contents($temporaryPath, $pdf, LOCK_EX) !== strlen($pdf)
     responder_json(["error" => "Não foi possível persistir o relatório recebido."], 503);
 }
 $evidenceManifest = json_encode([
-    "version" => 2,
+    "version" => 3,
     "pdf_sha256" => $expectedHash,
     "no_read_count" => (int) $evidenceNoReadCount,
     "evidence_count" => (int) $evidenceCount,
     "excess_count" => (int) $excessCount,
     "excess_evidence_count" => (int) $excessEvidenceCount,
+    "wrong_product_count" => (int) $wrongProductCount,
+    "wrong_product_evidence_count" => (int) $wrongProductEvidenceCount,
 ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
 $manifestPath = $reportPath . ".evidence.json";
 if (is_link($manifestPath)) {
@@ -104,6 +110,8 @@ $metadata = json_encode([
     "evidence_count" => (int) $evidenceCount,
     "evidence_excess_count" => (int) $excessCount,
     "evidence_excess_evidence_count" => (int) $excessEvidenceCount,
+    "evidence_wrong_product_count" => (int) $wrongProductCount,
+    "evidence_wrong_product_evidence_count" => (int) $wrongProductEvidenceCount,
 ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
 
 $pdo->beginTransaction();

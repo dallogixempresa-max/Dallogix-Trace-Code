@@ -62,6 +62,13 @@ test("o botão exige uma foto capturada para cada passagem sem leitura", () => {
   assert.match(loadingRules, /Number\(summary\.sem_leitura_com_foto\) >= noRead/);
   assert.match(manifestEndpoint, /\$uncoveredNoReads = \$pdo->prepare/);
   assert.match(manifestEndpoint, /i\.reason = 'SEM_LEITURA' AND i\.status = 'CAPTURADA'/);
+  assert.match(finishEndpoint, /\$uncoveredWrongProductStatement = \$pdo->prepare/);
+  assert.match(finishEndpoint, /e\.reason = 'PRODUTO_INCORRETO' AND e\.status = 'CAPTURADA'/);
+  assert.match(finishEndpoint, /\$uncoveredWrongProductForLoading = \$pdo->prepare/);
+  assert.match(manifestEndpoint, /\$uncoveredWrongProducts = \$pdo->prepare/);
+  assert.match(loadingSummary, /\$data\["produtos_incorretos_com_foto"\] = \$count/);
+  assert.match(loadingRules, /produtos_incorretos_com_foto/);
+  assert.match(loadingRules, /Aguarde a foto Keyence de cada produto fora do romaneio/);
   assert.match(manifestEndpoint, /\$failedEvidence = \$pdo->prepare/);
 });
 

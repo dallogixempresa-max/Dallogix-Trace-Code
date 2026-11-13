@@ -121,6 +121,10 @@ final class ServicoPausasCarregamento
         $events = $connection->prepare(
             "UPDATE eventos_sensor s
              SET conta_na_meta = CASE WHEN s.conta_na_meta_origem = 0 THEN 0
+                 WHEN EXISTS (
+                     SELECT 1 FROM leituras l
+                     WHERE l.sensor_event_id = s.id AND l.result NOT IN ('VALIDO', 'SEM_LEITURA')
+                 ) THEN 0
                  WHEN s.event_at_epoch_ms IS NULL THEN 1
                  WHEN EXISTS (
                      SELECT 1 FROM pausas_carregamento p

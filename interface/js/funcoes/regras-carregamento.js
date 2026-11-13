@@ -73,6 +73,13 @@ export function motivoBloqueioFinalizacao(state) {
   if (Number(loading.imagens_com_falha) > 0) {
     return "Há foto(s) de evidência com falha. Verifique o envio do Keyence/FTP antes de finalizar.";
   }
+  const wrongProductCount = Number(loading.produtos_incorretos) || 0;
+  if (wrongProductCount > 0) {
+    const photographedWrongProducts = Number(loading.produtos_incorretos_com_foto);
+    if (!Number.isFinite(photographedWrongProducts) || photographedWrongProducts < wrongProductCount) {
+      return "Aguarde a foto Keyence de cada produto fora do romaneio antes de finalizar.";
+    }
+  }
   const noReadCount = Number(loading.sem_leitura) || 0;
   if (noReadCount > 0) {
     const photographedNoReads = Number(loading.sem_leitura_com_foto);
@@ -100,7 +107,6 @@ export function divergenciaCobertaPorEvidencia(state) {
   const overfill = items.some((item) => Number(item.loaded_quantity || 0) > Number(item.planned_quantity || 0));
   return planned > 0 && detected === planned && noRead > 0
     && shortfall === noRead && !overfill
-    && Number(summary.produtos_incorretos || 0) === 0
     && Number(summary.sacas_retornadas || 0) === 0
     && Number(summary.sem_leitura_com_foto) >= noRead
     && Number(state?.excessEvidenceRequests || 0) === 0

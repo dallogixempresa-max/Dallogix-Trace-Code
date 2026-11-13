@@ -716,7 +716,7 @@ try {
             ) === 1 ? str_replace("T", " ", $readingAtInput) : null;
             $readingAttempt = max(1, (int) ($data["attempt_number"] ?? 1));
             $sensorEventId = null;
-            $readingCountsTowardPlan = true;
+            $readingCountsTowardPlan = in_array($readingResult, ["VALIDO", "SEM_LEITURA"], true);
             $sensorEventUuid = trim((string) ($data["sensor_event_uuid"] ?? ""));
             if ($sensorEventUuid !== "") {
                 if (!preg_match('/^[a-f0-9-]{36}$/i', $sensorEventUuid)) {
@@ -737,7 +737,8 @@ try {
                 $resolvedSensorEvent = $findSensorEvent->fetch(PDO::FETCH_ASSOC);
                 $sensorEventId = $resolvedSensorEvent === false ? null : (int) $resolvedSensorEvent["id"];
                 if ($resolvedSensorEvent !== false) {
-                    $readingCountsTowardPlan = (int) $resolvedSensorEvent["conta_na_meta"] === 1;
+                    $readingCountsTowardPlan = in_array($readingResult, ["VALIDO", "SEM_LEITURA"], true)
+                        && (int) $resolvedSensorEvent["conta_na_meta"] === 1;
                 }
             }
             $findSyncedReading = $pdo->prepare(
@@ -828,6 +829,20 @@ try {
                         ]);
                     }
                 }
+            }
+
+            if (!$readingCountsTowardPlan) {
+                // Produto incorreto, excesso e retorno permanecem auditados,
+                // mas não ocupam a meta após reenvio ou vínculo tardio.
+                $excludeWrongProduct = $pdo->prepare(
+                    "UPDATE leituras SET conta_na_meta = 0
+                     WHERE id = :id AND company_id = :company_id
+                       AND result NOT IN ('VALIDO', 'SEM_LEITURA')",
+                );
+                $excludeWrongProduct->execute([
+                    "id" => $entityId,
+                    "company_id" => $readingCompanyId,
+                ]);
             }
 
             if ($sensorEventId !== null) {

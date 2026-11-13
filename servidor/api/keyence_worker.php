@@ -62,8 +62,7 @@ if ($action === "PENDING_IMAGES") {
          JOIN carregamentos c ON c.id = r.carregamento_id
          JOIN eventos_sensor s ON s.id = r.sensor_event_id AND s.carregamento_id = r.carregamento_id
          WHERE r.equipment_id = :equipment_id AND c.company_id = :company_id
-           AND s.conta_na_meta = 1
-           AND r.reason IN ('SEM_LEITURA', 'EXCESSO')
+           AND r.reason IN ('SEM_LEITURA', 'PRODUTO_INCORRETO', 'EXCESSO')
            AND (r.status IN ('PENDENTE', 'ERRO') OR
                 (r.status = 'CAPTURADA' AND r.requested_at >= NOW(3) - INTERVAL 10 MINUTE))
          ORDER BY CASE WHEN r.status = 'CAPTURADA' THEN 1 ELSE 0 END,
@@ -158,7 +157,7 @@ try {
         "company_id" => $device["company_id"],
     ]);
     $capture = $requestStatement->fetch(PDO::FETCH_ASSOC);
-    if (!$capture || !in_array($capture["reason"], ["SEM_LEITURA", "EXCESSO"], true)) {
+    if (!$capture || !in_array($capture["reason"], ["SEM_LEITURA", "PRODUTO_INCORRETO", "EXCESSO"], true)) {
         $pdo->rollBack();
         json_response(["error" => "Solicitação de evidência não encontrada para esta Dala."], 404);
     }
@@ -176,7 +175,11 @@ try {
         $pdo->rollBack();
         json_response(["error" => "A solicitação não está mais disponível para a imagem Keyence."], 409);
     }
-    $readingResults = $capture["reason"] === "EXCESSO" ? ["EXCESSO", "SEM_LEITURA"] : ["SEM_LEITURA"];
+    $readingResults = match ($capture["reason"]) {
+        "PRODUTO_INCORRETO" => ["PRODUTO_INCORRETO"],
+        "EXCESSO" => ["EXCESSO", "SEM_LEITURA"],
+        default => ["SEM_LEITURA"],
+    };
     $readingPlaceholders = implode(",", array_fill(0, count($readingResults), "?"));
     $readingStatement = $pdo->prepare(
         "SELECT id FROM leituras
