@@ -124,12 +124,27 @@ $sensorOutboxFresh = $sensorOutboxState
 $pendingEventsByLoading = is_string($sensorOutboxState["pending_events_by_loading"] ?? null)
     ? json_decode($sensorOutboxState["pending_events_by_loading"], true)
     : null;
-$pendingEvents = is_array($pendingEventsByLoading)
-    ? (int) ($pendingEventsByLoading[(string) $loadingId] ?? 0)
-    : ($sensorOutboxState["pending_events"] ?? null);
-// Só bloqueia pelo outbox do sensor se ele estiver online: quando está offline e não
-// há eventos sem leitura correspondente (verificado acima), o sensor já enviou tudo.
-if ($sensorOutboxFresh && ($pendingEvents === null || (int) $pendingEvents > 0)) {
+if (is_array($pendingEventsByLoading)) {
+    $pendingEvents = array_key_exists((string) $loadingId, $pendingEventsByLoading)
+        ? $pendingEventsByLoading[(string) $loadingId]
+        : 0;
+} else {
+    $pendingEvents = $sensorOutboxState["pending_events"] ?? null;
+}
+$pendingEventsCount = filter_var(
+    $pendingEvents,
+    FILTER_VALIDATE_INT,
+    ["options" => ["min_range" => 0]],
+);
+// A contagem de eventos sem leitura cobre apenas o que já chegou ao servidor.
+// Exija confirmação recente do outbox local para garantir que não há passagens
+// ainda aguardando envio no sensor.
+if (
+    !$sensorOutboxFresh
+    || $pendingEventsCount === false
+    || $pendingEventsCount === null
+    || $pendingEventsCount > 0
+) {
     $pdo->rollBack();
     json_response(["error" => "Aguarde o sensor confirmar a fila local de passagens vazia antes de encerrar."], 409);
 }

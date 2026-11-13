@@ -352,6 +352,7 @@ $productPlannedQuantity = $classification["product_planned_quantity"];
 $productValidCount = $classification["product_valid_count"];
 $productQuotaReached = $classification["product_quota_reached"];
 $noReadEvidenceRequired = $classification["no_read_evidence_required"];
+$wrongProductDetected = $classification["wrong_product_detected"];
 $barcodeUnmatched = $barcode !== "" && $matchedProductId === null;
 $countsTowardPlan = true;
 
@@ -464,7 +465,7 @@ if ($noReadEvidenceRequired) {
     );
     $evidenceStatus = $sensorEventId ? "IMAGEM_PENDENTE_INCIDENTE" : "NAO_SOLICITADA";
 }
-if ($result === "PRODUTO_INCORRETO") {
+if ($wrongProductDetected) {
     $occurrence = $pdo->prepare(
         'INSERT INTO ocorrencias (company_id, carregamento_id, type, quantity, description, created_by) VALUES (:company_id, :carregamento_id, \'PRODUTO_INCORRETO\', 1, :description, :created_by)',
     );
@@ -484,24 +485,26 @@ if ($result === "PRODUTO_INCORRETO") {
         ["carregamento_id" => (int) $loadingId, "leitura_id" => $readingId],
     );
     $evidenceStatus = "NAO_SOLICITADA";
-    $wrongProductStop = (new ServicoComandoClp($pdo))->solicitarParadaPorProdutoIncorreto(
-        $usuarioAtor,
-        (int) $loadingId,
-    );
-    record_operational_event(
-        $pdo,
-        $usuarioAtor,
-        "PARADA_PRODUTO_INCORRETO",
-        "leitura",
-        $readingId,
-        [
-            "carregamento_id" => (int) $loadingId,
-            "stop_reason" => $wrongProductStop["stop_reason"],
-            "operator_alert" => $wrongProductStop["operator_alert"],
-            "physical_stop_request_status" => $wrongProductStop["physical_stop_request_status"],
-            "command_request_id" => $wrongProductStop["command_request_id"],
-        ],
-    );
+    if ($result === "PRODUTO_INCORRETO") {
+        $wrongProductStop = (new ServicoComandoClp($pdo))->solicitarParadaPorProdutoIncorreto(
+            $usuarioAtor,
+            (int) $loadingId,
+        );
+        record_operational_event(
+            $pdo,
+            $usuarioAtor,
+            "PARADA_PRODUTO_INCORRETO",
+            "leitura",
+            $readingId,
+            [
+                "carregamento_id" => (int) $loadingId,
+                "stop_reason" => $wrongProductStop["stop_reason"],
+                "operator_alert" => $wrongProductStop["operator_alert"],
+                "physical_stop_request_status" => $wrongProductStop["physical_stop_request_status"],
+                "command_request_id" => $wrongProductStop["command_request_id"],
+            ],
+        );
+    }
 }
 if ($result === "EXCESSO") {
     // Registra a pausa lógica e enfileira PAUSAR_CARREGAMENTO pelo caminho

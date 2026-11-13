@@ -18,7 +18,12 @@ test("código sem correspondência fica auditado como não identificado e pede f
   assert.match(endpoint, /\? "Saco detectado pelo sensor com código sem correspondência no catálogo\."/);
 });
 
-test("produto reconhecido fora do romaneio mantém a parada de segurança", () => {
-  assert.match(endpoint, /if \(\$result === "PRODUTO_INCORRETO"\)/);
+test("produto reconhecido fora do romaneio mantém ocorrência e parada apropriada", () => {
+  assert.match(endpoint, /\$wrongProductDetected = \$classification\["wrong_product_detected"\]/);
+  assert.match(
+    endpoint,
+    /if \(\$wrongProductDetected\) \{[\s\S]*?if \(\$result === "PRODUTO_INCORRETO"\) \{/,
+  );
   assert.match(endpoint, /solicitarParadaPorProdutoIncorreto/);
+  assert.match(endpoint, /solicitarParadaPorExcesso/);
 });
