@@ -225,7 +225,7 @@ final class ServicoComandoClp
             "EXCESSO" => "Quantidade excedida",
             "COTA_PRODUTO_ATINGIDA" => "Meta do produto atingida",
             "COTA_ROMANEIO_ATINGIDA" => "Quantidade do romaneio atingida",
-            default => "Produto fora do romaneio",
+            default => "Produto fora do romaneio ou da quantidade prevista",
         };
         $ownsTransaction = $this->iniciarEscopoTransacao($savepoint);
         try {
@@ -246,24 +246,24 @@ final class ServicoComandoClp
                     "COTA_PRODUTO_ATINGIDA",
                     "COTA_ROMANEIO_ATINGIDA",
                 ], true)) {
-                    $operatorAlert = "Produto fora do romaneio. Remova a unidade e confirme somente quando a esteira estiver fisicamente parada.";
+                    $operatorAlert = "Produto fora do romaneio ou da quantidade prevista. Remova a unidade e confirme somente quando a esteira estiver fisicamente parada.";
                     $pendingPause = $this->repositorio->comandoPendente($loadingId, "PAUSAR_CARREGAMENTO");
                     if ($pendingPause) {
                         $requestId = (int) $pendingPause["id"];
                         $requestStatus = (string) $pendingPause["status"];
-                        $operatorAlert = "Produto fora do romaneio. A parada física aguarda confirmação do CLP; remova a unidade somente após a esteira parar.";
+                        $operatorAlert = "Produto fora do romaneio ou da quantidade prevista. A parada física aguarda confirmação do CLP; remova a unidade somente após a esteira parar.";
                     } else {
                         $lastPause = $this->repositorio->ultimaSolicitacaoComando($loadingId, "PAUSAR_CARREGAMENTO");
                         if ($lastPause && $lastPause["status"] === "APLICADO") {
                             $requestId = (int) $lastPause["id"];
                             $requestStatus = "APLICADO";
-                            $operatorAlert = "Produto fora do romaneio. O CLP confirmou a parada física; remova a unidade e confirme antes de retomar.";
+                            $operatorAlert = "Produto fora do romaneio ou da quantidade prevista. O CLP confirmou a parada física; remova a unidade e confirme antes de retomar.";
                         } else {
                             try {
                                 $request = $this->solicitarOperacao($user, $loadingId, "PAUSAR_CARREGAMENTO");
                                 $requestId = (int) $request["command_request_id"];
                                 $requestStatus = (string) $request["status"];
-                                $operatorAlert = "Produto fora do romaneio. Foi solicitada a parada da esteira; remova a unidade somente após a parada física.";
+                                $operatorAlert = "Produto fora do romaneio ou da quantidade prevista. Foi solicitada a parada da esteira; remova a unidade somente após a parada física.";
                             } catch (ExcecaoComandoClp|ExcecaoDisponibilidadeClp $exception) {
                                 if ($exception->httpStatus >= 500) {
                                     throw $exception;

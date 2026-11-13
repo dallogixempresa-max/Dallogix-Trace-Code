@@ -468,40 +468,8 @@ try {
             );
         }
     }
-    $excessStop = null;
     $automaticStop = false;
     if (
-        $countsTowardPlan &&
-        $plannedQuantity > 0 &&
-        $detectedBags > $plannedQuantity &&
-        in_array($loading["state"], ["CARREGANDO", "FINALIZANDO", "PAUSADO"], true)
-    ) {
-        $excessStop = (new ServicoComandoClp($pdo))->solicitarParadaPorExcesso(
-            ["id" => null, "company_id" => (int) $device["company_id"]],
-            (int) $loadingId,
-        );
-        $automaticStop = ($excessStop["stop_reason"] ?? null) === "EXCESSO";
-        record_operational_event(
-            $pdo,
-            ["id" => null, "company_id" => $device["company_id"]],
-            "EXCESSO_DETECTADO",
-            "carregamento",
-            (int) $loadingId,
-            [
-                "carregamento_id" => (int) $loadingId,
-                "sensor_event_id" => $eventId,
-                "sensor_event_uuid" => $eventUuid,
-                "planned_quantity" => $plannedQuantity,
-                "detected_bags" => $detectedBags,
-                "stop_reason" => $excessStop["stop_reason"] ?? "EXCESSO",
-                "operator_alert" => $excessStop["operator_alert"] ?? null,
-                "physical_stop_request_status" => $excessStop["physical_stop_request_status"] ?? "NAO_CONFIRMADA",
-                "command_request_id" => $excessStop["command_request_id"] ?? null,
-            ],
-        );
-    // O ramo de EXCESSO acima trata quantidades maiores; ao atingir a meta,
-    // também solicitamos pausa se o carregamento estiver em transição.
-    } elseif (
         $countsTowardPlan &&
         in_array($loading["state"], ["CARREGANDO", "FINALIZANDO"], true)
         && $plannedQuantity > 0

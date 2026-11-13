@@ -685,7 +685,7 @@ function installScannerHidReceiver() {
           }
           if (reading?.product_quota_reached) {
             notificar(
-              "Cota do produto atingida. Uma nova passagem identificada deste produto será excesso e solicitará a parada da esteira.",
+              "Quantidade prevista deste produto atingida. Continue somente com o próximo item do romaneio.",
               "aviso",
             );
           }
