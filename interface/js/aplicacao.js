@@ -79,7 +79,7 @@ const registroTelas = criarRegistroTelas({
   division: () =>
     import("../telas/divisao-carga/divisao-carga.js?v=202611120004").then(({ division }) => division),
   work: () =>
-    import("../telas/operacao/operacao.js?v=202611120004").then(({ work }) => work),
+    import("../telas/operacao/operacao.js?v=202611130001").then(({ work }) => work),
   occurrences: () =>
     import("../telas/ocorrencias/ocorrencias.js?v=202611120004").then(({ occurrences }) => occurrences),
   products: () =>
@@ -481,7 +481,7 @@ const conectividadeLocal = createLocalConnectivityController({
   refreshSettingsView: () => refreshSettingsStatusView(),
   render: () => render(),
   logWarning: (...args) => logFrontend.aviso(...args),
-  serviceWorkerUrl: "/service-worker.js?v=202611120004",
+  serviceWorkerUrl: "/service-worker.js?v=202611130001",
 });
 
 function waitForDocumentStyles() {

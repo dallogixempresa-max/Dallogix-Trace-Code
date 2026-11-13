@@ -222,8 +222,6 @@ function workControls(store) {
   const pendingCommand = String(currentCommand?.command || "").toUpperCase();
   const pendingStatus = String(currentCommand?.status || "").toUpperCase();
   const currentCommandPending = ["PENDENTE", "PROCESSANDO"].includes(pendingStatus);
-  const reversalActive = store.state.reversalCommand === "REVERSAO_ATIVAR" ||
-    (currentCommandPending && pendingCommand === "REVERSAO_ATIVAR");
   const bloqueio = (reason) => reason
     ? { disabled: true, "aria-disabled": "true", title: reason }
     : "";
@@ -268,8 +266,7 @@ function workControls(store) {
   const scannerMonitor = store.state.loadingId
     ? `<div class="work-reader-monitor"><div class="work-reader-monitor-heading"><span class="kicker">Visor do leitor</span><small>Último código recebido automaticamente do leitor.</small></div><div class="work-scanner-display"><span class="work-scanner-display-label">Código de barras</span><output id="automatic-scanner-barcode" class="work-scanner-display-value${scannerValueClass}" data-live="scanner-value" role="status" aria-live="polite" aria-atomic="true">${esc(scannerValue)}</output></div></div>`
     : "";
-  const runLabel = reversalActive ? "Ligar esteira em reversão" : "Ligar esteira";
-  const controls = `<div class="work-controls"><div class="work-routine-controls">${button(runLabel, "run", "primary", bloqueio(commandLocks.run))}${button("Desligar esteira", "stop", "ghost", atributosPararEsteira)}${button("Ligar reversão", "reverse-on", "secondary", atributosLigarReversao)}${button("Desligar reversão", "reverse-off", "secondary", atributosDesligarReversao)}</div><div class="work-emergency-zone">${button("EMERGÊNCIA", "emergency", "danger", bloqueioEmergencia)}</div></div>`;
+  const controls = `<div class="work-controls"><div class="work-routine-controls">${button("Ligar esteira", "run", "primary", bloqueio(commandLocks.run))}${button("Desligar esteira", "stop", "ghost", atributosPararEsteira)}${button("Ligar reversão", "reverse-on", "secondary", atributosLigarReversao)}${button("Desligar reversão", "reverse-off", "secondary", atributosDesligarReversao)}</div><div class="work-emergency-zone">${button("EMERGÊNCIA", "emergency", "danger", bloqueioEmergencia)}</div></div>`;
   // Quando o carregamento entra em emergência, o painel de liberação precisa
   // aparecer na própria tela de operação — sem forçar o operador a navegar
   // para a página separada /emergencia.html. O botão de desbloqueio fica
