@@ -37,23 +37,26 @@ if ($_SERVER["REQUEST_METHOD"] === "GET") {
                     COALESCE((SELECT SUM(ri.planned_quantity) FROM romaneio_itens ri WHERE ri.romaneio_id = r.id), 0) AS planned_quantity,
                     COALESCE((SELECT SUM(ret.quantity) FROM retornos ret
                               JOIN carregamentos c3 ON c3.id = ret.carregamento_id
-                              WHERE c3.romaneio_id = r.id AND c3.company_id = r.company_id), 0) AS returned_quantity,
+                              LEFT JOIN leituras lr ON lr.id = ret.leitura_id
+                              WHERE c3.romaneio_id = r.id AND c3.company_id = r.company_id
+                                AND (ret.leitura_id IS NULL OR lr.conta_na_meta = 1)), 0) AS returned_quantity,
                     COALESCE((SELECT SUM(GREATEST(0,
                       (SELECT COUNT(*) FROM leituras l JOIN carregamentos c2 ON c2.id = l.carregamento_id
                         WHERE c2.romaneio_id = r.id AND c2.company_id = r.company_id
-                          AND l.result = 'VALIDO' AND l.product_id = ri.product_id)
+                          AND l.result = 'VALIDO' AND l.conta_na_meta = 1 AND l.product_id = ri.product_id)
                       - COALESCE((SELECT SUM(ret.quantity) FROM retornos ret
                                   JOIN carregamentos c4 ON c4.id = ret.carregamento_id
                                   JOIN leituras lr ON lr.id = ret.leitura_id
-                                  WHERE c4.romaneio_id = r.id AND c4.company_id = r.company_id AND lr.product_id = ri.product_id), 0)
+                                  WHERE c4.romaneio_id = r.id AND c4.company_id = r.company_id
+                                    AND lr.product_id = ri.product_id AND lr.conta_na_meta = 1), 0)
                     ))
                       FROM romaneio_itens ri
                       WHERE ri.romaneio_id = r.id AND ri.company_id = r.company_id
                         AND ri.id = (SELECT MIN(ri4.id) FROM romaneio_itens ri4
                                      WHERE ri4.romaneio_id = r.id AND ri4.product_id = ri.product_id)), 0) AS loaded_quantity,
-                    COALESCE((SELECT COUNT(*) FROM eventos_sensor s JOIN carregamentos c5 ON c5.id = s.carregamento_id WHERE c5.romaneio_id = r.id AND c5.company_id = r.company_id), 0) AS detected_quantity,
+                    COALESCE((SELECT COUNT(*) FROM eventos_sensor s JOIN carregamentos c5 ON c5.id = s.carregamento_id WHERE c5.romaneio_id = r.id AND c5.company_id = r.company_id AND s.conta_na_meta = 1), 0) AS detected_quantity,
                     (SELECT COUNT(*) FROM carregamentos c6 WHERE c6.romaneio_id = r.id AND c6.company_id = r.company_id) AS loading_count,
-                    (SELECT COUNT(*) FROM solicitacoes_imagens_evidencia i JOIN carregamentos c7 ON c7.id = i.carregamento_id WHERE c7.romaneio_id = r.id AND c7.company_id = r.company_id AND i.status IN ('PENDENTE','CAPTURANDO')) AS pending_evidence_count,
+                    (SELECT COUNT(*) FROM solicitacoes_imagens_evidencia i JOIN carregamentos c7 ON c7.id = i.carregamento_id JOIN eventos_sensor s ON s.id = i.sensor_event_id WHERE c7.romaneio_id = r.id AND c7.company_id = r.company_id AND s.conta_na_meta = 1 AND i.status IN ('PENDENTE','CAPTURANDO')) AS pending_evidence_count,
                     (SELECT c8.id FROM carregamentos c8 WHERE c8.romaneio_id = r.id AND c8.company_id = r.company_id AND c8.state <> 'FINALIZADO' AND r.status NOT IN ('FINALIZADO', 'CANCELADO') ORDER BY c8.id DESC LIMIT 1) AS active_loading_id
              FROM romaneios r WHERE r.id = :id AND r.company_id = :company_id LIMIT 1",
         );
@@ -233,7 +236,8 @@ if ($_SERVER["REQUEST_METHOD"] === "PATCH") {
                 "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia i
                  JOIN carregamentos c ON c.id = i.carregamento_id
                  WHERE c.romaneio_id = :romaneio_id AND c.company_id = :company_id
-                   AND i.status IN ('PENDENTE', 'CAPTURANDO')",
+                   AND i.status IN ('PENDENTE', 'CAPTURANDO')
+                   AND EXISTS (SELECT 1 FROM eventos_sensor s WHERE s.id = i.sensor_event_id AND s.conta_na_meta = 1)",
             );
             $pendingEvidence->execute(["romaneio_id" => $romaneioId, "company_id" => $companyId]);
             if ((int) $pendingEvidence->fetchColumn() > 0) {
@@ -245,7 +249,8 @@ if ($_SERVER["REQUEST_METHOD"] === "PATCH") {
                 "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia i
                  JOIN carregamentos c ON c.id = i.carregamento_id
                  WHERE c.romaneio_id = :romaneio_id AND c.company_id = :company_id
-                   AND i.status = 'ERRO'",
+                   AND i.status = 'ERRO'
+                   AND EXISTS (SELECT 1 FROM eventos_sensor s WHERE s.id = i.sensor_event_id AND s.conta_na_meta = 1)",
             );
             $failedEvidence->execute([
                 "romaneio_id" => $romaneioId,
@@ -260,7 +265,7 @@ if ($_SERVER["REQUEST_METHOD"] === "PATCH") {
                 "SELECT COUNT(*) FROM leituras l
                  JOIN carregamentos c ON c.id = l.carregamento_id
                  WHERE c.romaneio_id = :romaneio_id AND c.company_id = :company_id
-                   AND l.result NOT IN ('VALIDO', 'SEM_LEITURA')",
+                   AND l.conta_na_meta = 1 AND l.result NOT IN ('VALIDO', 'SEM_LEITURA')",
             );
             $unsupportedReadings->execute([
                 "romaneio_id" => $romaneioId,
@@ -275,7 +280,7 @@ if ($_SERVER["REQUEST_METHOD"] === "PATCH") {
                 "SELECT COUNT(*) FROM leituras l
                  JOIN carregamentos c ON c.id = l.carregamento_id
                  WHERE c.romaneio_id = :romaneio_id AND c.company_id = :company_id
-                   AND l.result = 'SEM_LEITURA'
+                   AND l.conta_na_meta = 1 AND l.result = 'SEM_LEITURA'
                    AND (l.sensor_event_id IS NULL OR NOT EXISTS (
                      SELECT 1 FROM solicitacoes_imagens_evidencia i
                      WHERE i.carregamento_id = l.carregamento_id
@@ -296,7 +301,7 @@ if ($_SERVER["REQUEST_METHOD"] === "PATCH") {
                 "SELECT COUNT(*) FROM carregamentos c
                  WHERE c.romaneio_id = :romaneio_id AND c.company_id = :company_id
                    AND (SELECT COUNT(*) FROM eventos_sensor s
-                        WHERE s.carregamento_id = c.id AND s.equipment_id = c.equipment_id)
+                        WHERE s.carregamento_id = c.id AND s.equipment_id = c.equipment_id AND s.conta_na_meta = 1)
                      <> (SELECT COALESCE(SUM(ri.planned_quantity), 0) FROM romaneio_itens ri
                          WHERE ri.romaneio_id = c.romaneio_id
                            AND (ri.truck_id = c.truck_id OR ri.truck_id IS NULL))",
@@ -317,11 +322,12 @@ if ($_SERVER["REQUEST_METHOD"] === "PATCH") {
                      c.stop_reason = 'EXCESSO'
                      OR
                      EXISTS (SELECT 1 FROM leituras l
-                             WHERE l.carregamento_id = c.id AND l.result = 'EXCESSO')
+                             WHERE l.carregamento_id = c.id AND l.conta_na_meta = 1 AND l.result = 'EXCESSO')
                      OR EXISTS (SELECT 1 FROM solicitacoes_imagens_evidencia i
-                                WHERE i.carregamento_id = c.id AND i.reason = 'EXCESSO')
+                                WHERE i.carregamento_id = c.id AND i.reason = 'EXCESSO'
+                                  AND EXISTS (SELECT 1 FROM eventos_sensor s WHERE s.id = i.sensor_event_id AND s.conta_na_meta = 1))
                      OR (SELECT COUNT(*) FROM eventos_sensor s
-                         WHERE s.carregamento_id = c.id AND s.equipment_id = c.equipment_id)
+                         WHERE s.carregamento_id = c.id AND s.equipment_id = c.equipment_id AND s.conta_na_meta = 1)
                         > (SELECT COALESCE(SUM(ri.planned_quantity), 0) FROM romaneio_itens ri
                            WHERE ri.romaneio_id = c.romaneio_id
                              AND (ri.truck_id = c.truck_id OR ri.truck_id IS NULL))
@@ -335,11 +341,11 @@ if ($_SERVER["REQUEST_METHOD"] === "PATCH") {
                          0,
                          COALESCE((SELECT COUNT(*) FROM leituras l
                                    WHERE l.carregamento_id = c.id
-                                     AND l.product_id = ri.product_id AND l.result = 'VALIDO'), 0)
+                                     AND l.product_id = ri.product_id AND l.result = 'VALIDO' AND l.conta_na_meta = 1), 0)
                          - COALESCE((SELECT SUM(ret.quantity) FROM retornos ret
                                      JOIN leituras lr ON lr.id = ret.leitura_id
-                                     WHERE ret.carregamento_id = c.id
-                                       AND lr.product_id = ri.product_id), 0)
+                                       WHERE ret.carregamento_id = c.id
+                                         AND lr.product_id = ri.product_id AND lr.conta_na_meta = 1), 0)
                        ) > SUM(ri.planned_quantity)
                      )
                    )",

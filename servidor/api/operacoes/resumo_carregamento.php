@@ -18,10 +18,11 @@ if (!$loadingId) {
 session_write_close();
 $pdo = db();
 $loading = $pdo->prepare(
-    "SELECT c.id, c.equipment_id, c.state, c.started_at, c.finished_at,
+    "SELECT c.id, c.equipment_id, c.state, c.stop_reason, c.started_at, c.finished_at,
             COALESCE(c.leituras_validas, 0) AS leituras_validas,
             (SELECT COUNT(*) FROM eventos_sensor s
-             WHERE s.carregamento_id = c.id AND s.equipment_id = c.equipment_id) AS sacas_detectadas,
+             WHERE s.carregamento_id = c.id AND s.equipment_id = c.equipment_id
+               AND s.conta_na_meta = 1) AS sacas_detectadas,
             r.number AS romaneio_number, rt.plate, e.equipment_code,
             (SELECT JSON_UNQUOTE(JSON_EXTRACT(la.metadata, '$.message'))
              FROM logs_auditoria la
@@ -52,7 +53,9 @@ $data["leituras_validas"] = (int) ($data["leituras_validas"] ?? 0);
 $data["sacas_detectadas"] = (int) ($data["sacas_detectadas"] ?? 0);
 $data["sacas_retornadas"] = $count(
     $pdo,
-    "SELECT COALESCE(SUM(quantity), 0) FROM retornos WHERE carregamento_id = :id",
+    "SELECT COALESCE(SUM(ret.quantity), 0) FROM retornos ret
+     LEFT JOIN leituras lr ON lr.id = ret.leitura_id
+     WHERE ret.carregamento_id = :id AND (lr.id IS NULL OR lr.conta_na_meta = 1)",
     ["id" => $loadingId],
 );
 $data["leituras_liquidas"] = max(0, $data["leituras_validas"] - $data["sacas_retornadas"]);
@@ -60,48 +63,90 @@ $data["leituras_scanner"] = $count(
     $pdo,
     "SELECT COUNT(*) FROM leituras
      WHERE carregamento_id = :id AND barcode IS NOT NULL
-       AND result IN ('VALIDO', 'PRODUTO_INCORRETO', 'EXCESSO')",
+       AND conta_na_meta = 1 AND result IN ('VALIDO', 'PRODUTO_INCORRETO', 'EXCESSO')",
     ["id" => $loadingId],
 );
+$data["leituras_excesso"] = $count(
+    $pdo,
+    "SELECT COUNT(*) FROM leituras WHERE carregamento_id = :id AND result = 'EXCESSO' AND conta_na_meta = 1",
+    ["id" => $loadingId],
+);
+$stopReason = strtoupper(trim((string) ($data["stop_reason"] ?? "")));
+$data["parada_automatica_confirmada"] = false;
+if (in_array($stopReason, ["COTA_ROMANEIO_ATINGIDA", "EXCESSO"], true)) {
+    $stopAction = $stopReason === "EXCESSO" ? "EXCESSO_DETECTADO" : "QUANTIDADE_PLANEJADA_ATINGIDA";
+    $data["parada_automatica_confirmada"] = $count(
+        $pdo,
+        "SELECT COUNT(*) FROM logs_auditoria a
+         JOIN solicitacoes_comandos_clp q
+           ON q.id = CAST(JSON_UNQUOTE(JSON_EXTRACT(a.metadata, '$.command_request_id')) AS UNSIGNED)
+         WHERE a.company_id = :company_id AND a.action = :action
+           AND a.entity_type = 'carregamento' AND a.entity_id = :loading_id
+           AND JSON_UNQUOTE(JSON_EXTRACT(a.metadata, '$.stop_reason')) = :stop_reason
+           AND q.carregamento_id = :command_loading_id AND q.company_id = :command_company_id
+           AND q.command = 'PAUSAR_CARREGAMENTO' AND q.status = 'APLICADO'",
+        [
+            "company_id" => $user["company_id"],
+            "action" => $stopAction,
+            "loading_id" => $loadingId,
+            "stop_reason" => $stopReason,
+            "command_loading_id" => $loadingId,
+            "command_company_id" => $user["company_id"],
+        ],
+    ) > 0;
+}
 $data["excessos_detectados"] = $count(
     $pdo,
-    "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia
-     WHERE carregamento_id = :id AND reason = 'EXCESSO'",
+    "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia i
+     WHERE i.carregamento_id = :id AND i.reason = 'EXCESSO'
+       AND (i.sensor_event_id IS NULL OR EXISTS (
+         SELECT 1 FROM eventos_sensor s WHERE s.id = i.sensor_event_id AND s.conta_na_meta = 1
+       ))",
     ["id" => $loadingId],
 );
 $data["excessos_com_foto"] = $count(
     $pdo,
-    "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia
-     WHERE carregamento_id = :id AND reason = 'EXCESSO' AND status = 'CAPTURADA'",
+    "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia i
+     WHERE i.carregamento_id = :id AND i.reason = 'EXCESSO' AND i.status = 'CAPTURADA'
+       AND (i.sensor_event_id IS NULL OR EXISTS (
+         SELECT 1 FROM eventos_sensor s WHERE s.id = i.sensor_event_id AND s.conta_na_meta = 1
+       ))",
     ["id" => $loadingId],
 );
 $data["fotos_excesso_pendentes"] = $count(
     $pdo,
-    "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia
-     WHERE carregamento_id = :id AND reason = 'EXCESSO' AND status IN ('PENDENTE', 'CAPTURANDO')",
+    "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia i
+     WHERE i.carregamento_id = :id AND i.reason = 'EXCESSO' AND i.status IN ('PENDENTE', 'CAPTURANDO')
+       AND (i.sensor_event_id IS NULL OR EXISTS (
+         SELECT 1 FROM eventos_sensor s WHERE s.id = i.sensor_event_id AND s.conta_na_meta = 1
+       ))",
     ["id" => $loadingId],
 );
 $data["fotos_excesso_com_erro"] = $count(
     $pdo,
-    "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia
-     WHERE carregamento_id = :id AND reason = 'EXCESSO' AND status = 'ERRO'",
+    "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia i
+     WHERE i.carregamento_id = :id AND i.reason = 'EXCESSO' AND i.status = 'ERRO'
+       AND (i.sensor_event_id IS NULL OR EXISTS (
+         SELECT 1 FROM eventos_sensor s WHERE s.id = i.sensor_event_id AND s.conta_na_meta = 1
+       ))",
     ["id" => $loadingId],
 );
 $data["sem_leitura"] = $count(
     $pdo,
-    "SELECT COUNT(*) FROM leituras WHERE carregamento_id = :id AND result = 'SEM_LEITURA'",
+    "SELECT COUNT(*) FROM leituras WHERE carregamento_id = :id AND result = 'SEM_LEITURA' AND conta_na_meta = 1",
     ["id" => $loadingId],
 );
 $data["sem_leitura_com_foto"] = $count(
     $pdo,
     "SELECT COUNT(*) FROM leituras l
-     WHERE l.carregamento_id = :id AND l.result = 'SEM_LEITURA'
+     WHERE l.carregamento_id = :id AND l.result = 'SEM_LEITURA' AND l.conta_na_meta = 1
        AND l.sensor_event_id IS NOT NULL
        AND EXISTS (
          SELECT 1 FROM solicitacoes_imagens_evidencia e
          WHERE e.carregamento_id = l.carregamento_id
            AND e.sensor_event_id = l.sensor_event_id
            AND e.reason = 'SEM_LEITURA' AND e.status = 'CAPTURADA'
+           AND EXISTS (SELECT 1 FROM eventos_sensor s WHERE s.id = e.sensor_event_id AND s.conta_na_meta = 1)
        )",
     ["id" => $loadingId],
 );
@@ -111,12 +156,12 @@ $data["sem_leitura_com_foto"] = $count(
 // para não imputar a falha a nenhum produto específico.
 $data["leituras_sem_produto"] = $count(
     $pdo,
-    "SELECT COUNT(*) FROM leituras WHERE carregamento_id = :id AND result = 'SEM_LEITURA' AND product_id IS NULL",
+    "SELECT COUNT(*) FROM leituras WHERE carregamento_id = :id AND result = 'SEM_LEITURA' AND conta_na_meta = 1 AND product_id IS NULL",
     ["id" => $loadingId],
 );
 $data["produtos_incorretos"] = $count(
     $pdo,
-    "SELECT COUNT(*) FROM leituras WHERE carregamento_id = :id AND result = 'PRODUTO_INCORRETO'",
+    "SELECT COUNT(*) FROM leituras WHERE carregamento_id = :id AND result = 'PRODUTO_INCORRETO' AND conta_na_meta = 1",
     ["id" => $loadingId],
 );
 $data["ocorrencias"] = $count(
@@ -126,18 +171,25 @@ $data["ocorrencias"] = $count(
 );
 $data["imagens_pendentes"] = $count(
     $pdo,
-    "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia WHERE carregamento_id = :id AND status IN ('PENDENTE','CAPTURANDO')",
+    "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia i WHERE i.carregamento_id = :id AND i.status IN ('PENDENTE','CAPTURANDO')
+       AND (i.sensor_event_id IS NULL OR EXISTS (
+         SELECT 1 FROM eventos_sensor s WHERE s.id = i.sensor_event_id AND s.conta_na_meta = 1
+       ))",
     ["id" => $loadingId],
 );
 $data["imagens_com_falha"] = $count(
     $pdo,
-    "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia WHERE carregamento_id = :id AND status = 'ERRO'",
+    "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia i WHERE i.carregamento_id = :id AND i.status = 'ERRO'
+       AND (i.sensor_event_id IS NULL OR EXISTS (
+         SELECT 1 FROM eventos_sensor s WHERE s.id = i.sensor_event_id AND s.conta_na_meta = 1
+       ))",
     ["id" => $loadingId],
 );
 $data["leituras_pendentes_sensor"] = $count(
     $pdo,
     "SELECT COUNT(*) FROM eventos_sensor s
      WHERE s.carregamento_id = :id
+       AND s.conta_na_meta = 1
        AND NOT EXISTS (SELECT 1 FROM leituras l WHERE l.sensor_event_id = s.id)",
     ["id" => $loadingId],
 );

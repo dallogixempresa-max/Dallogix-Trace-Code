@@ -53,7 +53,7 @@ test("o encerramento retorna leituras_sem_produto no payload de resposta", () =>
   // O front pode exibir o alerta imediatamente após o encerramento sem
   // precisar fazer polling do resumo.
   assert.match(encerrar, /leituras_sem_produto/);
-  assert.match(encerrar, /result = 'SEM_LEITURA' AND product_id IS NULL/);
+  assert.match(encerrar, /result = 'SEM_LEITURA' AND conta_na_meta = 1 AND product_id IS NULL/);
   assert.match(encerrar, /"leituras_sem_produto" => \$leiturasSemProduto/);
 });
 
@@ -61,5 +61,5 @@ test("resumo_carregamento expõe leituras_sem_produto durante o carregamento", (
   // O painel de operação acompanha estes dados durante a operação;
   // a métrica precisa estar disponível antes do encerramento.
   assert.match(resumo, /leituras_sem_produto/);
-  assert.match(resumo, /result = 'SEM_LEITURA' AND product_id IS NULL/);
+  assert.match(resumo, /result = 'SEM_LEITURA' AND conta_na_meta = 1 AND product_id IS NULL/);
 });

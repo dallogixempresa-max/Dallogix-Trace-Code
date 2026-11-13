@@ -7,6 +7,7 @@ define("TRACE_SKIP_SESSION", true);
 require_once __DIR__ . "/../../configuracao/bootstrap.php";
 require_once __DIR__ . "/../../src/Aplicacao/InicializadorAcoesDala.php";
 require_once __DIR__ . "/../../src/Aplicacao/ServicoPreparacaoCarregamentoSincronizado.php";
+require_once __DIR__ . "/../../src/Aplicacao/ServicoPausasCarregamento.php";
 require_once __DIR__ . "/../../src/Persistencia/RepositorioItensRomaneioSincronizacao.php";
 require_once __DIR__ . "/../../src/Persistencia/RepositorioAuditoriaEventosSincronizacao.php";
 require_once __DIR__ . "/../../src/Persistencia/RepositorioCarregamentosEventos.php";
@@ -18,6 +19,7 @@ require_once __DIR__ . "/../../src/Persistencia/RepositorioStatusDispositivosEve
 
 use App\Aplicacao\InicializadorAcoesDala;
 use App\Aplicacao\ServicoPreparacaoCarregamentoSincronizado;
+use App\Aplicacao\ServicoPausasCarregamento;
 use App\Persistencia\RepositorioAuditoriaEventosSincronizacao;
 use App\Persistencia\RepositorioCarregamentosEventos;
 use App\Persistencia\RepositorioComandosEventos;
@@ -498,6 +500,13 @@ try {
             if ($loadingId === null) {
                 throw new RuntimeException("Não foi possível localizar o carregamento do evento de sensor sincronizado.");
             }
+            $lockLoading = $pdo->prepare(
+                "SELECT id FROM carregamentos WHERE id = :loading_id AND company_id = :company_id LIMIT 1 FOR UPDATE",
+            );
+            $lockLoading->execute(["loading_id" => $loadingId, "company_id" => $companyId]);
+            if ($lockLoading->fetchColumn() === false) {
+                throw new RuntimeException("O carregamento do evento de sensor não pertence à empresa sincronizada.");
+            }
 
             $equipmentId = $findEquipment($companyId, $data);
             $sensorEventUuid = trim((string) ($data["event_uuid"] ?? ""));
@@ -526,13 +535,32 @@ try {
                 $deviceDetectedAt = str_replace("T", " ", $deviceDetectedAtInput);
             }
 
+            $eventAtEpochMs = filter_var($data["event_at_epoch_ms"] ?? null, FILTER_VALIDATE_INT);
+            if ($eventAtEpochMs === false || $eventAtEpochMs === null || (int) $eventAtEpochMs < 1) {
+                if ($deviceDetectedAt !== null) {
+                    $eventAtEpochMs = trace_sql_datetime_to_epoch_ms($deviceDetectedAt);
+                } elseif ($detectedAt !== null) {
+                    $serverDetectedAt = new DateTimeImmutable($detectedAt, new DateTimeZone("UTC"));
+                    $eventAtEpochMs = (int) round((float) $serverDetectedAt->format("U.u") * 1000);
+                } else {
+                    $eventAtEpochMs = (int) round(microtime(true) * 1000);
+                }
+            } else {
+                $eventAtEpochMs = (int) $eventAtEpochMs;
+            }
+            $sourceCountsTowardPlan = array_key_exists("conta_na_meta", $data)
+                ? filter_var($data["conta_na_meta"], FILTER_VALIDATE_BOOLEAN)
+                : true;
+            $countsTowardPlan = $sourceCountsTowardPlan
+                && !ServicoPausasCarregamento::estaNaPausa($pdo, $loadingId, $eventAtEpochMs);
+
             $debounceMs = filter_var($data["debounce_ms"] ?? 400, FILTER_VALIDATE_INT);
             if ($debounceMs === false || (int) $debounceMs < 0 || (int) $debounceMs > 5000) {
                 throw new RuntimeException("O intervalo de debounce do sensor é inválido.");
             }
 
             $findSensorEvent = $pdo->prepare(
-                "SELECT id, carregamento_id, equipment_id FROM eventos_sensor
+                "SELECT id, carregamento_id, equipment_id, conta_na_meta FROM eventos_sensor
                  WHERE event_uuid = :event_uuid LIMIT 1",
             );
             $findSensorEvent->execute(["event_uuid" => $sensorEventUuid]);
@@ -541,8 +569,11 @@ try {
                 try {
                     $insertSensorEvent = $pdo->prepare(
                         "INSERT INTO eventos_sensor
-                         (carregamento_id, equipment_id, event_uuid, detected_at, device_detected_at, debounce_ms)
-                         VALUES (:loading_id, :equipment_id, :event_uuid, COALESCE(:detected_at, NOW(3)), :device_detected_at, :debounce_ms)",
+                         (carregamento_id, equipment_id, event_uuid, detected_at, device_detected_at,
+                          event_at_epoch_ms, conta_na_meta_origem, conta_na_meta, debounce_ms)
+                         VALUES (:loading_id, :equipment_id, :event_uuid, COALESCE(:detected_at, NOW(3)),
+                                 :device_detected_at, :event_at_epoch_ms, :conta_na_meta_origem,
+                                 :conta_na_meta, :debounce_ms)",
                     );
                     $insertSensorEvent->execute([
                         "loading_id" => $loadingId,
@@ -550,6 +581,9 @@ try {
                         "event_uuid" => $sensorEventUuid,
                         "detected_at" => $detectedAt,
                         "device_detected_at" => $deviceDetectedAt,
+                        "event_at_epoch_ms" => $eventAtEpochMs,
+                        "conta_na_meta_origem" => $sourceCountsTowardPlan ? 1 : 0,
+                        "conta_na_meta" => $countsTowardPlan ? 1 : 0,
                         "debounce_ms" => (int) $debounceMs,
                     ]);
                     $sensorEventId = (int) $pdo->lastInsertId();
@@ -557,13 +591,14 @@ try {
                         "id" => $sensorEventId,
                         "carregamento_id" => $loadingId,
                         "equipment_id" => $equipmentId,
+                        "conta_na_meta" => $countsTowardPlan ? 1 : 0,
                     ];
                 } catch (PDOException $exception) {
                     if ((int) ($exception->errorInfo[1] ?? 0) !== 1062) {
                         throw $exception;
                     }
                     $reloadSensorEvent = $pdo->prepare(
-                        "SELECT id, carregamento_id, equipment_id FROM eventos_sensor
+                        "SELECT id, carregamento_id, equipment_id, conta_na_meta FROM eventos_sensor
                          WHERE event_uuid = :event_uuid LIMIT 1 FOR UPDATE",
                     );
                     $reloadSensorEvent->execute(["event_uuid" => $sensorEventUuid]);
@@ -582,6 +617,16 @@ try {
             ) {
                 throw new RuntimeException("O identificador do evento de sensor já pertence a outra operação.");
             }
+            if (!$countsTowardPlan && (int) $existingSensorEvent["conta_na_meta"] === 1) {
+                $markUncounted = $pdo->prepare(
+                    "UPDATE eventos_sensor SET conta_na_meta_origem = :origin, conta_na_meta = 0 WHERE id = :id",
+                );
+                $markUncounted->execute([
+                    "origin" => $sourceCountsTowardPlan ? 1 : 0,
+                    "id" => $sensorEventId,
+                ]);
+                ServicoPausasCarregamento::reclassificarPassagens($pdo, $loadingId);
+            }
 
             // Corrige também leituras recebidas antes da passagem quando a fila
             // local precisou reenviar eventos fora da ordem original.
@@ -590,7 +635,8 @@ try {
                  JOIN logs_auditoria a
                    ON a.company_id = l.company_id AND a.action = 'LEITURA_REGISTRADA'
                   AND a.entity_type = 'leitura' AND a.entity_id = l.id
-                 SET l.sensor_event_id = :sensor_event_id
+                 SET l.sensor_event_id = :sensor_event_id,
+                     l.conta_na_meta = :conta_na_meta
                  WHERE l.company_id = :company_id AND l.carregamento_id = :loading_id
                    AND l.sensor_event_id IS NULL
                    AND JSON_UNQUOTE(JSON_EXTRACT(a.metadata, '$.payload.data.sensor_event_uuid')) = :sensor_event_uuid",
@@ -600,7 +646,9 @@ try {
                 "company_id" => $companyId,
                 "loading_id" => $loadingId,
                 "sensor_event_uuid" => $sensorEventUuid,
+                "conta_na_meta" => $countsTowardPlan ? 1 : 0,
             ]);
+            ServicoPausasCarregamento::reclassificarPassagens($pdo, $loadingId);
             $entityId = $sensorEventId;
         }
 
@@ -668,13 +716,14 @@ try {
             ) === 1 ? str_replace("T", " ", $readingAtInput) : null;
             $readingAttempt = max(1, (int) ($data["attempt_number"] ?? 1));
             $sensorEventId = null;
+            $readingCountsTowardPlan = true;
             $sensorEventUuid = trim((string) ($data["sensor_event_uuid"] ?? ""));
             if ($sensorEventUuid !== "") {
                 if (!preg_match('/^[a-f0-9-]{36}$/i', $sensorEventUuid)) {
                     throw new RuntimeException("A leitura contém um identificador de sensor inválido.");
                 }
                 $findSensorEvent = $pdo->prepare(
-                    "SELECT s.id FROM eventos_sensor s
+                    "SELECT s.id, s.conta_na_meta FROM eventos_sensor s
                      JOIN carregamentos c ON c.id = s.carregamento_id
                      WHERE s.event_uuid = :event_uuid AND s.carregamento_id = :loading_id
                        AND s.equipment_id = :equipment_id AND c.company_id = :company_id LIMIT 1",
@@ -685,11 +734,14 @@ try {
                     "equipment_id" => (int) $installationEquipmentId,
                     "company_id" => $readingCompanyId,
                 ]);
-                $resolvedSensorEventId = $findSensorEvent->fetchColumn();
-                $sensorEventId = $resolvedSensorEventId === false ? null : (int) $resolvedSensorEventId;
+                $resolvedSensorEvent = $findSensorEvent->fetch(PDO::FETCH_ASSOC);
+                $sensorEventId = $resolvedSensorEvent === false ? null : (int) $resolvedSensorEvent["id"];
+                if ($resolvedSensorEvent !== false) {
+                    $readingCountsTowardPlan = (int) $resolvedSensorEvent["conta_na_meta"] === 1;
+                }
             }
             $findSyncedReading = $pdo->prepare(
-                "SELECT id, carregamento_id, sensor_event_id, result, barcode FROM leituras
+                "SELECT id, carregamento_id, sensor_event_id, result, barcode, conta_na_meta FROM leituras
                  WHERE company_id = :company_id AND sync_event_uuid = :event_uuid
                  LIMIT 1 FOR UPDATE",
             );
@@ -712,11 +764,12 @@ try {
                 $entityId = (int) $existingSyncedReading["id"];
                 if ($sensorEventId !== null && $existingSyncedReading["sensor_event_id"] === null) {
                     $linkReading = $pdo->prepare(
-                        "UPDATE leituras SET sensor_event_id = :sensor_event_id
+                        "UPDATE leituras SET sensor_event_id = :sensor_event_id, conta_na_meta = :conta_na_meta
                          WHERE id = :id AND company_id = :company_id AND sensor_event_id IS NULL",
                     );
                     $linkReading->execute([
                         "sensor_event_id" => $sensorEventId,
+                        "conta_na_meta" => $readingCountsTowardPlan ? 1 : 0,
                         "id" => $entityId,
                         "company_id" => $readingCompanyId,
                     ]);
@@ -724,8 +777,8 @@ try {
             } else {
                 $insertReading = $pdo->prepare(
                     "INSERT INTO leituras
-                     (company_id, carregamento_id, sensor_event_id, sync_event_uuid, product_id, barcode, attempt_number, result, read_at)
-                     VALUES (:company_id, :carregamento_id, :sensor_event_id, :event_uuid, :product_id, :barcode, :attempt_number, :result, COALESCE(:read_at, NOW(3)))",
+                     (company_id, carregamento_id, sensor_event_id, sync_event_uuid, product_id, barcode, attempt_number, result, conta_na_meta, read_at)
+                     VALUES (:company_id, :carregamento_id, :sensor_event_id, :event_uuid, :product_id, :barcode, :attempt_number, :result, :conta_na_meta, COALESCE(:read_at, NOW(3)))",
                 );
                 try {
                     $insertReading->execute([
@@ -737,6 +790,7 @@ try {
                         "barcode" => $readingBarcode,
                         "attempt_number" => $readingAttempt,
                         "result" => $readingResult,
+                        "conta_na_meta" => $readingCountsTowardPlan ? 1 : 0,
                         "read_at" => $readingAt,
                     ]);
                     $entityId = (int) $pdo->lastInsertId();
@@ -763,11 +817,12 @@ try {
                     $entityId = (int) $existingSyncedReading["id"];
                     if ($sensorEventId !== null && $existingSyncedReading["sensor_event_id"] === null) {
                         $linkReading = $pdo->prepare(
-                            "UPDATE leituras SET sensor_event_id = :sensor_event_id
+                            "UPDATE leituras SET sensor_event_id = :sensor_event_id, conta_na_meta = :conta_na_meta
                              WHERE id = :id AND company_id = :company_id AND sensor_event_id IS NULL",
                         );
                         $linkReading->execute([
                             "sensor_event_id" => $sensorEventId,
+                            "conta_na_meta" => $readingCountsTowardPlan ? 1 : 0,
                             "id" => $entityId,
                             "company_id" => $readingCompanyId,
                         ]);
@@ -775,14 +830,28 @@ try {
                 }
             }
 
-            if ($readingInserted && $readingResult === "VALIDO") {
+            if ($sensorEventId !== null) {
+                $syncReadingCount = $pdo->prepare(
+                    "UPDATE leituras l
+                     JOIN eventos_sensor s ON s.id = l.sensor_event_id
+                     SET l.conta_na_meta = s.conta_na_meta
+                     WHERE l.id = :id AND l.company_id = :company_id",
+                );
+                $syncReadingCount->execute([
+                    "id" => $entityId,
+                    "company_id" => $readingCompanyId,
+                ]);
+                ServicoPausasCarregamento::reclassificarPassagens($pdo, $loadingId);
+            }
+
+            if ($readingInserted && $readingResult === "VALIDO" && $readingCountsTowardPlan && $sensorEventId === null) {
                 $updateValidCount = $pdo->prepare(
                     "UPDATE carregamentos SET leituras_validas = leituras_validas + 1
                      WHERE id = :id AND company_id = :company_id",
                 );
                 $updateValidCount->execute(["id" => $loadingId, "company_id" => $readingCompanyId]);
             }
-            if ($readingResult === "EXCESSO") {
+            if ($readingResult === "EXCESSO" && $readingCountsTowardPlan) {
                 $excessAlert = "Quantidade excedida recebida da instalação industrial. Confirme a parada física e a remoção da unidade no PC industrial antes de retomar.";
                 $pauseLoading = $pdo->prepare(
                     "UPDATE carregamentos
@@ -801,12 +870,12 @@ try {
 
         if (in_array($action, ["COMANDO_CLP_CONCLUIDO", "COMANDO_CLP_EXPIRADO"], true)) {
             $remoteCommandId = filter_var($data["remote_command_id"] ?? null, FILTER_VALIDATE_INT);
+            $status = $action === "COMANDO_CLP_EXPIRADO" ? "ERRO" : strtoupper((string) ($data["status"] ?? "ERRO"));
+            if (!in_array($status, ["APLICADO", "REJEITADO", "ERRO"], true)) {
+                $status = "ERRO";
+            }
             if ($remoteCommandId !== false && $remoteCommandId > 0) {
                 $commandEquipmentId = $findEquipment($companyId, $data);
-                $status = $action === "COMANDO_CLP_EXPIRADO" ? "ERRO" : strtoupper((string) ($data["status"] ?? "ERRO"));
-                if (!in_array($status, ["APLICADO", "REJEITADO", "ERRO"], true)) {
-                    $status = "ERRO";
-                }
                 $commandEventsRepository->registrarRetorno(
                     $companyId,
                     $commandEquipmentId,
@@ -815,6 +884,33 @@ try {
                     $data["message"] ?? null,
                 );
                 $entityId = (int) $remoteCommandId;
+            }
+            $command = strtoupper(trim((string) ($data["command"] ?? "")));
+            if (
+                $action === "COMANDO_CLP_CONCLUIDO"
+                && $status === "APLICADO"
+                && in_array($command, ["INICIAR_CARREGAMENTO", "PAUSAR_CARREGAMENTO"], true)
+            ) {
+                $sourceLoadingId = filter_var($data["carregamento_id"] ?? $entityId, FILTER_VALIDATE_INT);
+                $remoteLoadingId = filter_var($data["remote_carregamento_id"] ?? null, FILTER_VALIDATE_INT);
+                $loadingId = $resolveLoadingId(
+                    $companyId,
+                    $remoteLoadingId !== false && $remoteLoadingId > 0 ? (int) $remoteLoadingId : 0,
+                    $sourceLoadingId !== false && $sourceLoadingId > 0 ? (int) $sourceLoadingId : 0,
+                );
+                $appliedAtEpochMs = filter_var($data["applied_at_epoch_ms"] ?? null, FILTER_VALIDATE_INT);
+                if ($loadingId !== null && $appliedAtEpochMs !== false && $appliedAtEpochMs !== null && $appliedAtEpochMs > 0) {
+                    $pauseStartedAtEpochMs = filter_var($data["pause_started_at_epoch_ms"] ?? null, FILTER_VALIDATE_INT);
+                    ServicoPausasCarregamento::registrarComandoAplicado(
+                        $pdo,
+                        $companyId,
+                        $loadingId,
+                        $command,
+                        (int) $appliedAtEpochMs,
+                        $pauseStartedAtEpochMs !== false && $pauseStartedAtEpochMs !== null
+                            ? (int) $pauseStartedAtEpochMs : null,
+                    );
+                }
             }
         }
 

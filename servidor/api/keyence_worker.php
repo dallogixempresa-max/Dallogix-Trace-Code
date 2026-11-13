@@ -62,6 +62,7 @@ if ($action === "PENDING_IMAGES") {
          JOIN carregamentos c ON c.id = r.carregamento_id
          JOIN eventos_sensor s ON s.id = r.sensor_event_id AND s.carregamento_id = r.carregamento_id
          WHERE r.equipment_id = :equipment_id AND c.company_id = :company_id
+           AND s.conta_na_meta = 1
            AND r.reason IN ('SEM_LEITURA', 'EXCESSO')
            AND (r.status IN ('PENDENTE', 'ERRO') OR
                 (r.status = 'CAPTURADA' AND r.requested_at >= NOW(3) - INTERVAL 10 MINUTE))

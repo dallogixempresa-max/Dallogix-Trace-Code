@@ -176,9 +176,15 @@ if ($route === "carregamentos") {
                    c.truck_id, t.plate, c.equipment_id, e.equipment_code, e.name AS equipment_name,
                    c.started_at, c.finished_at, c.created_at, c.updated_at,
                    COALESCE(c.leituras_validas, 0) AS valid_readings,
-                   COALESCE((SELECT SUM(ret.quantity) FROM retornos ret WHERE ret.carregamento_id = c.id), 0) AS returned_quantity,
+                   COALESCE((SELECT SUM(ret.quantity) FROM retornos ret
+                             LEFT JOIN leituras lr ON lr.id = ret.leitura_id
+                             WHERE ret.carregamento_id = c.id
+                               AND (ret.leitura_id IS NULL OR lr.conta_na_meta = 1)), 0) AS returned_quantity,
                    GREATEST(0, COALESCE(c.leituras_validas, 0)
-                       - COALESCE((SELECT SUM(ret.quantity) FROM retornos ret WHERE ret.carregamento_id = c.id), 0)) AS net_loaded_quantity,
+                       - COALESCE((SELECT SUM(ret.quantity) FROM retornos ret
+                                   LEFT JOIN leituras lr ON lr.id = ret.leitura_id
+                                   WHERE ret.carregamento_id = c.id
+                                     AND (ret.leitura_id IS NULL OR lr.conta_na_meta = 1)), 0)) AS net_loaded_quantity,
                    COALESCE((SELECT SUM(ri.planned_quantity) FROM romaneio_itens ri
                              WHERE ri.romaneio_id = c.romaneio_id
                                AND (ri.truck_id = c.truck_id OR ri.truck_id IS NULL)), 0) AS planned_quantity
@@ -199,9 +205,15 @@ if (preg_match('/\Acarregamentos\/([1-9][0-9]*)\z/', $route, $matches) === 1) {
                 c.truck_id, t.plate, c.equipment_id, e.equipment_code, e.name AS equipment_name,
                 c.started_at, c.finished_at, c.created_at, c.updated_at,
                 COALESCE(c.leituras_validas, 0) AS valid_readings,
-                COALESCE((SELECT SUM(ret.quantity) FROM retornos ret WHERE ret.carregamento_id = c.id), 0) AS returned_quantity,
+                COALESCE((SELECT SUM(ret.quantity) FROM retornos ret
+                          LEFT JOIN leituras lr ON lr.id = ret.leitura_id
+                          WHERE ret.carregamento_id = c.id
+                            AND (ret.leitura_id IS NULL OR lr.conta_na_meta = 1)), 0) AS returned_quantity,
                 GREATEST(0, COALESCE(c.leituras_validas, 0)
-                    - COALESCE((SELECT SUM(ret.quantity) FROM retornos ret WHERE ret.carregamento_id = c.id), 0)) AS net_loaded_quantity,
+                    - COALESCE((SELECT SUM(ret.quantity) FROM retornos ret
+                                LEFT JOIN leituras lr ON lr.id = ret.leitura_id
+                                WHERE ret.carregamento_id = c.id
+                                  AND (ret.leitura_id IS NULL OR lr.conta_na_meta = 1)), 0)) AS net_loaded_quantity,
                 COALESCE((SELECT SUM(ri.planned_quantity) FROM romaneio_itens ri
                           WHERE ri.romaneio_id = c.romaneio_id
                             AND (ri.truck_id = c.truck_id OR ri.truck_id IS NULL)), 0) AS planned_quantity

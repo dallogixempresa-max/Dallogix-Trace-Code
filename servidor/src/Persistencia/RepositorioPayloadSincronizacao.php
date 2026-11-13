@@ -339,14 +339,15 @@ final class RepositorioPayloadSincronizacao
         return $eventUuid === false ? null : (string) $eventUuid;
     }
 
-    /** @return array{event_uuid:string,detected_at:string,device_detected_at:?string,debounce_ms:int}|null */
+    /** @return array{event_uuid:string,detected_at:string,device_detected_at:?string,event_at_epoch_ms:?int,conta_na_meta:bool,debounce_ms:int}|null */
     private function buscarEventoSensor(int $companyId, int $sensorEventId, int $loadingId): ?array
     {
         if ($sensorEventId <= 0) {
             return null;
         }
         $statement = $this->connection->prepare(
-            "SELECT s.event_uuid, s.detected_at, s.device_detected_at, s.debounce_ms
+            "SELECT s.event_uuid, s.detected_at, s.device_detected_at,
+                    s.event_at_epoch_ms, s.conta_na_meta_origem, s.debounce_ms
              FROM eventos_sensor s
              JOIN carregamentos c ON c.id = s.carregamento_id
              WHERE s.id = :sensor_event_id AND s.carregamento_id = :loading_id
@@ -367,6 +368,9 @@ final class RepositorioPayloadSincronizacao
             "detected_at" => (string) $event["detected_at"],
             "device_detected_at" => $event["device_detected_at"] === null
                 ? null : (string) $event["device_detected_at"],
+            "event_at_epoch_ms" => $event["event_at_epoch_ms"] === null
+                ? null : (int) $event["event_at_epoch_ms"],
+            "conta_na_meta" => (bool) $event["conta_na_meta_origem"],
             "debounce_ms" => (int) $event["debounce_ms"],
         ];
     }

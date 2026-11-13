@@ -195,18 +195,31 @@ if ($loading["state"] === "PAUSADO" && !$sensorEventId) {
 }
 if ($sensorEventId) {
     $sensorStatement = $pdo->prepare(
-        "SELECT id FROM eventos_sensor WHERE id = :sensor_event_id AND carregamento_id = :carregamento_id AND equipment_id = :equipment_id LIMIT 1",
+        "SELECT id, event_at_epoch_ms, device_detected_at,
+                CAST(ROUND(UNIX_TIMESTAMP(detected_at) * 1000) AS UNSIGNED) AS server_detected_at_epoch_ms,
+                conta_na_meta
+         FROM eventos_sensor
+         WHERE id = :sensor_event_id AND carregamento_id = :carregamento_id
+           AND equipment_id = :equipment_id LIMIT 1",
     );
     $sensorStatement->execute([
         "sensor_event_id" => $sensorEventId,
         "carregamento_id" => $loadingId,
         "equipment_id" => $loading["equipment_id"],
     ]);
-    if (!$sensorStatement->fetch()) {
+    $sensorEvent = $sensorStatement->fetch(PDO::FETCH_ASSOC);
+    if ($sensorEvent === false) {
         $pdo->rollBack();
         responder_json(
             ["error" => "Evento de sensor não pertence ao carregamento."],
             422,
+        );
+    }
+    if ((int) $sensorEvent["conta_na_meta"] !== 1) {
+        $pdo->rollBack();
+        responder_json(
+            ["error" => "Esta passagem foi capturada durante a pausa e não pode gerar leitura operacional."],
+            409,
         );
     }
 }
@@ -290,15 +303,29 @@ $productSemLeituraCount = $quantities["product_sem_leitura_count"];
 $physicalExcess = false;
 $physicalEventPosition = null;
 if ($sensorEventId && $loadingPlannedQuantity > 0) {
-    // A posição da passagem é estável mesmo se as leituras chegarem fora de ordem.
+    // Ordena pelo instante da captura para conservar a posição quando eventos
+    // pré-pausa chegam depois de eventos já sincronizados.
+    $sensorEventAtEpochMs = (int) ($sensorEvent["event_at_epoch_ms"] ?? 0);
+    if ($sensorEventAtEpochMs < 1) {
+        $sensorEventAtEpochMs = $sensorEvent["device_detected_at"] !== null
+            ? trace_sql_datetime_to_epoch_ms((string) $sensorEvent["device_detected_at"])
+            : (int) $sensorEvent["server_detected_at_epoch_ms"];
+    }
     $sensorPosition = $pdo->prepare(
         "SELECT COUNT(*) FROM eventos_sensor
          WHERE carregamento_id = :loading_id AND equipment_id = :equipment_id
-           AND id <= :sensor_event_id",
+           AND conta_na_meta = 1 AND (
+             (event_at_epoch_ms IS NULL AND id <= :legacy_sensor_event_id)
+             OR event_at_epoch_ms < :event_at_before
+             OR (event_at_epoch_ms = :event_at_equal AND id <= :sensor_event_id)
+           )",
     );
     $sensorPosition->execute([
         "loading_id" => $loadingId,
         "equipment_id" => $loading["equipment_id"],
+        "legacy_sensor_event_id" => $sensorEventId,
+        "event_at_before" => $sensorEventAtEpochMs,
+        "event_at_equal" => $sensorEventAtEpochMs,
         "sensor_event_id" => $sensorEventId,
     ]);
     $physicalEventPosition = (int) $sensorPosition->fetchColumn();
@@ -322,9 +349,12 @@ $productValidCount = $classification["product_valid_count"];
 $productQuotaReached = $classification["product_quota_reached"];
 $noReadEvidenceRequired = $classification["no_read_evidence_required"];
 $barcodeUnmatched = $barcode !== "" && $matchedProductId === null;
+$countsTowardPlan = true;
 
 $insert = $pdo->prepare(
-    "INSERT INTO leituras (company_id, carregamento_id, sensor_event_id, product_id, barcode, attempt_number, result, read_at) VALUES (:company_id, :carregamento_id, :sensor_event_id, :product_id, :barcode, :attempt_number, :result, NOW(3))",
+    "INSERT INTO leituras
+        (company_id, carregamento_id, sensor_event_id, product_id, barcode, attempt_number, result, conta_na_meta, read_at)
+     VALUES (:company_id, :carregamento_id, :sensor_event_id, :product_id, :barcode, :attempt_number, :result, :conta_na_meta, NOW(3))",
 );
 try {
     $insert->execute([
@@ -335,6 +365,7 @@ try {
         "barcode" => $barcode !== "" ? $barcode : null,
         "attempt_number" => $attemptNumber,
         "result" => $result,
+        "conta_na_meta" => $countsTowardPlan ? 1 : 0,
     ]);
 } catch (PDOException $exception) {
     if (
@@ -378,7 +409,7 @@ try {
     throw $exception;
 }
 $readingId = (int) $pdo->lastInsertId();
-if ($result === "VALIDO") {
+if ($result === "VALIDO" && $countsTowardPlan) {
     $validCounter = $pdo->prepare(
         "UPDATE carregamentos SET leituras_validas = leituras_validas + 1 WHERE id = :id AND company_id = :company_id",
     );

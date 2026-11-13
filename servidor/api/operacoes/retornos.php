@@ -53,6 +53,7 @@ try {
     // (SEM_LEITURA ligada ao evento), para que a retirada após a meta fique registrada.
     $valid = $pdo->prepare("SELECT l.id, l.product_id, l.barcode FROM leituras l
         WHERE l.id = :reading_id AND l.carregamento_id = :loading_id AND l.company_id = :company_id
+          AND l.conta_na_meta = 1
           AND (l.result = 'VALIDO' OR (l.result = 'SEM_LEITURA' AND l.sensor_event_id IS NOT NULL))
           AND NOT EXISTS (SELECT 1 FROM retornos r WHERE r.leitura_id = l.id)
         LIMIT 1 FOR UPDATE");

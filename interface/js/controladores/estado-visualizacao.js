@@ -3,6 +3,7 @@ import { operationStructureSignature, renderDalaStatuses } from "./operacao.js?v
 import { numero, relativo, dataHora } from "../funcoes/formato.js?v=202611120004";
 import { el } from "../funcoes/html.js";
 import { refreshCompanyStatusCards } from "../funcoes/view.js?v=202611120004";
+import { motivoBloqueioFinalizacao, podeFinalizarCarregamento } from "../funcoes/regras-carregamento.js?v=202611120004";
 
 /** Mantém as regiões de estado sincronizadas sem recriar formulários ou a tela toda. */
 export function createLiveViewController({
@@ -87,10 +88,13 @@ export function createLiveViewController({
       const nearEnd = planned > 0 && detectedBags > 0 && remaining > 0 && remaining <= threshold;
       const complete = planned > 0 && detectedBags >= planned;
       const excess = planned > 0 && detectedBags > planned;
+      const finishReady = podeFinalizarCarregamento(store.state);
       endNotice.textContent = excess
         ? `Atenção: ${numero(detectedBags - planned)} sacas passaram do total previsto.`
         : complete
-          ? "Quantidade prevista atingida. Parada automática solicitada; confira a parada física, as leituras e as fotos antes de finalizar."
+          ? finishReady
+            ? "Quantidade prevista atingida e conferência concluída. Finalize o romaneio no botão acima."
+            : "Quantidade prevista atingida. Conclua as confirmações pendentes para liberar a finalização."
           : nearEnd
             ? "Atenção: o carregamento está próximo da quantidade prevista."
             : "";
@@ -98,6 +102,36 @@ export function createLiveViewController({
       endNotice.classList.toggle("complete", complete && !excess);
       endNotice.classList.toggle("near-end", nearEnd && !complete);
       endNotice.classList.toggle("excess", excess);
+
+      const finishButton = document.querySelector('.work-header-finish-actions [data-action="finish"]');
+      if (finishButton) {
+        finishButton.disabled = !finishReady;
+        finishButton.classList.toggle("primary", finishReady);
+        finishButton.classList.toggle("secondary", !finishReady);
+        if (finishReady) {
+          finishButton.title = "Finaliza este carregamento e, se for o último, encerra o romaneio.";
+          finishButton.removeAttribute("aria-disabled");
+        } else {
+          finishButton.title = motivoBloqueioFinalizacao(store.state);
+          finishButton.setAttribute("aria-disabled", "true");
+        }
+      }
+
+      const finishBlockReason = complete && !finishReady
+        ? motivoBloqueioFinalizacao(store.state)
+        : "";
+      let finishBlockNotice = document.querySelector('[data-live="finish-block-notice"]');
+      if (finishBlockReason) {
+        if (!finishBlockNotice) {
+          finishBlockNotice = document.createElement("p");
+          finishBlockNotice.className = "work-completion-notice near-end";
+          finishBlockNotice.dataset.live = "finish-block-notice";
+          endNotice.insertAdjacentElement("afterend", finishBlockNotice);
+        }
+        finishBlockNotice.textContent = finishBlockReason;
+      } else {
+        finishBlockNotice?.remove();
+      }
     }
   }
 
