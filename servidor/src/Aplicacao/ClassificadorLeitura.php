@@ -20,8 +20,6 @@ final class ClassificadorLeitura
         bool $physicalExcess = false,
         int $productSemLeituraCount = 0,
         int $loadingSemLeituraCount = 0,
-        int $productProdutoIncorretoCount = 0,
-        int $loadingProdutoIncorretoCount = 0,
     ): array {
         // Um código não encontrado no catálogo não prova que o saco contém um
         // produto fora do romaneio. Registre como leitura sem identificação e
@@ -29,19 +27,16 @@ final class ClassificadorLeitura
         $catalogProductIdentified = $barcodePresent && $matchedProductId !== null;
         $result = $catalogProductIdentified ? "PRODUTO_INCORRETO" : "SEM_LEITURA";
         $productId = null;
-        // Passagens físicas incluem VALIDO, SEM_LEITURA e PRODUTO_INCORRETO:
-        // qualquer saco que passou pelo sensor conta para a cota total,
-        // independente do resultado da leitura do código de barras.
-        $loadingPassageCount = $loadingValidCount + $loadingSemLeituraCount + $loadingProdutoIncorretoCount;
+        // Só produtos previstos e passagens sem leitura participam da cota.
+        // Produto reconhecido fora do romaneio precisa ser removido e nunca
+        // pode ocupar uma unidade da quantidade planejada.
+        $loadingPassageCount = $loadingValidCount + $loadingSemLeituraCount;
         $wrongProductDetected = $catalogProductIdentified && $productPlannedQuantity <= 0;
 
         if ($catalogProductIdentified && $productPlannedQuantity > 0) {
             $productId = $matchedProductId;
             $result = "VALIDO";
-            // Conta também PRODUTO_INCORRETO por produto: um saco com código
-            // reconhecido mas produto errado ainda ocupou fisicamente o lugar de
-            // um saco deste produto no caminhão.
-            $productPassageCount = $productValidCount + $productSemLeituraCount + $productProdutoIncorretoCount;
+            $productPassageCount = $productValidCount + $productSemLeituraCount;
             if (
                 $physicalExcess ||
                 $productPassageCount >= $productPlannedQuantity ||
@@ -49,13 +44,6 @@ final class ClassificadorLeitura
             ) {
                 $result = "EXCESSO";
             }
-        } elseif ($wrongProductDetected && (
-            $physicalExcess ||
-            ($loadingPlannedQuantity > 0 && $loadingPassageCount >= $loadingPlannedQuantity)
-        )) {
-            // Um produto conhecido fora do romaneio também é excesso se a cota
-            // física já foi atingida antes desta passagem.
-            $result = "EXCESSO";
         } elseif (!$catalogProductIdentified && (
             $physicalExcess ||
             ($loadingPlannedQuantity > 0 && $loadingPassageCount >= $loadingPlannedQuantity)
@@ -67,7 +55,7 @@ final class ClassificadorLeitura
 
         $productQuotaReached = $result === "VALIDO"
             && $productPlannedQuantity > 0
-            && $productValidCount + $productSemLeituraCount + $productProdutoIncorretoCount + 1 >= $productPlannedQuantity;
+            && $productValidCount + $productSemLeituraCount + 1 >= $productPlannedQuantity;
 
         return [
             "result" => $result,

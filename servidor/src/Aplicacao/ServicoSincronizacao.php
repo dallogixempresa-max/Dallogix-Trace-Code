@@ -594,6 +594,8 @@ final class ServicoSincronizacao
         $evidenceCount = filter_var($data["evidence_count"] ?? 0, FILTER_VALIDATE_INT);
         $evidenceExcessCount = filter_var($data["evidence_excess_count"] ?? 0, FILTER_VALIDATE_INT);
         $evidenceExcessEvidenceCount = filter_var($data["evidence_excess_evidence_count"] ?? 0, FILTER_VALIDATE_INT);
+        $evidenceWrongProductCount = filter_var($data["evidence_wrong_product_count"] ?? 0, FILTER_VALIDATE_INT);
+        $evidenceWrongProductEvidenceCount = filter_var($data["evidence_wrong_product_evidence_count"] ?? 0, FILTER_VALIDATE_INT);
         if ($sourceManifestId === false || (int) $sourceManifestId <= 0
             || preg_match('/\A[a-f0-9]{64}\z/', $expectedHash) !== 1
             || $expectedSize === false || (int) $expectedSize < 5
@@ -601,7 +603,9 @@ final class ServicoSincronizacao
             || $evidenceNoReadCount === false || (int) $evidenceNoReadCount < 0
             || $evidenceCount === false || (int) $evidenceCount < (int) $evidenceNoReadCount
             || $evidenceExcessCount === false || (int) $evidenceExcessCount < 0
-            || $evidenceExcessEvidenceCount === false || (int) $evidenceExcessEvidenceCount < (int) $evidenceExcessCount) {
+            || $evidenceExcessEvidenceCount === false || (int) $evidenceExcessEvidenceCount < (int) $evidenceExcessCount
+            || $evidenceWrongProductCount === false || (int) $evidenceWrongProductCount < 0
+            || $evidenceWrongProductEvidenceCount === false || (int) $evidenceWrongProductEvidenceCount < (int) $evidenceWrongProductCount) {
             return ["ok" => false, "error" => "Metadados do PDF do romaneio inválidos.", "http_code" => 422];
         }
         if ($remoteManifestId === false || (int) $remoteManifestId <= 0) {
@@ -637,6 +641,8 @@ final class ServicoSincronizacao
                 "X-Trace-Report-Evidence-Count" => (string) (int) $evidenceCount,
                 "X-Trace-Report-Excess-Count" => (string) (int) $evidenceExcessCount,
                 "X-Trace-Report-Excess-Evidence-Count" => (string) (int) $evidenceExcessEvidenceCount,
+                "X-Trace-Report-Wrong-Product-Count" => (string) (int) $evidenceWrongProductCount,
+                "X-Trace-Report-Wrong-Product-Evidence-Count" => (string) (int) $evidenceWrongProductEvidenceCount,
             ],
         );
     }

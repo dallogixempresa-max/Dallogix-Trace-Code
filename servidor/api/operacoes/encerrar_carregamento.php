@@ -68,14 +68,33 @@ if ($automaticQuotaStopReason) {
         ? "EXCESSO_DETECTADO"
         : "QUANTIDADE_PLANEJADA_ATINGIDA";
     $confirmedStop = $pdo->prepare(
-        "SELECT q.id FROM logs_auditoria a
-         JOIN solicitacoes_comandos_clp q
-           ON q.id = CAST(JSON_UNQUOTE(JSON_EXTRACT(a.metadata, '$.command_request_id')) AS UNSIGNED)
+        "SELECT 1 FROM logs_auditoria a
          WHERE a.company_id = :company_id AND a.action = :action
            AND a.entity_type = 'carregamento' AND a.entity_id = :loading_id
            AND JSON_UNQUOTE(JSON_EXTRACT(a.metadata, '$.stop_reason')) = :stop_reason
-           AND q.carregamento_id = :command_loading_id AND q.company_id = :command_company_id
-           AND q.command = 'PAUSAR_CARREGAMENTO' AND q.status = 'APLICADO'
+           AND (
+             EXISTS (
+               SELECT 1 FROM solicitacoes_comandos_clp q
+               WHERE q.id = CAST(JSON_UNQUOTE(JSON_EXTRACT(a.metadata, '$.command_request_id')) AS UNSIGNED)
+                 AND q.carregamento_id = :command_loading_id AND q.company_id = :command_company_id
+                 AND q.command = 'PAUSAR_CARREGAMENTO' AND q.status = 'APLICADO'
+             )
+             OR EXISTS (
+               SELECT 1 FROM logs_auditoria ack
+               WHERE ack.company_id = a.company_id
+                 AND ack.action = 'COMANDO_CLP_CONCLUIDO'
+                 AND ack.entity_type = 'solicitacao_comando_clp'
+                 AND (
+                   ack.entity_id = CAST(JSON_UNQUOTE(JSON_EXTRACT(a.metadata, '$.command_request_id')) AS UNSIGNED)
+                   OR CAST(JSON_UNQUOTE(JSON_EXTRACT(ack.metadata, '$.aggregate_id')) AS UNSIGNED)
+                     = CAST(JSON_UNQUOTE(JSON_EXTRACT(a.metadata, '$.command_request_id')) AS UNSIGNED)
+                 )
+                 AND JSON_UNQUOTE(JSON_EXTRACT(ack.metadata, '$.payload.data.command')) = 'PAUSAR_CARREGAMENTO'
+                 AND JSON_UNQUOTE(JSON_EXTRACT(ack.metadata, '$.payload.data.status')) = 'APLICADO'
+                 AND CAST(JSON_UNQUOTE(JSON_EXTRACT(ack.metadata, '$.payload.data.remote_carregamento_id')) AS UNSIGNED) = :ack_remote_loading_id
+                 AND CAST(JSON_UNQUOTE(JSON_EXTRACT(ack.metadata, '$.payload.data.remote_equipment_id')) AS UNSIGNED) = :ack_remote_equipment_id
+             )
+           )
          ORDER BY a.id DESC LIMIT 1",
     );
     $confirmedStop->execute([
@@ -85,6 +104,8 @@ if ($automaticQuotaStopReason) {
         "stop_reason" => $stopReason,
         "command_loading_id" => $loadingId,
         "command_company_id" => $user["company_id"],
+        "ack_remote_loading_id" => $loadingId,
+        "ack_remote_equipment_id" => (int) $loading["equipment_id"],
     ]);
     $automaticQuotaStopAcknowledged = (bool) $confirmedStop->fetchColumn();
     if (!$automaticQuotaStopAcknowledged) {
@@ -151,10 +172,8 @@ if (
 
 expirar_solicitacoes_imagem_keyence($pdo, null, [(int) $loadingId]);
 $pending = $pdo->prepare(
-    "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia i WHERE i.carregamento_id = :id AND i.status IN ('PENDENTE','CAPTURANDO')
-     AND (i.sensor_event_id IS NULL OR EXISTS (
-       SELECT 1 FROM eventos_sensor s WHERE s.id = i.sensor_event_id AND s.conta_na_meta = 1
-     ))",
+    "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia i
+     WHERE i.carregamento_id = :id AND i.status IN ('PENDENTE','CAPTURANDO')",
 );
 $pending->execute(["id" => $loadingId]);
 if ((int) $pending->fetchColumn() > 0) {
@@ -169,10 +188,7 @@ if ((int) $pending->fetchColumn() > 0) {
 }
 $failedEvidenceStatement = $pdo->prepare(
     "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia i
-     WHERE i.carregamento_id = :loading_id AND i.status = 'ERRO'
-       AND (i.sensor_event_id IS NULL OR EXISTS (
-         SELECT 1 FROM eventos_sensor s WHERE s.id = i.sensor_event_id AND s.conta_na_meta = 1
-       ))",
+     WHERE i.carregamento_id = :loading_id AND i.status = 'ERRO'",
 );
 $failedEvidenceStatement->execute(["loading_id" => $loadingId]);
 if ((int) $failedEvidenceStatement->fetchColumn() > 0) {
@@ -277,6 +293,21 @@ if ($uncoveredNoRead > 0) {
     $pdo->rollBack();
     json_response(["error" => "Aguarde a foto Keyence de cada saca sem leitura antes de finalizar."], 409);
 }
+$uncoveredWrongProductStatement = $pdo->prepare(
+    "SELECT COUNT(*) FROM leituras l
+     WHERE l.carregamento_id = :loading_id AND l.result = 'PRODUTO_INCORRETO'
+       AND (l.sensor_event_id IS NULL OR NOT EXISTS (
+         SELECT 1 FROM solicitacoes_imagens_evidencia e
+         WHERE e.carregamento_id = l.carregamento_id
+           AND e.sensor_event_id = l.sensor_event_id
+           AND e.reason = 'PRODUTO_INCORRETO' AND e.status = 'CAPTURADA'
+       ))",
+);
+$uncoveredWrongProductStatement->execute(["loading_id" => $loadingId]);
+if ((int) $uncoveredWrongProductStatement->fetchColumn() > 0) {
+    $pdo->rollBack();
+    json_response(["error" => "Aguarde a foto Keyence de cada produto fora do romaneio antes de finalizar."], 409);
+}
 $otherNonValidStatement = $pdo->prepare(
     "SELECT COUNT(*) FROM leituras WHERE carregamento_id = :loading_id
        AND conta_na_meta = 1 AND result NOT IN ('VALIDO', 'SEM_LEITURA', 'EXCESSO')",
@@ -330,13 +361,33 @@ if ($automatic) {
     );
     $scannerEventsRead->execute(["loading_id" => $loadingId]);
     $targetStopAcknowledged = $pdo->prepare(
-        "SELECT q.id FROM logs_auditoria a
-         JOIN solicitacoes_comandos_clp q
-           ON q.id = CAST(JSON_UNQUOTE(JSON_EXTRACT(a.metadata, '$.command_request_id')) AS UNSIGNED)
+        "SELECT 1 FROM logs_auditoria a
          WHERE a.company_id = :company_id AND a.action = 'QUANTIDADE_PLANEJADA_ATINGIDA'
            AND a.entity_type = 'carregamento' AND a.entity_id = :loading_id
-           AND q.carregamento_id = :command_loading_id AND q.company_id = :command_company_id
-           AND q.command = 'PAUSAR_CARREGAMENTO' AND q.status = 'APLICADO'
+           AND JSON_UNQUOTE(JSON_EXTRACT(a.metadata, '$.stop_reason')) = 'COTA_ROMANEIO_ATINGIDA'
+           AND (
+             EXISTS (
+               SELECT 1 FROM solicitacoes_comandos_clp q
+               WHERE q.id = CAST(JSON_UNQUOTE(JSON_EXTRACT(a.metadata, '$.command_request_id')) AS UNSIGNED)
+                 AND q.carregamento_id = :command_loading_id AND q.company_id = :command_company_id
+                 AND q.command = 'PAUSAR_CARREGAMENTO' AND q.status = 'APLICADO'
+             )
+             OR EXISTS (
+               SELECT 1 FROM logs_auditoria ack
+               WHERE ack.company_id = a.company_id
+                 AND ack.action = 'COMANDO_CLP_CONCLUIDO'
+                 AND ack.entity_type = 'solicitacao_comando_clp'
+                 AND (
+                   ack.entity_id = CAST(JSON_UNQUOTE(JSON_EXTRACT(a.metadata, '$.command_request_id')) AS UNSIGNED)
+                   OR CAST(JSON_UNQUOTE(JSON_EXTRACT(ack.metadata, '$.aggregate_id')) AS UNSIGNED)
+                     = CAST(JSON_UNQUOTE(JSON_EXTRACT(a.metadata, '$.command_request_id')) AS UNSIGNED)
+                 )
+                 AND JSON_UNQUOTE(JSON_EXTRACT(ack.metadata, '$.payload.data.command')) = 'PAUSAR_CARREGAMENTO'
+                 AND JSON_UNQUOTE(JSON_EXTRACT(ack.metadata, '$.payload.data.status')) = 'APLICADO'
+                 AND CAST(JSON_UNQUOTE(JSON_EXTRACT(ack.metadata, '$.payload.data.remote_carregamento_id')) AS UNSIGNED) = :ack_remote_loading_id
+                 AND CAST(JSON_UNQUOTE(JSON_EXTRACT(ack.metadata, '$.payload.data.remote_equipment_id')) AS UNSIGNED) = :ack_remote_equipment_id
+             )
+           )
          ORDER BY a.id DESC LIMIT 1",
     );
     $targetStopAcknowledged->execute([
@@ -344,6 +395,8 @@ if ($automatic) {
         "loading_id" => $loadingId,
         "command_loading_id" => $loadingId,
         "command_company_id" => $user["company_id"],
+        "ack_remote_loading_id" => $loadingId,
+        "ack_remote_equipment_id" => (int) $loading["equipment_id"],
     ]);
     if (
         $hasDivergence
@@ -498,6 +551,16 @@ try {
                    AND e.reason = 'SEM_LEITURA' AND e.status = 'CAPTURADA'
                ))",
         );
+        $uncoveredWrongProductForLoading = $pdo->prepare(
+            "SELECT COUNT(*) FROM leituras l
+             WHERE l.carregamento_id = :loading_id AND l.result = 'PRODUTO_INCORRETO'
+               AND (l.sensor_event_id IS NULL OR NOT EXISTS (
+                 SELECT 1 FROM solicitacoes_imagens_evidencia e
+                 WHERE e.carregamento_id = l.carregamento_id
+                   AND e.sensor_event_id = l.sensor_event_id
+                   AND e.reason = 'PRODUTO_INCORRETO' AND e.status = 'CAPTURADA'
+               ))",
+        );
         $overfilledProductsForLoading = $pdo->prepare(
             "SELECT COUNT(*) FROM (
                SELECT ri.product_id, SUM(ri.planned_quantity) AS planned_quantity,
@@ -547,6 +610,8 @@ try {
             $failedEvidenceCountForManifestLoading = (int) $failedEvidenceForLoading->fetchColumn();
             $uncoveredNoReadForLoading->execute(["loading_id" => $manifestLoadingId]);
             $uncoveredNoReadForManifestLoading = (int) $uncoveredNoReadForLoading->fetchColumn();
+            $uncoveredWrongProductForLoading->execute(["loading_id" => $manifestLoadingId]);
+            $uncoveredWrongProductForManifestLoading = (int) $uncoveredWrongProductForLoading->fetchColumn();
             $overfilledProductsForLoading->execute([
                 "loading_id" => $manifestLoadingId,
                 "return_loading_id" => $manifestLoadingId,
@@ -567,6 +632,7 @@ try {
                 || $excessForManifestLoading > 0
                 || $failedEvidenceCountForManifestLoading > 0
                 || $uncoveredNoReadForManifestLoading > 0
+                || $uncoveredWrongProductForManifestLoading > 0
                 || $overfilledProductCount > 0
             ) {
                 $allLoadingsHaveExactQuotaAndEvidence = false;
@@ -577,8 +643,7 @@ try {
             "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia i
              JOIN carregamentos c ON c.id = i.carregamento_id
              WHERE c.romaneio_id = :romaneio_id AND c.company_id = :company_id
-               AND i.status IN ('PENDENTE', 'CAPTURANDO')
-               AND EXISTS (SELECT 1 FROM eventos_sensor s WHERE s.id = i.sensor_event_id AND s.conta_na_meta = 1)",
+               AND i.status IN ('PENDENTE', 'CAPTURANDO')",
         );
         $pendingManifestEvidence->execute([
             "romaneio_id" => $loading["romaneio_id"],

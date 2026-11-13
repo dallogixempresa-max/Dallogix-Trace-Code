@@ -8,6 +8,7 @@ require_once __DIR__ . "/../../src/Aplicacao/ClassificadorLeitura.php";
 require_once __DIR__ . "/../../src/Aplicacao/SolicitacaoLeitura.php";
 require_once __DIR__ . "/../../src/Aplicacao/ServicoLeituras.php";
 require_once __DIR__ . "/../../src/Aplicacao/ServicoComandoClp.php";
+require_once __DIR__ . "/../../src/Aplicacao/ServicoPausasCarregamento.php";
 require_once __DIR__ . "/../../src/Persistencia/RepositorioLeituras.php";
 
 use App\Aplicacao\ClassificadorLeitura;
@@ -297,11 +298,9 @@ $quantities = $readingRepository->obterQuantidadesParaClassificar(
 $loadingPlannedQuantity = $quantities["loading_planned_quantity"];
 $loadingValidCount = $quantities["loading_valid_count"];
 $loadingSemLeituraCount = $quantities["loading_sem_leitura_count"];
-$loadingProdutoIncorretoCount = $quantities["loading_produto_incorreto_count"];
 $productPlannedQuantity = $quantities["product_planned_quantity"];
 $productValidCount = $quantities["product_valid_count"];
 $productSemLeituraCount = $quantities["product_sem_leitura_count"];
-$productProdutoIncorretoCount = $quantities["product_produto_incorreto_count"];
 $physicalExcess = false;
 $physicalEventPosition = null;
 if ($sensorEventId && $loadingPlannedQuantity > 0) {
@@ -343,8 +342,6 @@ $classification = (new ClassificadorLeitura())->classificar(
     $physicalExcess,
     $productSemLeituraCount,
     $loadingSemLeituraCount,
-    $productProdutoIncorretoCount,
-    $loadingProdutoIncorretoCount,
 );
 $result = $classification["result"];
 $productId = $classification["product_id"];
@@ -354,7 +351,7 @@ $productQuotaReached = $classification["product_quota_reached"];
 $noReadEvidenceRequired = $classification["no_read_evidence_required"];
 $wrongProductDetected = $classification["wrong_product_detected"];
 $barcodeUnmatched = $barcode !== "" && $matchedProductId === null;
-$countsTowardPlan = true;
+$countsTowardPlan = in_array($result, ["VALIDO", "SEM_LEITURA"], true);
 
 $insert = $pdo->prepare(
     "INSERT INTO leituras
@@ -438,6 +435,9 @@ record_operational_event(
         ...($offlineEventId !== "" ? ["event_uuid" => $offlineEventId] : []),
     ],
 );
+if (in_array($result, ["PRODUTO_INCORRETO", "EXCESSO"], true) && $sensorEventId) {
+    \App\Aplicacao\ServicoPausasCarregamento::reclassificarPassagens($pdo, (int) $loadingId);
+}
 $occurrenceId = null;
 $evidenceStatus = "NAO_SOLICITADA";
 if ($noReadEvidenceRequired) {
@@ -530,13 +530,13 @@ if ($result === "EXCESSO") {
         ],
     );
 }
-if ($sensorEventId && ($noReadEvidenceRequired || $result === "EXCESSO")) {
-    $evidenceReason = $result === "EXCESSO" ? "EXCESSO" : "SEM_LEITURA";
+if ($sensorEventId && ($noReadEvidenceRequired || $result === "PRODUTO_INCORRETO")) {
+    $evidenceReason = $result === "PRODUTO_INCORRETO" ? "PRODUTO_INCORRETO" : "SEM_LEITURA";
     $evidenceRequest = $pdo->prepare(
         'INSERT INTO solicitacoes_imagens_evidencia (sensor_event_id, carregamento_id, equipment_id, reason, requested_at)
          VALUES (:sensor_event_id, :carregamento_id, :equipment_id, :reason, NOW(3))
          ON DUPLICATE KEY UPDATE
-           reason = IF(reason = \'EXCESSO\' OR VALUES(reason) = \'EXCESSO\', \'EXCESSO\', \'SEM_LEITURA\'),
+           reason = VALUES(reason),
            status = IF(status = \'ERRO\', \'PENDENTE\', status),
            requested_at = VALUES(requested_at)',
     );
@@ -554,10 +554,25 @@ if ($sensorEventId && ($noReadEvidenceRequired || $result === "EXCESSO")) {
     if ($evidenceRequestId < 1) {
         throw new RuntimeException("Solicitação de imagem de evidência não encontrada após gravação.");
     }
+    if ($evidenceReason === "PRODUTO_INCORRETO") {
+        $relabelPreviousCapture = $pdo->prepare(
+            "UPDATE imagens SET reason = 'PRODUTO_INCORRETO', reading_id = :reading_id
+             WHERE carregamento_id = :carregamento_id AND reason IN ('SEM_LEITURA', 'EXCESSO')
+               AND (reading_id IN (
+                     SELECT id FROM leituras WHERE sensor_event_id = :sensor_event_id
+                   ) OR path LIKE CONCAT('%keyence-', :evidence_request_id, '-%'))",
+        );
+        $relabelPreviousCapture->execute([
+            "reading_id" => $readingId,
+            "carregamento_id" => $loadingId,
+            "sensor_event_id" => $sensorEventId,
+            "evidence_request_id" => $evidenceRequestId,
+        ]);
+    }
     record_operational_event(
         $pdo,
         $usuarioAtor,
-        $evidenceReason === "EXCESSO" ? "EXCESSO_EVIDENCIA_SOLICITADA" : "IMAGEM_EVIDENCIA_SOLICITADA",
+        $evidenceReason === "PRODUTO_INCORRETO" ? "PRODUTO_INCORRETO_EVIDENCIA_SOLICITADA" : "IMAGEM_EVIDENCIA_SOLICITADA",
         "evidence_request",
         $evidenceRequestId,
         ["sensor_event_id" => $sensorEventId, "reason" => $evidenceReason, "reading_result" => $result],

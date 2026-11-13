@@ -56,7 +56,7 @@ if ($_SERVER["REQUEST_METHOD"] === "GET") {
                                      WHERE ri4.romaneio_id = r.id AND ri4.product_id = ri.product_id)), 0) AS loaded_quantity,
                     COALESCE((SELECT COUNT(*) FROM eventos_sensor s JOIN carregamentos c5 ON c5.id = s.carregamento_id WHERE c5.romaneio_id = r.id AND c5.company_id = r.company_id AND s.conta_na_meta = 1), 0) AS detected_quantity,
                     (SELECT COUNT(*) FROM carregamentos c6 WHERE c6.romaneio_id = r.id AND c6.company_id = r.company_id) AS loading_count,
-                    (SELECT COUNT(*) FROM solicitacoes_imagens_evidencia i JOIN carregamentos c7 ON c7.id = i.carregamento_id JOIN eventos_sensor s ON s.id = i.sensor_event_id WHERE c7.romaneio_id = r.id AND c7.company_id = r.company_id AND s.conta_na_meta = 1 AND i.status IN ('PENDENTE','CAPTURANDO')) AS pending_evidence_count,
+                    (SELECT COUNT(*) FROM solicitacoes_imagens_evidencia i JOIN carregamentos c7 ON c7.id = i.carregamento_id WHERE c7.romaneio_id = r.id AND c7.company_id = r.company_id AND i.status IN ('PENDENTE','CAPTURANDO')) AS pending_evidence_count,
                     (SELECT c8.id FROM carregamentos c8 WHERE c8.romaneio_id = r.id AND c8.company_id = r.company_id AND c8.state <> 'FINALIZADO' AND r.status NOT IN ('FINALIZADO', 'CANCELADO') ORDER BY c8.id DESC LIMIT 1) AS active_loading_id
              FROM romaneios r WHERE r.id = :id AND r.company_id = :company_id LIMIT 1",
         );
@@ -236,8 +236,7 @@ if ($_SERVER["REQUEST_METHOD"] === "PATCH") {
                 "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia i
                  JOIN carregamentos c ON c.id = i.carregamento_id
                  WHERE c.romaneio_id = :romaneio_id AND c.company_id = :company_id
-                   AND i.status IN ('PENDENTE', 'CAPTURANDO')
-                   AND EXISTS (SELECT 1 FROM eventos_sensor s WHERE s.id = i.sensor_event_id AND s.conta_na_meta = 1)",
+                   AND i.status IN ('PENDENTE', 'CAPTURANDO')",
             );
             $pendingEvidence->execute(["romaneio_id" => $romaneioId, "company_id" => $companyId]);
             if ((int) $pendingEvidence->fetchColumn() > 0) {
@@ -249,8 +248,7 @@ if ($_SERVER["REQUEST_METHOD"] === "PATCH") {
                 "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia i
                  JOIN carregamentos c ON c.id = i.carregamento_id
                  WHERE c.romaneio_id = :romaneio_id AND c.company_id = :company_id
-                   AND i.status = 'ERRO'
-                   AND EXISTS (SELECT 1 FROM eventos_sensor s WHERE s.id = i.sensor_event_id AND s.conta_na_meta = 1)",
+                   AND i.status = 'ERRO'",
             );
             $failedEvidence->execute([
                 "romaneio_id" => $romaneioId,
@@ -295,6 +293,27 @@ if ($_SERVER["REQUEST_METHOD"] === "PATCH") {
             if ((int) $uncoveredNoReads->fetchColumn() > 0) {
                 $pdo->rollBack();
                 responder_json(["error" => "Aguarde a foto Keyence de cada saca sem leitura antes de encerrar o romaneio."], 409);
+            }
+
+            $uncoveredWrongProducts = $pdo->prepare(
+                "SELECT COUNT(*) FROM leituras l
+                 JOIN carregamentos c ON c.id = l.carregamento_id
+                 WHERE c.romaneio_id = :romaneio_id AND c.company_id = :company_id
+                   AND l.result = 'PRODUTO_INCORRETO'
+                   AND (l.sensor_event_id IS NULL OR NOT EXISTS (
+                     SELECT 1 FROM solicitacoes_imagens_evidencia i
+                     WHERE i.carregamento_id = l.carregamento_id
+                       AND i.sensor_event_id = l.sensor_event_id
+                       AND i.reason = 'PRODUTO_INCORRETO' AND i.status = 'CAPTURADA'
+                   ))",
+            );
+            $uncoveredWrongProducts->execute([
+                "romaneio_id" => $romaneioId,
+                "company_id" => $companyId,
+            ]);
+            if ((int) $uncoveredWrongProducts->fetchColumn() > 0) {
+                $pdo->rollBack();
+                responder_json(["error" => "Aguarde a foto Keyence de cada produto fora do romaneio antes de encerrar."], 409);
             }
 
             $quantityMismatch = $pdo->prepare(

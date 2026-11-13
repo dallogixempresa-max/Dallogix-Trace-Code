@@ -149,6 +149,11 @@ if ($action === "FINALIZE_EXPIRED") {
                     "read_at" => date("Y-m-d H:i:s.v"),
                 ],
             );
+            if ($physicalExcess) {
+                // Uma passagem fora da meta fica auditada, mas não consome
+                // quantidade; a parada já foi solicitada ao registrar o evento.
+                ServicoPausasCarregamento::reclassificarPassagens($pdo, (int) $loadingId);
+            }
             record_operational_event(
                 $pdo,
                 $actor,

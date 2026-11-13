@@ -153,6 +153,7 @@ $loadIds = array_map(static fn(array $row): int => (int) $row["id"], $loadRows);
 // validado antes de exigir evidências locais que só existem no PC industrial.
 $publishedNoReadCount = 0;
 $publishedExcessCount = 0;
+$publishedWrongProductCount = 0;
 if ($loadIds !== []) {
     $publishedPlaceholders = implode(",", array_fill(0, count($loadIds), "?"));
     $publishedNoReadQuery = $pdo->prepare(
@@ -167,6 +168,12 @@ if ($loadIds !== []) {
     );
     $publishedExcessQuery->execute($loadIds);
     $publishedExcessCount = (int) $publishedExcessQuery->fetchColumn();
+    $publishedWrongProductQuery = $pdo->prepare(
+        "SELECT COUNT(*) FROM leituras
+         WHERE carregamento_id IN ({$publishedPlaceholders}) AND result = 'PRODUTO_INCORRETO'",
+    );
+    $publishedWrongProductQuery->execute($loadIds);
+    $publishedWrongProductCount = (int) $publishedWrongProductQuery->fetchColumn();
 }
 $publishedStorageRoot = realpath(__DIR__ . "/../../../armazenamento");
 if ($publishedStorageRoot !== false) {
@@ -185,10 +192,14 @@ if ($publishedStorageRoot !== false) {
         $publishedExcessMatches = is_array($publishedManifestData)
             && (int) ($publishedManifestData["excess_count"] ?? 0) === $publishedExcessCount
             && (int) ($publishedManifestData["excess_evidence_count"] ?? 0) >= $publishedExcessCount;
+        $publishedWrongProductMatches = is_array($publishedManifestData)
+            && (int) ($publishedManifestData["wrong_product_count"] ?? -1) === $publishedWrongProductCount
+            && (int) ($publishedManifestData["wrong_product_evidence_count"] ?? 0) >= $publishedWrongProductCount;
         $publishedEvidenceValid = $publishedCountsMatch
-            && (($publishedVersion === 2 && $publishedExcessMatches)
-                // Compatibilidade com relatórios já recebidos sem contagem de excesso.
-                || ($publishedVersion === 1 && $publishedExcessCount === 0))
+            && (($publishedVersion === 3 && $publishedExcessMatches && $publishedWrongProductMatches)
+                // Versões anteriores não registravam fotos de produtos fora do romaneio.
+                || ($publishedVersion === 2 && $publishedExcessMatches && $publishedWrongProductCount === 0)
+                || ($publishedVersion === 1 && $publishedExcessCount === 0 && $publishedWrongProductCount === 0))
             && is_string($publishedHash)
             && hash_equals((string) ($publishedManifestData["pdf_sha256"] ?? ""), $publishedHash);
         if ($publishedEvidenceValid) {
@@ -215,10 +226,7 @@ if ($loadIds !== []) {
     $pendingCaptures = $pdo->prepare(
         "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia i
          WHERE i.carregamento_id IN (" . implode(",", array_fill(0, count($loadIds), "?")) . ")
-           AND i.status IN ('PENDENTE', 'CAPTURANDO')
-           AND (i.sensor_event_id IS NULL OR EXISTS (
-             SELECT 1 FROM eventos_sensor s WHERE s.id = i.sensor_event_id AND s.conta_na_meta = 1
-           ))",
+           AND i.status IN ('PENDENTE', 'CAPTURANDO')",
     );
     $pendingCaptures->execute($loadIds);
     if ((int) $pendingCaptures->fetchColumn() > 0) {
@@ -241,13 +249,27 @@ if ($loadIds !== []) {
             "missing_evidence_count" => $missingCount,
         ], 409);
     }
+    $missingWrongProductEvidence = $pdo->prepare(
+        "SELECT COUNT(*) FROM leituras l
+         LEFT JOIN solicitacoes_imagens_evidencia r
+           ON r.sensor_event_id = l.sensor_event_id
+          AND r.carregamento_id = l.carregamento_id AND r.reason = 'PRODUTO_INCORRETO'
+         WHERE l.carregamento_id IN (" . implode(",", array_fill(0, count($loadIds), "?")) . ")
+           AND l.result = 'PRODUTO_INCORRETO'
+           AND (r.id IS NULL OR r.status <> 'CAPTURADA')",
+    );
+    $missingWrongProductEvidence->execute($loadIds);
+    $missingWrongProductCount = (int) $missingWrongProductEvidence->fetchColumn();
+    if ($missingWrongProductCount > 0) {
+        $respondJson([
+            "error" => "O relatório aguarda foto do Keyence para {$missingWrongProductCount} produto(s) fora do romaneio.",
+            "missing_evidence_count" => $missingWrongProductCount,
+        ], 409);
+    }
     $uncapturedExcessRequests = $pdo->prepare(
         "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia i
          WHERE i.carregamento_id IN (" . implode(",", array_fill(0, count($loadIds), "?")) . ")
-           AND i.reason = 'EXCESSO' AND i.status <> 'CAPTURADA'
-           AND (i.sensor_event_id IS NULL OR EXISTS (
-             SELECT 1 FROM eventos_sensor s WHERE s.id = i.sensor_event_id AND s.conta_na_meta = 1
-           ))",
+           AND i.reason = 'EXCESSO' AND i.status <> 'CAPTURADA'",
     );
     $uncapturedExcessRequests->execute($loadIds);
     $uncapturedExcessCount = (int) $uncapturedExcessRequests->fetchColumn();
@@ -263,7 +285,7 @@ if ($loadIds !== []) {
            ON r.sensor_event_id = l.sensor_event_id
           AND r.carregamento_id = l.carregamento_id AND r.reason = 'EXCESSO'
          WHERE l.carregamento_id IN (" . implode(",", array_fill(0, count($loadIds), "?")) . ")
-           AND l.result = 'EXCESSO' AND l.conta_na_meta = 1 AND l.sensor_event_id IS NOT NULL
+           AND l.result = 'EXCESSO' AND l.sensor_event_id IS NOT NULL
            AND (r.id IS NULL OR r.status <> 'CAPTURADA')",
     );
     $missingExcessEvidence->execute($loadIds);
@@ -278,6 +300,8 @@ if ($loadIds !== []) {
 $noReadCount = 0;
 $excessEvidenceCount = 0;
 $excessImagesCount = 0;
+$wrongProductCount = 0;
+$wrongProductImagesCount = 0;
 if ($loadIds !== []) {
     $noReadCountQuery = $pdo->prepare(
         "SELECT COUNT(*) FROM leituras WHERE carregamento_id IN (" . implode(",", array_fill(0, count($loadIds), "?")) . ") AND result = 'SEM_LEITURA' AND conta_na_meta = 1",
@@ -288,14 +312,30 @@ if ($loadIds !== []) {
         "SELECT COUNT(*) AS total,
                 SUM(CASE WHEN status = 'CAPTURADA' THEN 1 ELSE 0 END) AS captured
          FROM solicitacoes_imagens_evidencia i
-         LEFT JOIN eventos_sensor s ON s.id = i.sensor_event_id
          WHERE i.carregamento_id IN (" . implode(",", array_fill(0, count($loadIds), "?")) . ")
-           AND i.reason = 'EXCESSO' AND (i.sensor_event_id IS NULL OR s.conta_na_meta = 1)",
+           AND i.reason = 'EXCESSO'",
     );
     $excessEvidenceCountQuery->execute($loadIds);
     $excessEvidenceCounts = $excessEvidenceCountQuery->fetch(PDO::FETCH_ASSOC) ?: [];
     $excessEvidenceCount = (int) ($excessEvidenceCounts["total"] ?? 0);
     $excessImagesCount = (int) ($excessEvidenceCounts["captured"] ?? 0);
+    $wrongProductEvidenceCountQuery = $pdo->prepare(
+        "SELECT COUNT(*) AS total,
+                SUM(CASE WHEN status = 'CAPTURADA' THEN 1 ELSE 0 END) AS captured
+         FROM solicitacoes_imagens_evidencia i
+         WHERE i.carregamento_id IN (" . implode(",", array_fill(0, count($loadIds), "?")) . ")
+           AND i.reason = 'PRODUTO_INCORRETO'",
+    );
+    $wrongProductEvidenceCountQuery->execute($loadIds);
+    $wrongProductEvidenceCounts = $wrongProductEvidenceCountQuery->fetch(PDO::FETCH_ASSOC) ?: [];
+    $wrongProductCountQuery = $pdo->prepare(
+        "SELECT COUNT(*) FROM leituras
+         WHERE carregamento_id IN (" . implode(",", array_fill(0, count($loadIds), "?")) . ")
+           AND result = 'PRODUTO_INCORRETO'",
+    );
+    $wrongProductCountQuery->execute($loadIds);
+    $wrongProductCount = (int) $wrongProductCountQuery->fetchColumn();
+    $wrongProductImagesCount = (int) ($wrongProductEvidenceCounts["captured"] ?? 0);
 }
 $storageRoot = realpath(__DIR__ . "/../../../armazenamento");
 if ($storageRoot === false) {
@@ -320,11 +360,13 @@ $cachedEvidenceValid = false;
     $manifestData = is_string($manifestBytes) ? json_decode($manifestBytes, true) : null;
     $cachedPdfHash = hash_file("sha256", $savedReport);
     $cachedEvidenceValid = is_array($manifestData)
-        && ($manifestData["version"] ?? null) === 2
+        && ($manifestData["version"] ?? null) === 3
         && (int) ($manifestData["no_read_count"] ?? -1) === $noReadCount
         && (int) ($manifestData["evidence_count"] ?? -1) >= $noReadCount
         && (int) ($manifestData["excess_count"] ?? -1) === $excessEvidenceCount
         && (int) ($manifestData["excess_evidence_count"] ?? -1) >= $excessEvidenceCount
+        && (int) ($manifestData["wrong_product_count"] ?? -1) === $wrongProductCount
+        && (int) ($manifestData["wrong_product_evidence_count"] ?? -1) >= $wrongProductCount
         && is_string($cachedPdfHash)
         && hash_equals((string) ($manifestData["pdf_sha256"] ?? ""), $cachedPdfHash);
  }
@@ -427,6 +469,7 @@ $itemRows = $items->fetchAll();
 $occurrences = [];
 $incidentImages = [];
 $noReadRows = [];
+$wrongProductRows = [];
 $sackReferencesByEvent = [];
 $loadOrderById = [];
 $operationSummary = [
@@ -438,6 +481,8 @@ $operationSummary = [
     "scanner_readings" => 0,
     "excesses" => 0,
     "excess_images" => 0,
+    "wrong_products" => 0,
+    "wrong_product_images" => 0,
 ];
 foreach ($loadIds as $index => $loadingId) {
     $loadOrderById[$loadingId] = $index + 1;
@@ -445,6 +490,12 @@ foreach ($loadIds as $index => $loadingId) {
 if ($loadIds !== []) {
     $passageQuery = $pdo->prepare(
         "SELECT id, carregamento_id, device_detected_at, event_at_epoch_ms, conta_na_meta,
+                EXISTS (SELECT 1 FROM leituras l
+                        WHERE l.sensor_event_id = eventos_sensor.id
+                          AND l.result = 'PRODUTO_INCORRETO') AS produto_incorreto,
+                EXISTS (SELECT 1 FROM leituras l
+                        WHERE l.sensor_event_id = eventos_sensor.id
+                          AND l.result = 'EXCESSO') AS produto_excedente,
                 CAST(ROUND(UNIX_TIMESTAMP(detected_at) * 1000) AS UNSIGNED) AS server_detected_at_epoch_ms
          FROM eventos_sensor WHERE carregamento_id IN ({$placeholders})",
     );
@@ -466,7 +517,12 @@ if ($loadIds !== []) {
     foreach ($passages as $passage) {
         $loadingId = (int) $passage["carregamento_id"];
         if ((int) $passage["conta_na_meta"] !== 1) {
-            $sackReferencesByEvent[(int) $passage["id"]] = "Passagem durante pausa · não contabilizada";
+            $reason = (int) $passage["produto_incorreto"] === 1
+                ? "Produto fora do romaneio"
+                : ((int) $passage["produto_excedente"] === 1
+                    ? "Saco excedente"
+                    : "Passagem durante pausa");
+            $sackReferencesByEvent[(int) $passage["id"]] = "$reason · não contabilizada";
             continue;
         }
         $passageNumbers[$loadingId] = ($passageNumbers[$loadingId] ?? 0) + 1;
@@ -487,7 +543,7 @@ if ($loadIds !== []) {
     }
     $scannerCount = $pdo->prepare(
         "SELECT COUNT(*) FROM leituras
-         WHERE carregamento_id IN ({$placeholders}) AND conta_na_meta = 1 AND barcode IS NOT NULL
+         WHERE carregamento_id IN ({$placeholders}) AND barcode IS NOT NULL
            AND result IN ('VALIDO', 'PRODUTO_INCORRETO', 'EXCESSO')",
     );
     $scannerCount->execute($loadIds);
@@ -561,6 +617,53 @@ if ($loadIds !== []) {
         ], 409);
     }
 
+    $wrongProductQuery = $pdo->prepare(
+        "SELECT l.id, l.sensor_event_id, l.carregamento_id, l.read_at, l.barcode,
+                p.name AS product_name,
+                r.status AS evidence_status,
+                EXISTS (
+                    SELECT 1 FROM imagens i
+                    WHERE i.carregamento_id = l.carregamento_id
+                      AND i.reason = 'PRODUTO_INCORRETO'
+                      AND (i.reading_id = l.id OR (
+                          i.reading_id IS NULL AND r.id IS NOT NULL
+                          AND i.path LIKE CONCAT('%keyence-', r.id, '-%')
+                      ))
+                ) AS has_image
+         FROM leituras l
+         LEFT JOIN produtos p ON p.id = l.product_id
+         LEFT JOIN solicitacoes_imagens_evidencia r
+           ON r.sensor_event_id = l.sensor_event_id
+          AND r.carregamento_id = l.carregamento_id AND r.reason = 'PRODUTO_INCORRETO'
+         WHERE l.carregamento_id IN ({$placeholders}) AND l.result = 'PRODUTO_INCORRETO'
+         ORDER BY l.read_at, l.id",
+    );
+    $wrongProductQuery->execute($loadIds);
+    $wrongProductRows = $wrongProductQuery->fetchAll(PDO::FETCH_ASSOC);
+    $operationSummary["wrong_products"] = count($wrongProductRows);
+    foreach ($wrongProductRows as &$wrongProduct) {
+        $sensorEventId = (int) ($wrongProduct["sensor_event_id"] ?? 0);
+        $wrongProduct["sack_reference"] = $sackReferencesByEvent[$sensorEventId] ?? "Passagem não contabilizada";
+        $wrongProduct["has_image"] = (bool) $wrongProduct["has_image"];
+        $wrongProduct["evidence_label"] = $wrongProduct["has_image"]
+            ? "Foto anexada"
+            : (($wrongProduct["evidence_status"] === "CAPTURADA") ? "Foto recebida anteriormente" : "Foto não recebida");
+        if ($wrongProduct["has_image"]) {
+            $operationSummary["wrong_product_images"]++;
+        }
+    }
+    unset($wrongProduct);
+    $wrongProductMissingImages = count(array_filter(
+        $wrongProductRows,
+        static fn(array $row): bool => !$row["has_image"],
+    ));
+    if ($wrongProductMissingImages > 0) {
+        $respondJson([
+            "error" => "O relatório aguarda a imagem de {$wrongProductMissingImages} produto(s) fora do romaneio.",
+            "missing_evidence_count" => $wrongProductMissingImages,
+        ], 409);
+    }
+
     $occurrenceQuery = $pdo->prepare("SELECT o.type, o.quantity, o.description, o.created_at, p.name AS product_name
         FROM ocorrencias o LEFT JOIN produtos p ON p.id = o.product_id WHERE o.carregamento_id IN ({$placeholders}) ORDER BY o.created_at");
     $occurrenceQuery->execute($loadIds);
@@ -603,6 +706,9 @@ if ($incidentImages !== []) {
         if ($image["reason"] === "SEM_LEITURA" && $sensorEventId > 0) {
             $sackReference = $sackReferencesByEvent[$sensorEventId] ?? "passagem sem número";
             $caption = "Falha de leitura · {$sackReference} · {$capturedAt}";
+        } elseif ($image["reason"] === "PRODUTO_INCORRETO" && $sensorEventId > 0) {
+            $sackReference = $sackReferencesByEvent[$sensorEventId] ?? "passagem não contabilizada";
+            $caption = "Produto fora do romaneio · {$sackReference} · {$capturedAt}";
         } elseif ($image["reason"] === "EXCESSO" && $sensorEventId > 0) {
             $sackReference = $sackReferencesByEvent[$sensorEventId] ?? "passagem sem número";
             $caption = "Saca em excesso · {$sackReference} · {$capturedAt}";
@@ -655,6 +761,8 @@ $resumoOp = [
     "Sacas retornadas" => $operationSummary["returned_bags"],
     "Falhas sem leitura" => $operationSummary["no_reads"],
     "Fotos de falha anexadas" => $operationSummary["no_read_images"],
+    "Produtos fora do romaneio" => $operationSummary["wrong_products"],
+    "Fotos desses produtos anexadas" => $operationSummary["wrong_product_images"],
 ];
 // Exibe "Sacas não identificadas" somente quando há SEM_LEITURA com product_id
 // NULL — situação exclusiva de romaneios com múltiplos produtos. Em romaneios
@@ -680,6 +788,24 @@ if ($noReadRows === []) {
             $noReadRows,
         ),
         [110, 120, 140, 145],
+    );
+}
+if ($wrongProductRows !== []) {
+    $report->escreverTitulo("Produtos fora do romaneio");
+    $report->escreverParagrafo("Cada linha representa um código reconhecido de um produto que não pertence ao romaneio. Essas passagens não entram na quantidade prevista; a foto correspondente aparece na seção de evidências.");
+    $report->escreverTabela(
+        ["Data/hora", "Produto reconhecido", "Código lido", "Passagem", "Evidência"],
+        array_map(
+            static fn(array $row): array => [
+                $formatDateTime($row["read_at"]),
+                $row["product_name"] ?? "Produto não identificado",
+                $row["barcode"] ?? "—",
+                $row["sack_reference"],
+                $row["evidence_label"],
+            ],
+            $wrongProductRows,
+        ),
+        [88, 105, 95, 115, 92],
     );
 }
 if ($romaneio["status"] === "CANCELADO") {
@@ -809,12 +935,14 @@ if (file_put_contents($temporaryReportPath, $pdfBytes, LOCK_EX) !== strlen($pdfB
         $respondJson(["error" => "Manifesto de evidências inválido; as evidências foram preservadas."], 503);
     }
     $manifest = json_encode([
-        "version" => 2,
+        "version" => 3,
         "pdf_sha256" => hash("sha256", $pdfBytes),
         "no_read_count" => $noReadCount,
         "evidence_count" => (int) ($operationSummary["no_read_images"] ?? 0),
         "excess_count" => $excessEvidenceCount,
         "excess_evidence_count" => $excessImagesCount,
+        "wrong_product_count" => $wrongProductCount,
+        "wrong_product_evidence_count" => $wrongProductImagesCount,
     ], JSON_UNESCAPED_SLASHES);
     $temporaryManifestPath = $manifestPath . ".tmp-" . bin2hex(random_bytes(8));
     if (!is_string($manifest)

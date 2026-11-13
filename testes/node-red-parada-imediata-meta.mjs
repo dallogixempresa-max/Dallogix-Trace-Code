@@ -11,6 +11,12 @@ const gatewayApi = await readFile(new URL("../servidor/api/dalas/plc_gateway.php
 const gatewayService = await readFile(new URL("../servidor/src/Aplicacao/ServicoGatewayClp.php", import.meta.url), "utf8");
 
 test("a quota do sensor dispara claim imediato pelo mesmo gateway físico", async () => {
+  assert.match(
+    eventApi,
+    /\$detectedBags === \$plannedQuantity[\s\S]*?solicitarParadaAoAtingirMetaRomaneio/,
+    "a parada da meta total deve ser solicitada na igualdade, sem aguardar a próxima passagem",
+  );
+
   const now = Date.now();
   const sensorState = new Map([["trace_sensor_last_value_17", false]]);
   const processModbusResult = new Function("msg", "env", "flow", modbusResultNode.func);
@@ -81,6 +87,13 @@ test("a quota do sensor dispara claim imediato pelo mesmo gateway físico", asyn
   assert.match(gatewayService, /r\.command = 'PAUSAR_CARREGAMENTO'/);
   assert.match(gatewayService, /r\.command = 'EMERGENCIA'/);
   assert.match(gatewayService, /c\.state = 'PAUSADO'/);
+});
+
+test("a passagem sem leitura além da meta não fica contabilizada", () => {
+  assert.match(
+    eventApi,
+    /if \(\$physicalExcess\) \{[\s\S]*?ServicoPausasCarregamento::reclassificarPassagens\(\$pdo, \(int\) \$loadingId\)/,
+  );
 });
 
 test("evento duplicado ou sem pausa pendente não cria claim de máquina", async () => {

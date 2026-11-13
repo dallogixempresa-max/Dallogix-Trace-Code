@@ -200,6 +200,8 @@ final class ServicoPublicacaoRelatoriosAuditoria
             "evidence_count" => (int) (is_array($evidenceManifest) ? ($evidenceManifest["evidence_count"] ?? 0) : 0),
             "evidence_excess_count" => (int) (is_array($evidenceManifest) ? ($evidenceManifest["excess_count"] ?? 0) : 0),
             "evidence_excess_evidence_count" => (int) (is_array($evidenceManifest) ? ($evidenceManifest["excess_evidence_count"] ?? 0) : 0),
+            "evidence_wrong_product_count" => (int) (is_array($evidenceManifest) ? ($evidenceManifest["wrong_product_count"] ?? 0) : 0),
+            "evidence_wrong_product_evidence_count" => (int) (is_array($evidenceManifest) ? ($evidenceManifest["wrong_product_evidence_count"] ?? 0) : 0),
         ];
         $existing = $this->connection->prepare(
             "SELECT id, status, payload FROM fila_sincronizacao
@@ -227,6 +229,8 @@ final class ServicoPublicacaoRelatoriosAuditoria
                 "evidence_count",
                 "evidence_excess_count",
                 "evidence_excess_evidence_count",
+                "evidence_wrong_product_count",
+                "evidence_wrong_product_evidence_count",
             ] as $key) {
                 $metadataMatches = $metadataMatches
                     && array_key_exists($key, $existingData)

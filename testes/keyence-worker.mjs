@@ -236,7 +236,8 @@ test("integra SCANNER, fila SEM_LEITURA, imagem do Keyence e limpeza depois do P
   assert.match(worker, /prazo_de_associacao_expirado/);
   assert.match(worker, /sem_solicitacao_compativel/);
   assert.match(worker, /api_rejeitou_imagem/);
-  assert.match(imageEndpoint, /r\.reason IN \('SEM_LEITURA', 'EXCESSO'\)/);
+  assert.match(imageEndpoint, /r\.reason IN \('SEM_LEITURA', 'PRODUTO_INCORRETO', 'EXCESSO'\)/);
+  assert.match(imageEndpoint, /"PRODUTO_INCORRETO" => \["PRODUTO_INCORRETO"\]/);
   assert.match(imageEndpoint, /KEYENCE_IMAGEM_EVIDENCIA_RECEBIDA/);
   assert.match(imageEndpoint, /captured_at_epoch_ms/);
   assert.match(imageEndpoint, /sensor_detected_at_epoch_ms/);
@@ -246,6 +247,10 @@ test("integra SCANNER, fila SEM_LEITURA, imagem do Keyence e limpeza depois do P
   assert.match(reportEndpoint, /RelatorioAuditoriaPdf/);
   assert.match(reportEndpoint, /COALESCE\(l\.sensor_event_id, r\.sensor_event_id\) AS sensor_event_id/);
   assert.match(reportEndpoint, /Falha de leitura · \{\$sackReference\} · \{\$capturedAt\}/);
+  assert.match(reportEndpoint, /Produto fora do romaneio · \{\$sackReference\} · \{\$capturedAt\}/);
+  assert.match(reportEndpoint, /relatório aguarda foto do Keyence para \{\$missingWrongProductCount\} produto/);
+  assert.match(reportEndpoint, /"wrong_product_count" => \$wrongProductCount/);
+  assert.match(reportEndpoint, /"wrong_product_evidence_count" => \$wrongProductImagesCount/);
   assert.match(pdfGenerator, /\$channels === 1 \? 1 : \(\$channels === 4 \? 4 : 3\)/);
   assert.match(pdfGenerator, /\$colors === 1 \? "\/DeviceGray"/);
   assert.match(pdfGenerator, /\$maxWidth = 360\.0/);
