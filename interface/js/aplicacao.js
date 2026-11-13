@@ -24,7 +24,7 @@ import { criarTratadorAcoesRelatorios } from "./controladores/acoes-relatorios.j
 import { criarDelegacaoAcoes, criarDespachanteAcoes } from "./controladores/despachante-acoes.js?v=202611120004";
 import { criarCarregadorPaginas } from "./controladores/carregador-paginas.js?v=202611120004";
 import { createLiveViewController } from "./controladores/estado-visualizacao.js?v=202611120004";
-import { createHidScannerCapture, isScannerNoReadMarker } from "./controladores/captura-leitor-hid.js?v=202611120004";
+import { createHidScannerCapture, isScannerNoReadMarker } from "./controladores/captura-leitor-hid.js?v=202611130001";
 import { createLocalConnectivityController } from "./controladores/conectividade-local.js?v=202611120004";
 import { bindManifestCreationForm, bindManifestEditForm } from "./controladores/formulario-romaneio.js?v=202611120004";
 import { bindProductForm } from "./controladores/formulario-produto.js?v=202611120004";
