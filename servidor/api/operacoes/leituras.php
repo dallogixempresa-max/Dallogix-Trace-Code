@@ -351,7 +351,19 @@ $productQuotaReached = $classification["product_quota_reached"];
 $noReadEvidenceRequired = $classification["no_read_evidence_required"];
 $wrongProductDetected = $classification["wrong_product_detected"];
 $barcodeUnmatched = $barcode !== "" && $matchedProductId === null;
-$countsTowardPlan = in_array($result, ["VALIDO", "SEM_LEITURA"], true);
+$countsTowardPlan = in_array($result, ["VALIDO", "SEM_LEITURA"], true) && !$physicalExcess;
+if ($physicalExcess && $sensorEventId) {
+    // A posição após o limite não consome a meta, mesmo que a sincronização
+    // do evento chegue antes da confirmação física da parada.
+    $excludeLatePassage = $pdo->prepare(
+        "UPDATE eventos_sensor SET conta_na_meta_origem = 0, conta_na_meta = 0
+         WHERE id = :sensor_event_id AND carregamento_id = :loading_id",
+    );
+    $excludeLatePassage->execute([
+        "sensor_event_id" => $sensorEventId,
+        "loading_id" => $loadingId,
+    ]);
+}
 
 $insert = $pdo->prepare(
     "INSERT INTO leituras
@@ -435,7 +447,7 @@ record_operational_event(
         ...($offlineEventId !== "" ? ["event_uuid" => $offlineEventId] : []),
     ],
 );
-if (in_array($result, ["PRODUTO_INCORRETO", "EXCESSO"], true) && $sensorEventId) {
+if (($physicalExcess || in_array($result, ["PRODUTO_INCORRETO", "EXCESSO"], true)) && $sensorEventId) {
     \App\Aplicacao\ServicoPausasCarregamento::reclassificarPassagens($pdo, (int) $loadingId);
 }
 $occurrenceId = null;

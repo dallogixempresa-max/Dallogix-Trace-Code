@@ -56,6 +56,6 @@ test("só produto previsto ou sem leitura ocupa a meta; produto incorreto fica f
   );
   assert.match(
     endpoint,
-    /if \(in_array\(\$result, \["PRODUTO_INCORRETO", "EXCESSO"\], true\) && \$sensorEventId\) \{[\s\S]*?ServicoPausasCarregamento::reclassificarPassagens/,
+    /if \(\(\$physicalExcess \|\| in_array\(\$result, \["PRODUTO_INCORRETO", "EXCESSO"\], true\)\) && \$sensorEventId\) \{[\s\S]*?ServicoPausasCarregamento::reclassificarPassagens/,
   );
 });

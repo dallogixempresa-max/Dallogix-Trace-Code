@@ -106,18 +106,29 @@ if ($action === "FINALIZE_EXPIRED") {
             ]);
             $physicalExcess = $plannedQuantity > 0
                 && (int) $positionStatement->fetchColumn() > $plannedQuantity;
-            $readingResult = $physicalExcess ? "EXCESSO" : "SEM_LEITURA";
-            $evidenceReason = $physicalExcess ? "EXCESSO" : "SEM_LEITURA";
+            $readingResult = "SEM_LEITURA";
+            $evidenceReason = "SEM_LEITURA";
+            if ($physicalExcess) {
+                $excludeLatePassage = $pdo->prepare(
+                    "UPDATE eventos_sensor SET conta_na_meta_origem = 0, conta_na_meta = 0
+                     WHERE id = :sensor_event_id AND carregamento_id = :loading_id",
+                );
+                $excludeLatePassage->execute([
+                    "sensor_event_id" => $sensorEventId,
+                    "loading_id" => (int) $loadingId,
+                ]);
+            }
             $reading = $pdo->prepare(
                 "INSERT INTO leituras
-                 (company_id, carregamento_id, sensor_event_id, product_id, barcode, attempt_number, result, read_at)
-                 VALUES (:company_id, :loading_id, :sensor_event_id, NULL, NULL, 1, :result, NOW(3))",
+                 (company_id, carregamento_id, sensor_event_id, product_id, barcode, attempt_number, result, conta_na_meta, read_at)
+                 VALUES (:company_id, :loading_id, :sensor_event_id, NULL, NULL, 1, :result, :conta_na_meta, NOW(3))",
             );
             $reading->execute([
                 "company_id" => $device["company_id"],
                 "loading_id" => (int) $loadingId,
                 "sensor_event_id" => (int) $sensorEventId,
                 "result" => $readingResult,
+                "conta_na_meta" => $physicalExcess ? 0 : 1,
             ]);
             $readingId = (int) $pdo->lastInsertId();
 
@@ -130,7 +141,7 @@ if ($action === "FINALIZE_EXPIRED") {
                 "company_id" => $device["company_id"],
                 "loading_id" => (int) $loadingId,
                 "description" => $physicalExcess
-                    ? "Saco excedente detectado pelo sensor sem código de barras válido após o tempo de leitura."
+                    ? "Saco detectado sem código de barras válido após a meta; passagem não considerada na quantidade planejada."
                     : "Saco detectado pelo sensor sem código de barras válido após o tempo de leitura.",
             ]);
             $occurrenceId = (int) $pdo->lastInsertId();
@@ -150,8 +161,8 @@ if ($action === "FINALIZE_EXPIRED") {
                 ],
             );
             if ($physicalExcess) {
-                // Uma passagem fora da meta fica auditada, mas não consome
-                // quantidade; a parada já foi solicitada ao registrar o evento.
+                // A passagem permanece auditada e fotografada como sem leitura,
+                // mas fica fora da quantidade planejada.
                 ServicoPausasCarregamento::reclassificarPassagens($pdo, (int) $loadingId);
             }
             record_operational_event(
@@ -172,7 +183,7 @@ if ($action === "FINALIZE_EXPIRED") {
                  (sensor_event_id, carregamento_id, equipment_id, reason, requested_at)
                  VALUES (:sensor_event_id, :loading_id, :equipment_id, :reason, NOW(3))
                  ON DUPLICATE KEY UPDATE
-                   reason = IF(reason = 'EXCESSO', reason, VALUES(reason)),
+                   reason = VALUES(reason),
                    status = IF(status = 'ERRO', 'PENDENTE', status),
                    requested_at = VALUES(requested_at)",
             );
@@ -193,7 +204,7 @@ if ($action === "FINALIZE_EXPIRED") {
             record_operational_event(
                 $pdo,
                 $actor,
-                $physicalExcess ? "EXCESSO_EVIDENCIA_SOLICITADA" : "EVIDENCIA_SEM_LEITURA_SOLICITADA",
+                "EVIDENCIA_SEM_LEITURA_SOLICITADA",
                 "evidence_request",
                 $evidenceRequestId,
                 ["sensor_event_id" => (int) $sensorEventId, "reason" => $evidenceReason],
@@ -421,40 +432,6 @@ try {
         "equipment_id" => $equipmentId,
     ]);
     $detectedBags = (int) $detected->fetchColumn();
-    $excessEvidenceRequested = false;
-    if ($countsTowardPlan && $plannedQuantity > 0 && $detectedBags > $plannedQuantity) {
-        $evidenceRequest = $pdo->prepare(
-            "INSERT INTO solicitacoes_imagens_evidencia
-             (sensor_event_id, carregamento_id, equipment_id, reason, requested_at)
-             VALUES (:sensor_event_id, :loading_id, :equipment_id, 'EXCESSO', NOW(3))
-             ON DUPLICATE KEY UPDATE
-               reason = 'EXCESSO',
-               status = IF(status = 'ERRO', 'PENDENTE', status),
-               requested_at = VALUES(requested_at)",
-        );
-        $evidenceRequest->execute([
-            "sensor_event_id" => $eventId,
-            "loading_id" => $loadingId,
-            "equipment_id" => $equipmentId,
-        ]);
-        $evidenceId = $pdo->prepare(
-            "SELECT id FROM solicitacoes_imagens_evidencia WHERE sensor_event_id = :sensor_event_id LIMIT 1",
-        );
-        $evidenceId->execute(["sensor_event_id" => $eventId]);
-        $evidenceRequestId = (int) $evidenceId->fetchColumn();
-        if ($evidenceRequestId < 1) {
-            throw new RuntimeException("Solicitação de foto do excesso não foi criada para a passagem detectada.");
-        }
-        $excessEvidenceRequested = true;
-        record_operational_event(
-            $pdo,
-            ["id" => null, "company_id" => $device["company_id"]],
-            "EXCESSO_EVIDENCIA_SOLICITADA",
-            "evidence_request",
-            $evidenceRequestId,
-            ["sensor_event_id" => $eventId, "reason" => "EXCESSO", "detected_bags" => $detectedBags, "planned_quantity" => $plannedQuantity],
-        );
-    }
     $nearEndWarning = null;
     $remainingQuantity = $plannedQuantity - $detectedBags;
     $warningThreshold = $plannedQuantity > 0
@@ -595,8 +572,8 @@ try {
         }
     }
     $pdo->commit();
-    // A passagem acima da meta já solicita evidência; as demais fotos dependem
-    // da classificação recebida do leitor.
+    // A evidência será solicitada somente se a leitura indicar falta de código
+    // ou produto fora do romaneio.
     json_response(
         [
             "data" => [
@@ -615,9 +592,7 @@ try {
                     ? "EM_ANDAMENTO"
                     : ($loading["state"] === "FINALIZANDO"
                         ? "COMPLETO" : "EM_ANDAMENTO"),
-                "image_action" => $excessEvidenceRequested
-                    ? "EVIDENCIA_EXCESSO_SOLICITADA"
-                    : "AGUARDANDO_RESULTADO_LEITURA",
+                "image_action" => "AGUARDANDO_RESULTADO_LEITURA",
                 "scanner_correlated" => false,
             ],
         ],

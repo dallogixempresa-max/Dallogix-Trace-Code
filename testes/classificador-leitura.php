@@ -12,7 +12,7 @@ $cases = [
     ["A excede mesmo com B pendente", true, 10, 4, 4, 10, 5, false, "EXCESSO"],
     ["passagem física excedente com código", true, 20, 6, 1, 10, 5, true, "EXCESSO"],
     ["passagem sem código sem excesso não recebe produto", false, null, 0, 0, 10, 4, false, "SEM_LEITURA"],
-    ["passagem física excedente sem código não recebe produto", false, null, 0, 0, 10, 4, true, "EXCESSO"],
+    ["passagem sem leitura exige evidência mesmo depois da meta", false, null, 0, 0, 10, 10, true, "SEM_LEITURA"],
     ["produto ausente do romaneio", true, 30, 0, 0, 10, 4, false, "PRODUTO_INCORRETO"],
 ];
 
@@ -42,11 +42,11 @@ if ($unmatchedBarcode["result"] !== "SEM_LEITURA"
     throw new RuntimeException("Código sem correspondência no catálogo deve exigir evidência como leitura não identificada.");
 }
 
-$unmatchedBarcodeAtExcess = $classifier->classificar(true, null, 0, 0, 10, 10, true);
-if ($unmatchedBarcodeAtExcess["result"] !== "EXCESSO"
-    || !$unmatchedBarcodeAtExcess["no_read_evidence_required"]
+$unmatchedBarcodeAtQuota = $classifier->classificar(true, null, 0, 0, 10, 10, true);
+if ($unmatchedBarcodeAtQuota["result"] !== "SEM_LEITURA"
+    || !$unmatchedBarcodeAtQuota["no_read_evidence_required"]
 ) {
-    throw new RuntimeException("Código sem correspondência em passagem excedente deve manter o excesso e exigir evidência.");
+    throw new RuntimeException("Código sem correspondência deve continuar como sem leitura e exigir evidência, mesmo após a meta.");
 }
 
 $knownProductOutsideManifest = $classifier->classificar(true, 30, 0, 0, 10, 4, false);
@@ -67,7 +67,7 @@ if ($knownProductOutsideManifestAtQuota["result"] !== "PRODUTO_INCORRETO"
     || !$knownProductOutsideManifestAtQuota["wrong_product_detected"]
     || $knownProductOutsideManifestAtQuota["no_read_evidence_required"]
 ) {
-    throw new RuntimeException("Produto incorreto continua identificado como incorreto mesmo após atingir a cota.");
+    throw new RuntimeException("Produto fora do romaneio deve exigir a evidência correta mesmo após atingir a meta.");
 }
 
 $noReadAfterWrongProduct = $classifier->classificar(

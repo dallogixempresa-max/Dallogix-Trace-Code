@@ -35,7 +35,6 @@ final class ClassificadorLeitura
 
         if ($catalogProductIdentified && $productPlannedQuantity > 0) {
             $productId = $matchedProductId;
-            $result = "VALIDO";
             $productPassageCount = $productValidCount + $productSemLeituraCount;
             if (
                 $physicalExcess ||
@@ -43,14 +42,9 @@ final class ClassificadorLeitura
                 ($loadingPlannedQuantity > 0 && $loadingPassageCount >= $loadingPlannedQuantity)
             ) {
                 $result = "EXCESSO";
+            } else {
+                $result = "VALIDO";
             }
-        } elseif (!$catalogProductIdentified && (
-            $physicalExcess ||
-            ($loadingPlannedQuantity > 0 && $loadingPassageCount >= $loadingPlannedQuantity)
-        )) {
-            // Uma passagem sem leitura identificável continua sendo evidência
-            // física. Se ela exceder a meta total, classifique-a como excesso.
-            $result = "EXCESSO";
         }
 
         $productQuotaReached = $result === "VALIDO"

@@ -220,6 +220,8 @@ test("integra SCANNER, fila SEM_LEITURA, imagem do Keyence e limpeza depois do P
   assert.match(sensorEventsEndpoint, /detectedBags > \$plannedQuantity/);
   assert.match(sensorEventsEndpoint, /\$detectedBags > \$plannedQuantity[\s\S]*?solicitarParadaPorExcesso/);
   assert.match(sensorEventsEndpoint, /\$detectedBags === \$plannedQuantity[\s\S]*?solicitarParadaAoAtingirMetaRomaneio/);
+  assert.doesNotMatch(sensorEventsEndpoint, /EXCESSO_EVIDENCIA_SOLICITADA|EVIDENCIA_EXCESSO_SOLICITADA/);
+  assert.match(sensorEventsEndpoint, /"image_action" => "AGUARDANDO_RESULTADO_LEITURA"/);
   assert.match(sensorEventsEndpoint, /"command_request_id" => \$targetStop\["command_request_id"\]/);
   assert.doesNotMatch(sensorEventsEndpoint, /SET state = 'FINALIZANDO'/);
   assert.match(readingsEndpoint, /!in_array\(\$loading\["state"\], \["CARREGANDO", "FINALIZANDO", "PAUSADO"\], true\)/);
