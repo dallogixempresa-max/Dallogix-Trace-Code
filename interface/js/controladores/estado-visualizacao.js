@@ -50,9 +50,6 @@ export function createLiveViewController({
       detected: numero(detectedBags),
       loaded: numero(validReadings),
       "scanner-readings": numero(store.state.scannerReadings || 0),
-      "excess-evidence": `${numero(store.state.excessEvidenceCaptured || 0)} de ${numero(store.state.excessEvidenceRequests || 0)} com foto` +
-        (Number(store.state.excessEvidencePending) > 0 ? ` · ${numero(store.state.excessEvidencePending)} pendente(s)` : "") +
-        (Number(store.state.excessEvidenceFailed) > 0 ? ` · ${numero(store.state.excessEvidenceFailed)} falha(s)` : ""),
       "remaining-label": planned <= 0
         ? "Quantidade prevista não informada"
         : remaining === 0
