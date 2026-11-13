@@ -127,7 +127,9 @@ $pendingEventsByLoading = is_string($sensorOutboxState["pending_events_by_loadin
 $pendingEvents = is_array($pendingEventsByLoading)
     ? (int) ($pendingEventsByLoading[(string) $loadingId] ?? 0)
     : ($sensorOutboxState["pending_events"] ?? null);
-if (!$sensorOutboxFresh || $pendingEvents === null || (int) $pendingEvents > 0) {
+// Só bloqueia pelo outbox do sensor se ele estiver online: quando está offline e não
+// há eventos sem leitura correspondente (verificado acima), o sensor já enviou tudo.
+if ($sensorOutboxFresh && ($pendingEvents === null || (int) $pendingEvents > 0)) {
     $pdo->rollBack();
     json_response(["error" => "Aguarde o sensor confirmar a fila local de passagens vazia antes de encerrar."], 409);
 }

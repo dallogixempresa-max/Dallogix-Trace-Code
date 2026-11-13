@@ -47,11 +47,13 @@ export function motivoBloqueioFinalizacao(state) {
     || pendingSensor > 0) {
     return "Aguarde o leitor concluir a conferência das passagens detectadas.";
   }
+  // Só bloqueia pelo outbox do sensor quando ele está online (valor não-null):
+  // se o sensor ficou offline mas já não há eventos pendentes de processar
+  // (verificado acima), não há risco de passagens não reportadas.
   const outboxPending = loading.sensor_outbox_pendentes;
   const pendingOutboxCount = Number(outboxPending);
-  if (outboxPending === null || outboxPending === undefined
-    || !Number.isFinite(pendingOutboxCount)
-    || pendingOutboxCount > 0) {
+  if (outboxPending !== null && outboxPending !== undefined
+    && (!Number.isFinite(pendingOutboxCount) || pendingOutboxCount > 0)) {
     return "Aguarde o sensor confirmar o envio de todas as passagens.";
   }
   const pendingImagesValue = loading.imagens_pendentes;
