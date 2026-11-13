@@ -8,7 +8,7 @@ namespace App\Aplicacao;
 final class ClassificadorLeitura
 {
     /**
-     * @return array{result: string, product_id: ?int, product_planned_quantity: int, product_valid_count: int, product_quota_reached: bool, no_read_evidence_required: bool}
+     * @return array{result: string, product_id: ?int, product_planned_quantity: int, product_valid_count: int, product_quota_reached: bool, no_read_evidence_required: bool, wrong_product_detected: bool}
      */
     public function classificar(
         bool $barcodePresent,
@@ -33,6 +33,7 @@ final class ClassificadorLeitura
         // qualquer saco que passou pelo sensor conta para a cota total,
         // independente do resultado da leitura do código de barras.
         $loadingPassageCount = $loadingValidCount + $loadingSemLeituraCount + $loadingProdutoIncorretoCount;
+        $wrongProductDetected = $catalogProductIdentified && $productPlannedQuantity <= 0;
 
         if ($catalogProductIdentified && $productPlannedQuantity > 0) {
             $productId = $matchedProductId;
@@ -48,6 +49,13 @@ final class ClassificadorLeitura
             ) {
                 $result = "EXCESSO";
             }
+        } elseif ($wrongProductDetected && (
+            $physicalExcess ||
+            ($loadingPlannedQuantity > 0 && $loadingPassageCount >= $loadingPlannedQuantity)
+        )) {
+            // Um produto conhecido fora do romaneio também é excesso se a cota
+            // física já foi atingida antes desta passagem.
+            $result = "EXCESSO";
         } elseif (!$catalogProductIdentified && (
             $physicalExcess ||
             ($loadingPlannedQuantity > 0 && $loadingPassageCount >= $loadingPlannedQuantity)
@@ -68,6 +76,7 @@ final class ClassificadorLeitura
             "product_valid_count" => $productValidCount,
             "product_quota_reached" => $productQuotaReached,
             "no_read_evidence_required" => !$catalogProductIdentified,
+            "wrong_product_detected" => $wrongProductDetected,
         ];
     }
 }

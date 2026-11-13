@@ -52,8 +52,27 @@ if ($unmatchedBarcodeAtExcess["result"] !== "EXCESSO"
 $knownProductOutsideManifest = $classifier->classificar(true, 30, 0, 0, 10, 4, false);
 if ($knownProductOutsideManifest["result"] !== "PRODUTO_INCORRETO"
     || $knownProductOutsideManifest["no_read_evidence_required"]
+    || !$knownProductOutsideManifest["wrong_product_detected"]
 ) {
     throw new RuntimeException("Produto reconhecido fora do romaneio deve continuar sendo tratado como incorreto.");
+}
+
+$knownProductOutsideManifestAtLoadingQuota = $classifier->classificar(
+    true, 30,
+    0, 0,              // produto reconhecido, mas ausente do romaneio
+    10, 9,             // 9 leituras válidas
+    false,             // sem sinal físico de excesso
+    0, 0,              // sem leituras sem código
+    0, 1,              // 1 PRODUTO_INCORRETO anterior completa a cota do romaneio
+);
+if ($knownProductOutsideManifestAtLoadingQuota["result"] !== "EXCESSO"
+    || !$knownProductOutsideManifestAtLoadingQuota["wrong_product_detected"]
+    || $knownProductOutsideManifestAtLoadingQuota["no_read_evidence_required"]
+) {
+    throw new RuntimeException(
+        "Produto incorreto após a cota física do romaneio deve ser EXCESSO, " .
+        "obtido: {$knownProductOutsideManifestAtLoadingQuota['result']}"
+    );
 }
 
 // --- Casos PRODUTO_INCORRETO contam para a cota (loadingProdutoIncorretoCount) ---
