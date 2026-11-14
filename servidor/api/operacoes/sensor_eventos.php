@@ -468,6 +468,7 @@ try {
             );
         }
     }
+    $targetStop = null;
     $automaticStop = false;
     if (
         $countsTowardPlan &&
@@ -479,7 +480,6 @@ try {
             ["id" => null, "company_id" => (int) $device["company_id"]],
             (int) $loadingId,
         );
-        $excessStop = $targetStop;
         $automaticStop = ($targetStop["command_request_id"] ?? null) !== null;
         $nearEndWarning = $targetStop["operator_alert"];
         $targetAlreadyRecorded = $pdo->prepare(
@@ -552,11 +552,11 @@ try {
                 "planned_quantity" => $plannedQuantity,
                 "operator_warning" => $nearEndWarning,
                 "automatic_stop" => $automaticStop,
-                "stop_reason" => $excessStop["stop_reason"] ?? null,
-                "physical_stop_request_status" => $excessStop["physical_stop_request_status"] ?? null,
-                "command_request_id" => $excessStop["command_request_id"] ?? null,
-                "operator_alert" => $excessStop["operator_alert"] ?? $nearEndWarning,
-                "load_status" => in_array(($excessStop["stop_reason"] ?? null), ["EXCESSO", "COTA_ROMANEIO_ATINGIDA"], true)
+                "stop_reason" => $targetStop["stop_reason"] ?? null,
+                "physical_stop_request_status" => $targetStop["physical_stop_request_status"] ?? null,
+                "command_request_id" => $targetStop["command_request_id"] ?? null,
+                "operator_alert" => $targetStop["operator_alert"] ?? $nearEndWarning,
+                "load_status" => ($targetStop["stop_reason"] ?? null) === "COTA_ROMANEIO_ATINGIDA"
                     ? "EM_ANDAMENTO"
                     : ($loading["state"] === "FINALIZANDO"
                         ? "COMPLETO" : "EM_ANDAMENTO"),

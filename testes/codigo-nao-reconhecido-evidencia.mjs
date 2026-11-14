@@ -38,7 +38,7 @@ test("produto reconhecido fora do romaneio mantém ocorrência e parada apropria
     /if \(\$wrongProductDetected\) \{[\s\S]*?if \(\$result === "PRODUTO_INCORRETO"\) \{/,
   );
   assert.match(endpoint, /solicitarParadaPorProdutoIncorreto/);
-  assert.match(endpoint, /solicitarParadaPorExcesso/);
+  assert.doesNotMatch(endpoint, /solicitarParadaPorExcesso/);
   assert.match(imageEndpoint, /"PRODUTO_INCORRETO" => \["PRODUTO_INCORRETO"\]/);
   assert.match(imageEndpoint, /r\.reason IN \('SEM_LEITURA', 'PRODUTO_INCORRETO', 'EXCESSO'\)/);
   assert.match(reportEndpoint, /l\.result = 'PRODUTO_INCORRETO'[\s\S]*?r\.status <> 'CAPTURADA'/);
@@ -56,6 +56,6 @@ test("só produto previsto ou sem leitura ocupa a meta; produto incorreto fica f
   );
   assert.match(
     endpoint,
-    /if \(\(\$physicalExcess \|\| in_array\(\$result, \["PRODUTO_INCORRETO", "EXCESSO"\], true\)\) && \$sensorEventId\) \{[\s\S]*?ServicoPausasCarregamento::reclassificarPassagens/,
+    /if \(\(\$physicalExcess \|\| \$result === "PRODUTO_INCORRETO"\) && \$sensorEventId\) \{[\s\S]*?ServicoPausasCarregamento::reclassificarPassagens/,
   );
 });

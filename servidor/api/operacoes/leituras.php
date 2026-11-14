@@ -79,8 +79,6 @@ $transientAttempt = 0;
 // Deadlocks roll back the whole transaction, so the same offline event can be retried safely.
 while (true) {
 $sensorEventId = $solicitacao->sensorEventId;
-$excessStop = null;
-$excessoAlert = null;
 $wrongProductStop = null;
 $pdo->beginTransaction();
 try {
@@ -566,7 +564,7 @@ if ($sensorEventId && ($noReadEvidenceRequired || $result === "PRODUTO_INCORRETO
     $evidenceStatus = "IMAGEM_PENDENTE_INCIDENTE";
 }
 $loadStatus = $loading["state"] === "FINALIZANDO" ? "COMPLETO" : "EM_ANDAMENTO";
-$stopDetails = $excessStop ?? $wrongProductStop;
+$stopDetails = $wrongProductStop;
 $pdo->commit();
 responder_json(
     [
