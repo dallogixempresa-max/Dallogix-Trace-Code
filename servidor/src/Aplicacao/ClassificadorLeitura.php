@@ -28,23 +28,26 @@ final class ClassificadorLeitura
         $result = $catalogProductIdentified ? "PRODUTO_INCORRETO" : "SEM_LEITURA";
         $productId = null;
         // Só produtos previstos e passagens sem leitura participam da cota.
-        // Produto reconhecido fora do romaneio precisa ser removido e nunca
-        // pode ocupar uma unidade da quantidade planejada.
+        // Produto reconhecido além da quantidade do item precisa ser removido
+        // e registrado como produto incorreto, sem consumir a meta.
         $loadingPassageCount = $loadingValidCount + $loadingSemLeituraCount;
-        $wrongProductDetected = $catalogProductIdentified && $productPlannedQuantity <= 0;
+        $productPassageCount = $productValidCount + $productSemLeituraCount;
+        $productQuotaAlreadyReached = $productPlannedQuantity > 0
+            && $productPassageCount >= $productPlannedQuantity;
+        $loadingQuotaAlreadyReached = $loadingPlannedQuantity > 0
+            && $loadingPassageCount >= $loadingPlannedQuantity;
+        $wrongProductDetected = $catalogProductIdentified && (
+            $productPlannedQuantity <= 0
+            || $productQuotaAlreadyReached
+            || (!$physicalExcess && $loadingQuotaAlreadyReached)
+        );
 
         if ($catalogProductIdentified && $productPlannedQuantity > 0) {
             $productId = $matchedProductId;
-            $productPassageCount = $productValidCount + $productSemLeituraCount;
-            if (
-                $physicalExcess ||
-                $productPassageCount >= $productPlannedQuantity ||
-                ($loadingPlannedQuantity > 0 && $loadingPassageCount >= $loadingPlannedQuantity)
-            ) {
-                $result = "EXCESSO";
-            } else {
-                $result = "VALIDO";
-            }
+            // Uma leitura válida depois da parada da meta geral permanece
+            // auditada sem consumir a quantidade planejada. Passagem além da
+            // cota do item é produto incorreto e exige parada e evidência.
+            $result = $wrongProductDetected ? "PRODUTO_INCORRETO" : "VALIDO";
         }
 
         $productQuotaReached = $result === "VALIDO"

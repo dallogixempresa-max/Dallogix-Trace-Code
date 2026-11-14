@@ -8,9 +8,9 @@ use App\Aplicacao\ClassificadorLeitura;
 $classifier = new ClassificadorLeitura();
 $cases = [
     ["quarto A completa o item", true, 10, 4, 3, 10, 3, false, "VALIDO"],
-    ["quinto A excede o item", true, 10, 4, 4, 10, 4, false, "EXCESSO"],
-    ["A excede mesmo com B pendente", true, 10, 4, 4, 10, 5, false, "EXCESSO"],
-    ["passagem física excedente com código", true, 20, 6, 1, 10, 5, true, "EXCESSO"],
+    ["produto acima da cota do item é incorreto", true, 10, 4, 4, 10, 4, false, "PRODUTO_INCORRETO"],
+    ["produto acima da cota do item mesmo com outro pendente é incorreto", true, 10, 4, 4, 10, 5, false, "PRODUTO_INCORRETO"],
+    ["leitura válida após a meta permanece auditada", true, 20, 6, 1, 10, 5, true, "VALIDO"],
     ["passagem sem código sem excesso não recebe produto", false, null, 0, 0, 10, 4, false, "SEM_LEITURA"],
     ["passagem sem leitura exige evidência mesmo depois da meta", false, null, 0, 0, 10, 10, true, "SEM_LEITURA"],
     ["produto ausente do romaneio", true, 30, 0, 0, 10, 4, false, "PRODUTO_INCORRETO"],

@@ -53,7 +53,7 @@ test("a quota do sensor dispara claim imediato pelo mesmo gateway físico", asyn
   assert.equal(retryNode?.outputs, 3);
   assert.deepEqual(retryNode?.wires?.[2], ["command-claim-http"]);
   assert.deepEqual(byId("command-claim-http")?.wires?.[0], ["command-safe-gate"]);
-  assert.match(eventApi, /"command_request_id" => \$excessStop\["command_request_id"\] \?\? null/);
+  assert.match(eventApi, /"command_request_id" => \$targetStop\["command_request_id"\] \?\? null/);
   assert.match(retryNode.func, /physical_stop_request_status/);
   assert.match(retryNode.func, /\['PENDENTE', 'PROCESSANDO'\]/);
 

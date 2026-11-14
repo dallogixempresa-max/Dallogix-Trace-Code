@@ -104,11 +104,10 @@ test("heartbeat SENSOR preserva a fila agregada para liberar a finalização no 
   assert.match(loadingSummaryApi, /\$pendingEventsByLoading\)\s*\?\s*\(int\)\s*\(\$pendingEventsByLoading\[\(string\) \$loadingId\][\s\S]*?:\s*\(\$sensorOutboxState\["pending_events"\]/);
 });
 
-test("evento de excesso usa UUID próprio na auditoria e mantém a referência da passagem", () => {
-  const excessBranchStart = sensorEventsApi.indexOf('"EXCESSO_DETECTADO"');
-  const excessBranch = sensorEventsApi.slice(excessBranchStart, excessBranchStart + 700);
-  assert.match(excessBranch, /"sensor_event_uuid"\s*=>\s*\$eventUuid/);
-  assert.doesNotMatch(excessBranch, /(?<!sensor_)"event_uuid"\s*=>\s*\$eventUuid/);
+test("a meta do romaneio solicita parada sem criar uma ocorrência de excesso", () => {
+  assert.match(sensorEventsApi, /\$detectedBags === \$plannedQuantity[\s\S]*?solicitarParadaAoAtingirMetaRomaneio/);
+  assert.doesNotMatch(sensorEventsApi, /solicitarParadaPorExcesso|EXCESSO_DETECTADO|EXCESSO_EVIDENCIA_SOLICITADA/);
+  assert.doesNotMatch(sensorEventsApi, /\$excessStop/);
 });
 
 test("AutoID HID entrega sequências de teclado ao Trace sem tornar o visor editável", () => {
