@@ -160,6 +160,8 @@ export function workControlLocks(state, {
       ? "A quantidade prevista do romaneio foi atingida. Abra a conferência final para encerrar."
     : !stopped
       ? stateLock("iniciar a esteira")
+    : state.reversalCommand !== "REVERSAO_DESATIVAR"
+      ? "Confirme a reversão desligada antes de ligar a esteira para frente."
       : "";
   locks.stop = emergency
     ? "A emergência já mantém a operação parada."
@@ -222,36 +224,66 @@ function workControls(store) {
   const pendingCommand = String(currentCommand?.command || "").toUpperCase();
   const pendingStatus = String(currentCommand?.status || "").toUpperCase();
   const currentCommandPending = ["PENDENTE", "PROCESSANDO"].includes(pendingStatus);
-  const bloqueio = (reason) => reason
-    ? { disabled: true, "aria-disabled": "true", title: reason }
-    : "";
+  const comandoPendente = store.state.commandInFlight === true || currentCommandPending;
+  const perfilPodeOperar = ["ADMIN_EMPRESA", "SUPERVISOR", "USUARIO"].includes(
+    String(store.state.userRole || "").toUpperCase(),
+  );
+  const comandosDisponiveis = Boolean(store.state.loadingId) && clpAvailable &&
+    machineCommandsAvailable && perfilPodeOperar;
+  const atributosComMotivo = (reason, disabled) => ({
+    disabled: Boolean(disabled),
+    "aria-disabled": String(Boolean(disabled)),
+    ...(reason ? { title: reason, "data-lock-reason": reason } : {}),
+  });
   // A emergência continua disponível para registrar a intenção; o gateway
   // valida a comunicação e a autorização antes de qualquer escrita física.
-  const bloqueioEmergencia = store.state.loadingId
-    ? ""
-    : { title: "Nenhum carregamento selecionado" };
+  const atributosEmergencia = atributosComMotivo(
+    store.state.loadingId ? "" : "Nenhum carregamento selecionado",
+    false,
+  );
   const estadoOperacional = String(store.state.operationalState || "").toUpperCase();
-  const esteiraEmMovimentoOuIniciando = estadoOperacional === "CARREGANDO" ||
-    store.state.running === true ||
-    (currentCommandPending && pendingCommand === "INICIAR_CARREGAMENTO");
-  const atributosReversaoDuranteMovimento = (reason) => ({
-    disabled: true,
-    "aria-disabled": "true",
-    title: reason || "A esteira precisa estar parada para alterar a reversão.",
-  });
+  const inicioPendente = currentCommandPending && pendingCommand === "INICIAR_CARREGAMENTO";
+  const esteiraParadaPreparada = ["PREPARANDO", "PAUSADO"].includes(estadoOperacional) && store.state.running !== true;
+  const outroEstadoComPartidaClicavel = ["AGUARDANDO", "FINALIZADO", "EMERGENCIA"].includes(estadoOperacional);
+  const esteiraEmMovimentoOuIniciando = (estadoOperacional === "CARREGANDO" && store.state.running === true) ||
+    estadoOperacional === "FINALIZANDO" ||
+    inicioPendente;
+  const estadoReversaoConhecido = ["REVERSAO_ATIVAR", "REVERSAO_DESATIVAR"].includes(
+    store.state.reversalCommand,
+  );
+  const reversaoLigadaConfirmada = store.state.reversalCommand === "REVERSAO_ATIVAR" && !(
+    currentCommandPending && pendingCommand === "REVERSAO_ATIVAR"
+  );
+  const reversaoDesligarPermitida = reversaoLigadaConfirmada || (
+    currentCommandPending && pendingCommand === "REVERSAO_ATIVAR" && pendingStatus === "PENDENTE"
+  );
+  const motivoEstadoReversao = "Confirme o estado da reversão antes de alterar o sentido.";
+  const atributosLigarEsteira = atributosComMotivo(
+    commandLocks.run,
+    !comandosDisponiveis || comandoPendente || esteiraEmMovimentoOuIniciando ||
+      (!esteiraParadaPreparada && !outroEstadoComPartidaClicavel),
+  );
+  const atributosPararEsteira = atributosComMotivo(
+    commandLocks.stop || (esteiraEmMovimentoOuIniciando ? "" : "A esteira já está parada."),
+    !comandosDisponiveis || !esteiraEmMovimentoOuIniciando || Boolean(commandLocks.stop),
+  );
   const atributosLigarReversao = esteiraEmMovimentoOuIniciando
-    ? atributosReversaoDuranteMovimento(commandLocks["reverse-on"])
-    : bloqueio(commandLocks["reverse-on"]);
+    ? atributosComMotivo(commandLocks["reverse-on"] || "A esteira precisa estar parada para alterar a reversão.", true)
+    : atributosComMotivo(
+      commandLocks["reverse-on"] || (!estadoReversaoConhecido ? motivoEstadoReversao : ""),
+      !comandosDisponiveis || comandoPendente || !estadoReversaoConhecido || Boolean(commandLocks["reverse-on"]),
+    );
   const atributosDesligarReversao = esteiraEmMovimentoOuIniciando
-    ? atributosReversaoDuranteMovimento(commandLocks["reverse-off"])
-    : bloqueio(commandLocks["reverse-off"]);
-  const atributosPararEsteira = commandLocks.stop === "A esteira já está parada."
-    ? {
-        disabled: true,
-        "aria-disabled": "true",
-        title: commandLocks.stop,
-      }
-    : bloqueio(commandLocks.stop);
+    ? atributosComMotivo(commandLocks["reverse-off"] || "A esteira precisa estar parada para alterar a reversão.", true)
+    : atributosComMotivo(
+      commandLocks["reverse-off"] || (!reversaoDesligarPermitida ? motivoEstadoReversao : ""),
+      !comandosDisponiveis || comandoPendente || !reversaoDesligarPermitida || Boolean(commandLocks["reverse-off"]),
+    );
+  const rotuloPararEsteira = esteiraEmMovimentoOuIniciando
+    ? store.state.reversalCommand === "REVERSAO_ATIVAR"
+      ? "Desligar esteira · sentido reversa"
+      : "Desligar esteira · sentido normal"
+    : "Desligar esteira";
   const loadingPicker = `<div class="work-header-actions"><button class="button secondary small work-back-button" data-action="goto-manifests" type="button">← Romaneios</button>${(store.state.activeLoadings || []).length > 1 ? `<button class="button secondary small work-back-button" data-action="change-loading" type="button">Trocar Dala</button>` : ""}</div>`;
   const latestScannerReading = store.state.latestScannerReading;
   const leitorPodeConcluirPassagens = Boolean(store.state.loadingId)
@@ -266,7 +298,7 @@ function workControls(store) {
   const scannerMonitor = store.state.loadingId
     ? `<div class="work-reader-monitor"><div class="work-reader-monitor-heading"><span class="kicker">Visor do leitor</span><small>Último código recebido automaticamente do leitor.</small></div><div class="work-scanner-display"><span class="work-scanner-display-label">Código de barras</span><output id="automatic-scanner-barcode" class="work-scanner-display-value${scannerValueClass}" data-live="scanner-value" role="status" aria-live="polite" aria-atomic="true">${esc(scannerValue)}</output></div></div>`
     : "";
-  const controls = `<div class="work-controls"><div class="work-routine-controls">${button("Ligar esteira", "run", "primary", bloqueio(commandLocks.run))}${button("Desligar esteira", "stop", "ghost", atributosPararEsteira)}${button("Ligar reversão", "reverse-on", "secondary", atributosLigarReversao)}${button("Desligar reversão", "reverse-off", "secondary", atributosDesligarReversao)}</div><div class="work-emergency-zone">${button("EMERGÊNCIA", "emergency", "danger", bloqueioEmergencia)}</div></div>`;
+  const controls = `<div class="work-controls"><div class="work-routine-controls">${button("Ligar esteira", "run", "primary", atributosLigarEsteira)}${button(rotuloPararEsteira, "stop", "ghost", atributosPararEsteira)}${button("Ligar reversão", "reverse-on", "secondary", atributosLigarReversao)}${button("Desligar reversão", "reverse-off", "secondary", atributosDesligarReversao)}</div><div class="work-emergency-zone">${button("EMERGÊNCIA", "emergency", "danger", atributosEmergencia)}</div></div>`;
   // Quando o carregamento entra em emergência, o painel de liberação precisa
   // aparecer na própria tela de operação — sem forçar o operador a navegar
   // para a página separada /emergencia.html. O botão de desbloqueio fica
@@ -407,8 +439,7 @@ function workControls(store) {
   const panelHeading = estadoOperacional === "EMERGENCIA"
     ? ""
     : `<div class="panel-heading"><div><span class="kicker">Comandos da máquina</span><h3>Operar Dala</h3></div></div>`;
-  const visibleControls = estadoOperacional === "EMERGENCIA" ? "" : controls;
-  const machinePanel = `<section class="panel work-machine-panel">${panelHeading}<div class="work-machine-controls">${emergencySection}${stopConfirmation}${visibleControls}</div></section>`;
+  const machinePanel = `<section class="panel work-machine-panel">${panelHeading}<div class="work-machine-controls">${emergencySection}${stopConfirmation}${controls}</div></section>`;
   const statusColumn = `<section class="work-status-column">${totalSummary}${itemProgress}</section>`;
   const workHeader = `<header class="work-screen-header">${loadingPicker}<div class="work-screen-heading"><h2>${esc(workTitle)}</h2><p>Dala ${esc(equipmentLabel(store))} · Caminhão ${esc(store.state.truck || "—")} <span class="work-header-state">${badge}</span></p></div>${finishAction}</header>`;
   return `<div class="work-operation-screen">${workHeader}<div class="work-operation-layout">${statusColumn}${machinePanel}</div></div>`;
