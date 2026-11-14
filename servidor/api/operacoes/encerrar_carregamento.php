@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . "/../../configuracao/bootstrap.php";
+require_once __DIR__ . "/../../src/Aplicacao/ValidadorEvidenciasOperacionais.php";
 
 $user = require_session_user();
 if ($_SERVER["REQUEST_METHOD"] !== "POST") {
@@ -23,6 +24,10 @@ if (!$loadingId) {
 }
 
 $pdo = db();
+$evidenceValidator = new \App\Aplicacao\ValidadorEvidenciasOperacionais(
+    $pdo,
+    realpath(__DIR__ . "/../../../armazenamento") ?: "",
+);
 $pdo->beginTransaction();
 register_shutdown_function(static function () use ($pdo): void {
     if ($pdo->inTransaction()) {
@@ -120,7 +125,6 @@ if ($automaticQuotaStopReason) {
 $pendingSensorEvents = $pdo->prepare(
     "SELECT COUNT(*) FROM eventos_sensor s
      WHERE s.carregamento_id = :loading_id
-       AND s.conta_na_meta = 1
        AND NOT EXISTS (SELECT 1 FROM leituras l WHERE l.sensor_event_id = s.id)",
 );
 $pendingSensorEvents->execute(["loading_id" => $loadingId]);
@@ -277,34 +281,23 @@ $noReadCountStatement = $pdo->prepare(
 );
 $noReadCountStatement->execute(["loading_id" => $loadingId]);
 $noReadCount = (int) $noReadCountStatement->fetchColumn();
-$uncoveredNoReadStatement = $pdo->prepare(
-    "SELECT COUNT(*) FROM leituras l
-     WHERE l.carregamento_id = :loading_id AND l.result = 'SEM_LEITURA' AND l.conta_na_meta = 1
-       AND (l.sensor_event_id IS NULL OR NOT EXISTS (
-         SELECT 1 FROM solicitacoes_imagens_evidencia e
-         WHERE e.carregamento_id = l.carregamento_id
-           AND e.sensor_event_id = l.sensor_event_id
-           AND e.reason = 'SEM_LEITURA' AND e.status = 'CAPTURADA'
-       ))",
+$uncoveredNoRead = $evidenceValidator->contarLeiturasSemImagemValida(
+    (int) $user["company_id"],
+    (int) $loadingId,
+    (int) $loading["equipment_id"],
+    "SEM_LEITURA",
 );
-$uncoveredNoReadStatement->execute(["loading_id" => $loadingId]);
-$uncoveredNoRead = (int) $uncoveredNoReadStatement->fetchColumn();
 if ($uncoveredNoRead > 0) {
     $pdo->rollBack();
     json_response(["error" => "Aguarde a foto Keyence de cada saca sem leitura antes de finalizar."], 409);
 }
-$uncoveredWrongProductStatement = $pdo->prepare(
-    "SELECT COUNT(*) FROM leituras l
-     WHERE l.carregamento_id = :loading_id AND l.result = 'PRODUTO_INCORRETO'
-       AND (l.sensor_event_id IS NULL OR NOT EXISTS (
-         SELECT 1 FROM solicitacoes_imagens_evidencia e
-         WHERE e.carregamento_id = l.carregamento_id
-           AND e.sensor_event_id = l.sensor_event_id
-           AND e.reason = 'PRODUTO_INCORRETO' AND e.status = 'CAPTURADA'
-       ))",
+$uncoveredWrongProduct = $evidenceValidator->contarLeiturasSemImagemValida(
+    (int) $user["company_id"],
+    (int) $loadingId,
+    (int) $loading["equipment_id"],
+    "PRODUTO_INCORRETO",
 );
-$uncoveredWrongProductStatement->execute(["loading_id" => $loadingId]);
-if ((int) $uncoveredWrongProductStatement->fetchColumn() > 0) {
+if ($uncoveredWrongProduct > 0) {
     $pdo->rollBack();
     json_response(["error" => "Aguarde a foto Keyence de cada produto fora do romaneio antes de finalizar."], 409);
 }
@@ -496,7 +489,7 @@ try {
     $romaneioFinalizado = false;
     if ($romaneioProntoParaEncerrar && (!$hasDivergence || $evidenceCoveredDivergence)) {
         $manifestLoadings = $pdo->prepare(
-            "SELECT id, truck_id, state, finish_justification
+            "SELECT id, equipment_id, truck_id, state, finish_justification
              FROM carregamentos
              WHERE romaneio_id = :romaneio_id AND company_id = :company_id
              ORDER BY id FOR UPDATE",
@@ -539,26 +532,6 @@ try {
              WHERE i.carregamento_id = :loading_id AND i.status = 'ERRO'
                AND (i.sensor_event_id IS NULL OR EXISTS (
                  SELECT 1 FROM eventos_sensor s WHERE s.id = i.sensor_event_id AND s.conta_na_meta = 1
-               ))",
-        );
-        $uncoveredNoReadForLoading = $pdo->prepare(
-            "SELECT COUNT(*) FROM leituras l
-             WHERE l.carregamento_id = :loading_id AND l.result = 'SEM_LEITURA' AND l.conta_na_meta = 1
-               AND (l.sensor_event_id IS NULL OR NOT EXISTS (
-                 SELECT 1 FROM solicitacoes_imagens_evidencia e
-                 WHERE e.carregamento_id = l.carregamento_id
-                   AND e.sensor_event_id = l.sensor_event_id
-                   AND e.reason = 'SEM_LEITURA' AND e.status = 'CAPTURADA'
-               ))",
-        );
-        $uncoveredWrongProductForLoading = $pdo->prepare(
-            "SELECT COUNT(*) FROM leituras l
-             WHERE l.carregamento_id = :loading_id AND l.result = 'PRODUTO_INCORRETO'
-               AND (l.sensor_event_id IS NULL OR NOT EXISTS (
-                 SELECT 1 FROM solicitacoes_imagens_evidencia e
-                 WHERE e.carregamento_id = l.carregamento_id
-                   AND e.sensor_event_id = l.sensor_event_id
-                   AND e.reason = 'PRODUTO_INCORRETO' AND e.status = 'CAPTURADA'
                ))",
         );
         $overfilledProductsForLoading = $pdo->prepare(
@@ -608,10 +581,18 @@ try {
             $excessForManifestLoading = (int) $excessForLoading->fetchColumn();
             $failedEvidenceForLoading->execute(["loading_id" => $manifestLoadingId]);
             $failedEvidenceCountForManifestLoading = (int) $failedEvidenceForLoading->fetchColumn();
-            $uncoveredNoReadForLoading->execute(["loading_id" => $manifestLoadingId]);
-            $uncoveredNoReadForManifestLoading = (int) $uncoveredNoReadForLoading->fetchColumn();
-            $uncoveredWrongProductForLoading->execute(["loading_id" => $manifestLoadingId]);
-            $uncoveredWrongProductForManifestLoading = (int) $uncoveredWrongProductForLoading->fetchColumn();
+            $uncoveredNoReadForManifestLoading = $evidenceValidator->contarLeiturasSemImagemValida(
+                (int) $user["company_id"],
+                $manifestLoadingId,
+                (int) $manifestLoading["equipment_id"],
+                "SEM_LEITURA",
+            );
+            $uncoveredWrongProductForManifestLoading = $evidenceValidator->contarLeiturasSemImagemValida(
+                (int) $user["company_id"],
+                $manifestLoadingId,
+                (int) $manifestLoading["equipment_id"],
+                "PRODUTO_INCORRETO",
+            );
             $overfilledProductsForLoading->execute([
                 "loading_id" => $manifestLoadingId,
                 "return_loading_id" => $manifestLoadingId,

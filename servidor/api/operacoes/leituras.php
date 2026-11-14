@@ -214,13 +214,6 @@ if ($sensorEventId) {
             422,
         );
     }
-    if ((int) $sensorEvent["conta_na_meta"] !== 1) {
-        $pdo->rollBack();
-        responder_json(
-            ["error" => "Esta passagem foi capturada durante a pausa e não pode gerar leitura operacional."],
-            409,
-        );
-    }
 }
 if ($noRead && $sensorEventId) {
     $existingReading = $pdo->prepare(
@@ -349,7 +342,10 @@ $productQuotaReached = $classification["product_quota_reached"];
 $noReadEvidenceRequired = $classification["no_read_evidence_required"];
 $wrongProductDetected = $classification["wrong_product_detected"];
 $barcodeUnmatched = $barcode !== "" && $matchedProductId === null;
-$countsTowardPlan = in_array($result, ["VALIDO", "SEM_LEITURA"], true) && !$physicalExcess;
+$countsTowardPlan = in_array($result, ["VALIDO", "SEM_LEITURA"], true)
+    && !$physicalExcess
+    && (!$sensorEventId || (int) ($sensorEvent["conta_na_meta"] ?? 0) === 1);
+$productQuotaReached = $countsTowardPlan && $productQuotaReached;
 if ($physicalExcess && $sensorEventId) {
     // A posição após o limite não consome a meta, mesmo que a sincronização
     // do evento chegue antes da confirmação física da parada.

@@ -80,10 +80,14 @@ export function motivoBloqueioFinalizacao(state) {
       return "Aguarde a foto Keyence de cada produto fora do romaneio antes de finalizar.";
     }
   }
-  const noReadCount = Number(loading.sem_leitura) || 0;
-  if (noReadCount > 0) {
-    const photographedNoReads = Number(loading.sem_leitura_com_foto);
-    if (!Number.isFinite(photographedNoReads) || photographedNoReads < noReadCount) {
+  const requiredNoReadEvidence = Number(
+    loading.sem_leitura_evidencias_obrigatorias ?? loading.sem_leitura,
+  ) || 0;
+  if (requiredNoReadEvidence > 0) {
+    const validNoReadEvidence = Number(
+      loading.sem_leitura_evidencias_com_imagem ?? loading.sem_leitura_com_foto,
+    );
+    if (!Number.isFinite(validNoReadEvidence) || validNoReadEvidence < requiredNoReadEvidence) {
       return "Aguarde a foto Keyence de cada saca sem leitura antes de finalizar.";
     }
   }
@@ -126,6 +130,8 @@ export function assinaturaProntidaoFinalizacao(state) {
     loading.imagens_pendentes ?? null,
     loading.imagens_com_falha ?? null,
     loading.sensor_outbox_pendentes ?? null,
+    loading.sem_leitura_evidencias_obrigatorias ?? null,
+    loading.sem_leitura_evidencias_com_imagem ?? null,
     motivoBloqueioFinalizacao(state),
   ];
 }

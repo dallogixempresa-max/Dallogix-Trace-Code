@@ -118,7 +118,6 @@ function trace_pending_scanner_event_match(
          FROM eventos_sensor s
          WHERE s.carregamento_id = :loading_id
            AND s.equipment_id = :equipment_id
-           AND s.conta_na_meta = 1
            AND (
              (s.device_detected_at IS NOT NULL AND s.device_detected_at BETWEEN :device_scan_start AND :device_scan_end)
              OR (s.device_detected_at IS NULL
