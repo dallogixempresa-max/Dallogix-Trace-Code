@@ -33,8 +33,12 @@ const sensorEvents = await readFile(
 
 test("servidor bloqueia excesso antes de gravar FINALIZADO", () => {
   const excessGuard = finishEndpoint.indexOf("if ($hasExcess) {");
+  const exactQuotaGuard = finishEndpoint.indexOf("if ($loadingPlannedQuantity < 1 || $loadingDetectedQuantity !== $loadingPlannedQuantity) {");
   const finishUpdate = finishEndpoint.indexOf("UPDATE carregamentos SET state = 'FINALIZADO'");
   assert.ok(excessGuard >= 0 && excessGuard < finishUpdate);
+  assert.ok(exactQuotaGuard > excessGuard && exactQuotaGuard < finishUpdate);
+  assert.match(finishEndpoint, /\$loadingDetectedQuantity !== \$loadingPlannedQuantity/);
+  assert.match(finishEndpoint, /quantidade prevista de sacas válidas ou sem leitura/);
   assert.match(finishEndpoint, /\$loadingDetectedQuantity > \$loadingPlannedQuantity/);
   assert.match(finishEndpoint, /\$stopReason === "EXCESSO"/);
   assert.match(finishEndpoint, /\|\| \$overfill > 0/);
@@ -46,6 +50,15 @@ test("servidor bloqueia excesso antes de gravar FINALIZADO", () => {
   assert.match(manifestEndpoint, /\$quantityMismatch = \$pdo->prepare/);
   assert.match(manifestEndpoint, /quantidade detectada não corresponde ao previsto/);
   assert.doesNotMatch(manifestEndpoint, /EXCESSO_FINALIZADO_COM_JUSTIFICATIVA/);
+});
+
+test("nenhum perfil finaliza abaixo da quantidade prevista", () => {
+  const exactQuotaGuard = finishEndpoint.indexOf("if ($loadingPlannedQuantity < 1 || $loadingDetectedQuantity !== $loadingPlannedQuantity) {");
+  const supervisorOverride = finishEndpoint.indexOf("if (($hasDivergence && !$evidenceCoveredDivergence)");
+  const finishUpdate = finishEndpoint.indexOf("UPDATE carregamentos SET state = 'FINALIZADO'");
+  assert.ok(exactQuotaGuard >= 0 && exactQuotaGuard < supervisorOverride);
+  assert.ok(supervisorOverride < finishUpdate);
+  assert.match(finishEndpoint, /"error" => "O carregamento só pode ser finalizado quando a quantidade prevista de sacas válidas ou sem leitura for atingida\."\],\s*409/);
 });
 
 test("interface não oferece exceção de supervisor para finalizar excesso", () => {
