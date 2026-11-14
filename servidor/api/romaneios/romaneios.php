@@ -7,8 +7,10 @@ require_once __DIR__ . "/../../src/Persistencia/RepositorioRomaneiosLista.php";
 require_once __DIR__ . "/../../src/Persistencia/RepositorioItensRomaneio.php";
 require_once __DIR__ . "/../../src/Persistencia/RepositorioProdutosRomaneio.php";
 require_once __DIR__ . "/../../src/Aplicacao/ResolvedorInstalacaoDestinatariaRomaneio.php";
+require_once __DIR__ . "/../../src/Aplicacao/ValidadorEvidenciasOperacionais.php";
 
 use App\Aplicacao\ResolvedorInstalacaoDestinatariaRomaneio;
+use App\Aplicacao\ValidadorEvidenciasOperacionais;
 use App\Persistencia\RepositorioRomaneiosLista;
 use App\Persistencia\RepositorioItensRomaneio;
 use App\Persistencia\RepositorioProdutosRomaneio;
@@ -26,6 +28,10 @@ if ($_SERVER["REQUEST_METHOD"] === "GET") {
     session_write_close();
 }
 $pdo = obter_conexao_banco();
+$evidenceValidator = new ValidadorEvidenciasOperacionais(
+    $pdo,
+    realpath(__DIR__ . "/../../../armazenamento") ?: "",
+);
 
 if ($_SERVER["REQUEST_METHOD"] === "GET") {
     $detailId = filter_var($_GET["id"] ?? null, FILTER_VALIDATE_INT);
@@ -274,44 +280,22 @@ if ($_SERVER["REQUEST_METHOD"] === "PATCH") {
                 responder_json(["error" => "Há leitura incorreta ou excedente; o romaneio não pode ser encerrado."], 409);
             }
 
-            $uncoveredNoReads = $pdo->prepare(
-                "SELECT COUNT(*) FROM leituras l
-                 JOIN carregamentos c ON c.id = l.carregamento_id
-                 WHERE c.romaneio_id = :romaneio_id AND c.company_id = :company_id
-                   AND l.conta_na_meta = 1 AND l.result = 'SEM_LEITURA'
-                   AND (l.sensor_event_id IS NULL OR NOT EXISTS (
-                     SELECT 1 FROM solicitacoes_imagens_evidencia i
-                     WHERE i.carregamento_id = l.carregamento_id
-                       AND i.sensor_event_id = l.sensor_event_id
-                       AND i.reason = 'SEM_LEITURA' AND i.status = 'CAPTURADA'
-                   ))",
+            $uncoveredNoReadCount = $evidenceValidator->contarLeiturasSemImagemValidaNoRomaneio(
+                $companyId,
+                (int) $romaneioId,
+                ["SEM_LEITURA"],
             );
-            $uncoveredNoReads->execute([
-                "romaneio_id" => $romaneioId,
-                "company_id" => $companyId,
-            ]);
-            if ((int) $uncoveredNoReads->fetchColumn() > 0) {
+            if ($uncoveredNoReadCount > 0) {
                 $pdo->rollBack();
                 responder_json(["error" => "Aguarde a foto Keyence de cada saca sem leitura antes de encerrar o romaneio."], 409);
             }
 
-            $uncoveredWrongProducts = $pdo->prepare(
-                "SELECT COUNT(*) FROM leituras l
-                 JOIN carregamentos c ON c.id = l.carregamento_id
-                 WHERE c.romaneio_id = :romaneio_id AND c.company_id = :company_id
-                   AND l.result = 'PRODUTO_INCORRETO'
-                   AND (l.sensor_event_id IS NULL OR NOT EXISTS (
-                     SELECT 1 FROM solicitacoes_imagens_evidencia i
-                     WHERE i.carregamento_id = l.carregamento_id
-                       AND i.sensor_event_id = l.sensor_event_id
-                       AND i.reason = 'PRODUTO_INCORRETO' AND i.status = 'CAPTURADA'
-                   ))",
+            $uncoveredWrongProductCount = $evidenceValidator->contarLeiturasSemImagemValidaNoRomaneio(
+                $companyId,
+                (int) $romaneioId,
+                ["PRODUTO_INCORRETO"],
             );
-            $uncoveredWrongProducts->execute([
-                "romaneio_id" => $romaneioId,
-                "company_id" => $companyId,
-            ]);
-            if ((int) $uncoveredWrongProducts->fetchColumn() > 0) {
+            if ($uncoveredWrongProductCount > 0) {
                 $pdo->rollBack();
                 responder_json(["error" => "Aguarde a foto Keyence de cada produto fora do romaneio antes de encerrar."], 409);
             }
@@ -420,7 +404,7 @@ if ($_SERVER["REQUEST_METHOD"] === "PATCH") {
             $current = $lock->fetch();
             if (!$current) { $pdo->rollBack(); responder_json(["error" => "Romaneio não encontrado."], 404); }
             if (in_array($current["status"], ["FINALIZADO", "CANCELADO"], true)) { $pdo->rollBack(); responder_json(["error" => "Este romaneio já foi encerrado."], 409); }
-            $activeLoadingsStatement = $pdo->prepare("SELECT id, state FROM carregamentos WHERE romaneio_id = :romaneio_id AND company_id = :company_id AND state <> 'FINALIZADO' ORDER BY id DESC FOR UPDATE");
+            $activeLoadingsStatement = $pdo->prepare("SELECT id, equipment_id, state FROM carregamentos WHERE romaneio_id = :romaneio_id AND company_id = :company_id AND state <> 'FINALIZADO' ORDER BY id DESC FOR UPDATE");
             $activeLoadingsStatement->execute(["romaneio_id" => $romaneioId, "company_id" => $companyId]);
             $activeLoadings = $activeLoadingsStatement->fetchAll();
             foreach ($activeLoadings as $activeLoading) {
@@ -429,6 +413,78 @@ if ($_SERVER["REQUEST_METHOD"] === "PATCH") {
                 }
             }
             if ($activeLoadings !== []) {
+                $pendingSensorEvents = $pdo->prepare(
+                    "SELECT COUNT(*) FROM eventos_sensor s
+                     WHERE s.carregamento_id = :loading_id
+                       AND NOT EXISTS (SELECT 1 FROM leituras l WHERE l.sensor_event_id = s.id)",
+                );
+                $sensorOutbox = $pdo->prepare(
+                    "SELECT status,
+                            CASE WHEN last_seen_at >= DATE_SUB(NOW(3), INTERVAL 5 SECOND) THEN 1 ELSE 0 END AS heartbeat_fresh,
+                            JSON_UNQUOTE(JSON_EXTRACT(details, '$.sensor_event_outbox_pending')) AS pending_events,
+                            JSON_EXTRACT(details, '$.sensor_event_outbox_pending_by_loading') AS pending_events_by_loading
+                     FROM status_dispositivos WHERE equipment_id = :equipment_id AND device_type = 'SENSOR'
+                     LIMIT 1 FOR UPDATE",
+                );
+                $pendingEvidence = $pdo->prepare(
+                    "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia
+                     WHERE carregamento_id = :loading_id AND status IN ('PENDENTE', 'CAPTURANDO')",
+                );
+                $failedEvidence = $pdo->prepare(
+                    "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia
+                     WHERE carregamento_id = :loading_id AND status = 'ERRO'",
+                );
+                foreach ($activeLoadings as $activeLoading) {
+                    $activeLoadingId = (int) $activeLoading["id"];
+                    $pendingSensorEvents->execute(["loading_id" => $activeLoadingId]);
+                    if ((int) $pendingSensorEvents->fetchColumn() > 0) {
+                        $pdo->rollBack();
+                        responder_json(["error" => "Aguarde a leitura ou a foto de cada passagem do sensor antes de cancelar."], 409);
+                    }
+
+                    $sensorOutbox->execute(["equipment_id" => (int) $activeLoading["equipment_id"]]);
+                    $sensorState = $sensorOutbox->fetch(PDO::FETCH_ASSOC) ?: [];
+                    $pendingByLoading = is_string($sensorState["pending_events_by_loading"] ?? null)
+                        ? json_decode($sensorState["pending_events_by_loading"], true)
+                        : null;
+                    $pendingEvents = is_array($pendingByLoading)
+                        ? ($pendingByLoading[(string) $activeLoadingId] ?? 0)
+                        : ($sensorState["pending_events"] ?? null);
+                    $pendingCount = filter_var(
+                        $pendingEvents,
+                        FILTER_VALIDATE_INT,
+                        ["options" => ["min_range" => 0]],
+                    );
+                    if (($sensorState["status"] ?? null) !== "ONLINE"
+                        || (int) ($sensorState["heartbeat_fresh"] ?? 0) !== 1
+                        || $pendingCount === false || $pendingCount === null || $pendingCount > 0) {
+                        $pdo->rollBack();
+                        responder_json(["error" => "Aguarde o sensor confirmar o envio de todas as passagens antes de cancelar."], 409);
+                    }
+
+                    $pendingEvidence->execute(["loading_id" => $activeLoadingId]);
+                    if ((int) $pendingEvidence->fetchColumn() > 0) {
+                        $pdo->rollBack();
+                        responder_json(["error" => "Aguarde o recebimento das fotos de evidência antes de cancelar."], 409);
+                    }
+                    $failedEvidence->execute(["loading_id" => $activeLoadingId]);
+                    if ((int) $failedEvidence->fetchColumn() > 0
+                        || $evidenceValidator->contarLeiturasSemImagemValida(
+                            $companyId,
+                            $activeLoadingId,
+                            (int) $activeLoading["equipment_id"],
+                            "SEM_LEITURA",
+                        ) > 0
+                        || $evidenceValidator->contarLeiturasSemImagemValida(
+                            $companyId,
+                            $activeLoadingId,
+                            (int) $activeLoading["equipment_id"],
+                            "PRODUTO_INCORRETO",
+                        ) > 0) {
+                        $pdo->rollBack();
+                        responder_json(["error" => "Corrija todas as falhas de foto antes de cancelar o romaneio."], 409);
+                    }
+                }
                 $updateLoading = $pdo->prepare("UPDATE carregamentos SET state = 'FINALIZADO', finished_at = NOW(), finish_justification = :reason WHERE romaneio_id = :romaneio_id AND company_id = :company_id AND state <> 'FINALIZADO'");
                 $updateLoading->execute(["romaneio_id" => $romaneioId, "company_id" => $companyId, "reason" => "ROMANEIO CANCELADO: " . $reason]);
                 foreach ($activeLoadings as $activeLoading) {

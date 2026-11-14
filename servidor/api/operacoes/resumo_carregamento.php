@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . "/../../configuracao/bootstrap.php";
+require_once __DIR__ . "/../../src/Aplicacao/ValidadorEvidenciasOperacionais.php";
 
 $user = require_session_user();
 if ($_SERVER["REQUEST_METHOD"] !== "GET") {
@@ -43,6 +44,10 @@ $data = $loading->fetch();
 if (!$data) {
     json_response(["error" => "Carregamento não encontrado."], 404);
 }
+$evidenceValidator = new \App\Aplicacao\ValidadorEvidenciasOperacionais(
+    $pdo,
+    realpath(__DIR__ . "/../../../armazenamento") ?: "",
+);
 
 $count = static function (PDO $pdo, string $sql, array $params): int {
     $statement = $pdo->prepare($sql);
@@ -145,6 +150,21 @@ $data["sem_leitura"] = $count(
     "SELECT COUNT(*) FROM leituras WHERE carregamento_id = :id AND result = 'SEM_LEITURA' AND conta_na_meta = 1",
     ["id" => $loadingId],
 );
+$data["sem_leitura_evidencias_obrigatorias"] = $count(
+    $pdo,
+    "SELECT COUNT(*) FROM leituras WHERE carregamento_id = :id AND result = 'SEM_LEITURA'",
+    ["id" => $loadingId],
+);
+$data["sem_leitura_evidencias_com_imagem"] = max(
+    0,
+    (int) $data["sem_leitura_evidencias_obrigatorias"]
+        - $evidenceValidator->contarLeiturasSemImagemValida(
+            (int) $user["company_id"],
+            (int) $loadingId,
+            (int) $data["equipment_id"],
+            "SEM_LEITURA",
+        ),
+);
 $data["sem_leitura_com_foto"] = $count(
     $pdo,
     "SELECT COUNT(*) FROM leituras l
@@ -156,6 +176,14 @@ $data["sem_leitura_com_foto"] = $count(
            AND e.sensor_event_id = l.sensor_event_id
            AND e.reason = 'SEM_LEITURA' AND e.status = 'CAPTURADA'
            AND EXISTS (SELECT 1 FROM eventos_sensor s WHERE s.id = e.sensor_event_id AND s.conta_na_meta = 1)
+           AND EXISTS (
+             SELECT 1 FROM imagens i
+             WHERE i.company_id = l.company_id AND i.carregamento_id = l.carregamento_id
+               AND i.reason = 'SEM_LEITURA'
+               AND (i.reading_id = l.id OR (
+                 i.reading_id IS NULL AND i.path LIKE CONCAT('%keyence-', e.id, '-%')
+               ))
+           )
        )",
     ["id" => $loadingId],
 );
@@ -173,23 +201,15 @@ $data["produtos_incorretos"] = $count(
     "SELECT COUNT(*) FROM leituras WHERE carregamento_id = :id AND result = 'PRODUTO_INCORRETO'",
     ["id" => $loadingId],
 );
-$data["produtos_incorretos_com_foto"] = $count(
-    $pdo,
-    "SELECT COUNT(*) FROM leituras l
-     JOIN solicitacoes_imagens_evidencia e
-       ON e.sensor_event_id = l.sensor_event_id
-      AND e.carregamento_id = l.carregamento_id
-      AND e.reason = 'PRODUTO_INCORRETO' AND e.status = 'CAPTURADA'
-     WHERE l.carregamento_id = :id AND l.result = 'PRODUTO_INCORRETO'
-       AND EXISTS (
-         SELECT 1 FROM imagens i
-         WHERE i.carregamento_id = l.carregamento_id
-           AND i.reason = 'PRODUTO_INCORRETO'
-           AND (i.reading_id = l.id OR (
-             i.reading_id IS NULL AND i.path LIKE CONCAT('%keyence-', e.id, '-%')
-           ))
-       )",
-    ["id" => $loadingId],
+$data["produtos_incorretos_com_foto"] = max(
+    0,
+    (int) $data["produtos_incorretos"]
+        - $evidenceValidator->contarLeiturasSemImagemValida(
+            (int) $user["company_id"],
+            (int) $loadingId,
+            (int) $data["equipment_id"],
+            "PRODUTO_INCORRETO",
+        ),
 );
 $data["ocorrencias"] = $count(
     $pdo,
@@ -210,7 +230,6 @@ $data["leituras_pendentes_sensor"] = $count(
     $pdo,
     "SELECT COUNT(*) FROM eventos_sensor s
      WHERE s.carregamento_id = :id
-       AND s.conta_na_meta = 1
        AND NOT EXISTS (SELECT 1 FROM leituras l WHERE l.sensor_event_id = s.id)",
     ["id" => $loadingId],
 );

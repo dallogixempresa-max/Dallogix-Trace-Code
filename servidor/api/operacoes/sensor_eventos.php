@@ -58,12 +58,11 @@ if ($action === "FINALIZE_EXPIRED") {
         $deviceDeadlineMs = (int) round(microtime(true) * 1000) - $timeoutMs;
         $timeoutMicroseconds = $timeoutMs * 1000;
         $events = $pdo->prepare(
-            "SELECT s.id, s.event_at_epoch_ms, s.device_detected_at,
+            "SELECT s.id, s.event_at_epoch_ms, s.device_detected_at, s.conta_na_meta,
                     CAST(ROUND(UNIX_TIMESTAMP(s.detected_at) * 1000) AS UNSIGNED) AS server_detected_at_epoch_ms
              FROM eventos_sensor s
              WHERE s.carregamento_id = :loading_id
                AND s.equipment_id = :equipment_id
-               AND s.conta_na_meta = 1
                AND (
                  (s.device_detected_at IS NOT NULL AND s.device_detected_at <= :device_deadline)
                  OR (s.device_detected_at IS NULL
@@ -108,6 +107,7 @@ if ($action === "FINALIZE_EXPIRED") {
                 && (int) $positionStatement->fetchColumn() > $plannedQuantity;
             $readingResult = "SEM_LEITURA";
             $evidenceReason = "SEM_LEITURA";
+            $countsTowardPlan = (int) $pendingSensorEvent["conta_na_meta"] === 1 && !$physicalExcess;
             if ($physicalExcess) {
                 $excludeLatePassage = $pdo->prepare(
                     "UPDATE eventos_sensor SET conta_na_meta_origem = 0, conta_na_meta = 0
@@ -128,7 +128,7 @@ if ($action === "FINALIZE_EXPIRED") {
                 "loading_id" => (int) $loadingId,
                 "sensor_event_id" => (int) $sensorEventId,
                 "result" => $readingResult,
-                "conta_na_meta" => $physicalExcess ? 0 : 1,
+                "conta_na_meta" => $countsTowardPlan ? 1 : 0,
             ]);
             $readingId = (int) $pdo->lastInsertId();
 
@@ -141,8 +141,10 @@ if ($action === "FINALIZE_EXPIRED") {
                 "company_id" => $device["company_id"],
                 "loading_id" => (int) $loadingId,
                 "description" => $physicalExcess
-                    ? "Saco detectado sem código de barras válido após a meta; passagem não considerada na quantidade planejada."
-                    : "Saco detectado pelo sensor sem código de barras válido após o tempo de leitura.",
+                    ? "Passagem sem código de barras após a quantidade prevista; não considerada na quantidade planejada."
+                    : ((int) $pendingSensorEvent["conta_na_meta"] !== 1
+                        ? "Passagem sem código de barras capturada durante a pausa; não considerada na quantidade planejada."
+                        : "Saco detectado pelo sensor sem código de barras válido após o tempo de leitura."),
             ]);
             $occurrenceId = (int) $pdo->lastInsertId();
             $actor = ["id" => null, "company_id" => $device["company_id"]];
@@ -160,9 +162,9 @@ if ($action === "FINALIZE_EXPIRED") {
                     "read_at" => date("Y-m-d H:i:s.v"),
                 ],
             );
-            if ($physicalExcess) {
+            if (!$countsTowardPlan) {
                 // A passagem permanece auditada e fotografada como sem leitura,
-                // mas fica fora da quantidade planejada.
+                // mas eventos após a pausa ou a meta ficam fora da quantidade planejada.
                 ServicoPausasCarregamento::reclassificarPassagens($pdo, (int) $loadingId);
             }
             record_operational_event(

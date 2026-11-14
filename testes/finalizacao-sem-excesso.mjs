@@ -56,17 +56,17 @@ test("interface não oferece exceção de supervisor para finalizar excesso", ()
 
 test("o botão exige uma foto capturada para cada passagem sem leitura", () => {
   assert.match(loadingSummary, /\$data\["sem_leitura_com_foto"\] = \$count/);
+  assert.match(loadingSummary, /\$data\["sem_leitura_evidencias_com_imagem"\] = max\([\s\S]*?contarLeiturasSemImagemValida/);
+  assert.match(loadingSummary, /ValidadorEvidenciasOperacionais/);
   assert.match(loadingSummary, /e\.sensor_event_id = l\.sensor_event_id/);
   assert.match(loadingSummary, /e\.reason = 'SEM_LEITURA' AND e\.status = 'CAPTURADA'/);
   assert.match(loadingRules, /Aguarde a foto Keyence de cada saca sem leitura/);
   assert.match(loadingRules, /Number\(summary\.sem_leitura_com_foto\) >= noRead/);
-  assert.match(manifestEndpoint, /\$uncoveredNoReads = \$pdo->prepare/);
-  assert.match(manifestEndpoint, /i\.reason = 'SEM_LEITURA' AND i\.status = 'CAPTURADA'/);
-  assert.match(finishEndpoint, /\$uncoveredWrongProductStatement = \$pdo->prepare/);
-  assert.match(finishEndpoint, /e\.reason = 'PRODUTO_INCORRETO' AND e\.status = 'CAPTURADA'/);
-  assert.match(finishEndpoint, /\$uncoveredWrongProductForLoading = \$pdo->prepare/);
-  assert.match(manifestEndpoint, /\$uncoveredWrongProducts = \$pdo->prepare/);
-  assert.match(loadingSummary, /\$data\["produtos_incorretos_com_foto"\] = \$count/);
+  assert.match(manifestEndpoint, /contarLeiturasSemImagemValidaNoRomaneio/);
+  assert.match(finishEndpoint, /contarLeiturasSemImagemValida\([\s\S]*?"SEM_LEITURA"/);
+  assert.match(finishEndpoint, /contarLeiturasSemImagemValida\([\s\S]*?"PRODUTO_INCORRETO"/);
+  assert.match(manifestEndpoint, /contarLeiturasSemImagemValidaNoRomaneio\([\s\S]*?"PRODUTO_INCORRETO"/);
+  assert.match(loadingSummary, /\$data\["produtos_incorretos_com_foto"\] = max\([\s\S]*?contarLeiturasSemImagemValida/);
   assert.match(loadingRules, /produtos_incorretos_com_foto/);
   assert.match(loadingRules, /Aguarde a foto Keyence de cada produto fora do romaneio/);
   assert.match(manifestEndpoint, /\$failedEvidence = \$pdo->prepare/);

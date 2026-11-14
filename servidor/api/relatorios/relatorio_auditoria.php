@@ -148,6 +148,21 @@ $loads = $pdo->prepare('SELECT c.id, c.state, c.started_at, c.finished_at, e.nam
 $loads->execute(["id" => $romaneioId]);
 $loadRows = $loads->fetchAll();
 $loadIds = array_map(static fn(array $row): int => (int) $row["id"], $loadRows);
+if ($loadIds !== []) {
+    $unresolvedPassages = $pdo->prepare(
+        "SELECT COUNT(*) FROM eventos_sensor s
+         WHERE s.carregamento_id IN (" . implode(",", array_fill(0, count($loadIds), "?")) . ")
+           AND NOT EXISTS (SELECT 1 FROM leituras l WHERE l.sensor_event_id = s.id)",
+    );
+    $unresolvedPassages->execute($loadIds);
+    $unresolvedPassageCount = (int) $unresolvedPassages->fetchColumn();
+    if ($unresolvedPassageCount > 0) {
+        $respondJson([
+            "error" => "O relatório aguarda a conclusão da leitura e da foto de todas as passagens detectadas.",
+            "pending_passage_count" => $unresolvedPassageCount,
+        ], 409);
+    }
+}
 // Um PDF publicado pelo PC já contém as fotos Keyence originais. O Central não
 // recebe os arquivos de imagem separadamente, então precisa servir esse PDF
 // validado antes de exigir evidências locais que só existem no PC industrial.
@@ -238,7 +253,7 @@ if ($loadIds !== []) {
            ON r.sensor_event_id = l.sensor_event_id
           AND r.carregamento_id = l.carregamento_id AND r.reason = 'SEM_LEITURA'
          WHERE l.carregamento_id IN (" . implode(",", array_fill(0, count($loadIds), "?")) . ")
-           AND l.result = 'SEM_LEITURA' AND l.conta_na_meta = 1
+           AND l.result = 'SEM_LEITURA'
            AND (r.id IS NULL OR r.status <> 'CAPTURADA')",
     );
     $missingRequests->execute($loadIds);
@@ -304,7 +319,7 @@ $wrongProductCount = 0;
 $wrongProductImagesCount = 0;
 if ($loadIds !== []) {
     $noReadCountQuery = $pdo->prepare(
-        "SELECT COUNT(*) FROM leituras WHERE carregamento_id IN (" . implode(",", array_fill(0, count($loadIds), "?")) . ") AND result = 'SEM_LEITURA' AND conta_na_meta = 1",
+        "SELECT COUNT(*) FROM leituras WHERE carregamento_id IN (" . implode(",", array_fill(0, count($loadIds), "?")) . ") AND result = 'SEM_LEITURA'",
     );
     $noReadCountQuery->execute($loadIds);
     $noReadCount = (int) $noReadCountQuery->fetchColumn();
@@ -560,7 +575,7 @@ if ($loadIds !== []) {
 
     $noReadQuery = $pdo->prepare(
         "SELECT l.id, l.sensor_event_id, l.carregamento_id, l.read_at,
-                l.product_id,
+                l.product_id, l.conta_na_meta,
                 p.name AS product_name,
                 r.status AS evidence_status,
                 rt.reason AS return_reason,
@@ -579,7 +594,7 @@ if ($loadIds !== []) {
          LEFT JOIN solicitacoes_imagens_evidencia r
            ON r.sensor_event_id = l.sensor_event_id
           AND r.carregamento_id = l.carregamento_id AND r.reason = 'SEM_LEITURA'
-         WHERE l.carregamento_id IN ({$placeholders}) AND l.result = 'SEM_LEITURA' AND l.conta_na_meta = 1
+         WHERE l.carregamento_id IN ({$placeholders}) AND l.result = 'SEM_LEITURA'
          ORDER BY l.read_at, l.id",
     );
     $noReadQuery->execute($loadIds);
@@ -775,7 +790,7 @@ $report->escreverTitulo("Falhas de leitura do código de barras");
 if ($noReadRows === []) {
     $report->escreverParagrafo("Nenhuma falha sem leitura foi registrada nesta operação.");
 } else {
-    $report->escreverParagrafo("Cada falha corresponde a uma passagem de saco registrada pelo sensor. A foto é anexada quando recebida do Keyence. Quando o romaneio contém múltiplos produtos e o código de barras não foi lido, a identidade do produto é registrada como \"Não identificado\" — a passagem está contabilizada no total do sensor mas não em nenhum item específico.");
+    $report->escreverParagrafo("Cada falha corresponde a uma passagem de saco registrada pelo sensor e exige foto de evidência. O relatório só é liberado quando todas as fotos foram recebidas e validadas. Passagens ocorridas durante a pausa aparecem como não contabilizadas. Em romaneios com vários produtos, a identidade de uma saca sem código é registrada como \"Não identificado\".");
     $report->escreverTabela(
         ["Data/hora", "Produto", "Passagem", "Evidência da imagem"],
         array_map(
