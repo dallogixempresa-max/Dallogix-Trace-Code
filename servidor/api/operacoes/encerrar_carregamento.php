@@ -276,6 +276,13 @@ if ($hasExcess) {
         409,
     );
 }
+if ($loadingPlannedQuantity < 1 || $loadingDetectedQuantity !== $loadingPlannedQuantity) {
+    $pdo->rollBack();
+    json_response(
+        ["error" => "O carregamento só pode ser finalizado quando a quantidade prevista de sacas válidas ou sem leitura for atingida."],
+        409,
+    );
+}
 $noReadCountStatement = $pdo->prepare(
     "SELECT COUNT(*) FROM leituras WHERE carregamento_id = :loading_id AND result = 'SEM_LEITURA' AND conta_na_meta = 1",
 );
