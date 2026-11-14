@@ -56,6 +56,13 @@ try {
     );
     $stuckCommandsStatement->execute($companyParams);
     $stuckCommands = (int) $stuckCommandsStatement->fetchColumn();
+    $deadLetterStatement = $pdo->prepare(
+        "SELECT COUNT(*) FROM sync_dead_letter_queue
+         WHERE resolved_at IS NULL"
+            . ($installationCompanyId === null ? "" : " AND company_id = :company_id"),
+    );
+    $deadLetterStatement->execute($companyParams);
+    $deadLetterPending = (int) $deadLetterStatement->fetchColumn();
     $storagePath = dirname(__DIR__, 3) . "/armazenamento";
     $diskFree = is_dir($storagePath) ? disk_free_space($storagePath) : false;
     $diskTotal = is_dir($storagePath) ? disk_total_space($storagePath) : false;
@@ -84,6 +91,7 @@ try {
             "stale_after_seconds" => $staleSeconds,
         ],
         "commands" => ["stuck_processing" => $stuckCommands],
+        "dead_letter" => ["pending" => $deadLetterPending],
         "disk" => [
             "free_bytes" => is_numeric($diskFree) ? (int) $diskFree : null,
             "free_percent" => $diskFreePercent,
