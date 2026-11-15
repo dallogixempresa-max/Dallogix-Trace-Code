@@ -5,6 +5,7 @@ import test from "node:test";
 const screensRoot = new URL("../interface/telas/", import.meta.url);
 const serviceWorker = await readFile(new URL("../interface/service-worker.js", import.meta.url), "utf8");
 const application = await readFile(new URL("../interface/js/aplicacao.js", import.meta.url), "utf8");
+const storage = await readFile(new URL("../interface/js/classes/ArmazenamentoTrace.js", import.meta.url), "utf8");
 const assetVersion = serviceWorker.match(/const APPLICATION_ASSET_VERSION = "([0-9]+)";/)?.[1];
 const cacheName = serviceWorker.match(/const CACHE_NAME = "([^"]+)";/)?.[1];
 
@@ -23,6 +24,11 @@ test("service worker e páginas usam a mesma versão do aplicativo", async () =>
   assert.ok(cacheName?.includes(assetVersion.slice(0, 8)), "nome do cache deve acompanhar a versão dos recursos");
   assert.match(application, new RegExp(`serviceWorkerUrl: "/service-worker\\.js\\?v=${assetVersion}"`));
   assert.match(application, new RegExp(`captura-leitor-hid\\.js\\?v=${assetVersion}`));
+  assert.match(application, new RegExp(`ArmazenamentoTrace\\.js\\?v=${assetVersion}`));
+  assert.match(application, new RegExp(`telas/operacao/operacao\\.js\\?v=${assetVersion}`));
+  for (const service of ["ServicoDalas", "ServicoRomaneios", "ServicoCatalogoProdutos"]) {
+    assert.match(storage, new RegExp(`${service}\\.js\\?v=${assetVersion}`));
+  }
 
   const pages = await htmlFiles(screensRoot);
   const applicationPages = [];
