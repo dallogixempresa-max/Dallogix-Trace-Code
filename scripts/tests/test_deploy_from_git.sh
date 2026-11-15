@@ -32,6 +32,9 @@ set -euo pipefail
 [[ "${2:-}" == up ]]
 [[ "${TRACE_DEPLOY_COMMIT:-}" == "$TRACE_EXPECTED_COMMIT" ]]
 [[ "${TRACE_DEPLOY_VERSION:-}" == "$TRACE_TEST_VERSION" ]]
+if [[ "${TRACE_TEST_FAIL_COMPOSE:-0}" == "1" ]]; then
+  exit 41
+fi
 touch "$TRACE_GIT_DEPLOY_ROOT/compose.called"
 EOF
 
@@ -160,4 +163,20 @@ expect_deferred_deploy "há carregamento ativo ou em estado de intervenção" TR
 [[ ! -e "$app_root/armazenamento/.maintenance" ]]
 [[ ! -e "$app_root/backup.called" && ! -e "$app_root/compose.called" && ! -e "$app_root/nginx-restarted.called" && ! -e "$app_root/migrate.called" ]]
 [[ "$(cat "$test_root/head")" == "$current_commit" ]]
+
+rm -f "$app_root/armazenamento/.maintenance" "$app_root/armazenamento/.git-deploy-failed"
+if TRACE_TEST_FAIL_COMPOSE=1 bash "$app_root/scripts/deploy_from_git.sh" > "$test_root/compose-failure.log" 2>&1; then
+  echo "Expected a failed compose deployment." >&2
+  exit 1
+else
+  status="$?"
+fi
+[[ "$status" == "10" ]] || {
+  cat "$test_root/compose-failure.log" >&2
+  echo "Expected exit 10 after compose failure; got $status." >&2
+  exit 1
+}
+[[ -e "$app_root/armazenamento/.maintenance" ]]
+grep -Fq "phase=compose" "$app_root/armazenamento/.git-deploy-failed"
+grep -Fq "manutenção permanece ativa" "$test_root/compose-failure.log"
 printf 'PASS: guarded deploy validates releases and fails clearly without changing state when deferred.\n'
