@@ -86,7 +86,7 @@ export class ServicoCatalogoProdutos {
   }
 
   delete(id) {
-    return this.mutate(`/api/produtos.php?id=${id}`, "DELETE", {});
+    return this.mutate(`/api/produtos.php?id=${encodeURIComponent(String(id))}`, "DELETE", {});
   }
 
   async mutate(url, method, body) {

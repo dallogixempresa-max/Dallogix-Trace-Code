@@ -112,6 +112,7 @@ if ($sentDays > 0) {
         $statement = $pdo->prepare(
             "DELETE FROM fila_sincronizacao
              WHERE status = 'ENVIADO' AND updated_at IS NOT NULL AND updated_at < :cutoff
+               AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(payload, '$.action')), '') <> 'RELATORIO_AUDITORIA_PUBLICADO'
              LIMIT {$batch}",
         );
         $statement->execute(["cutoff" => $cutoff]);

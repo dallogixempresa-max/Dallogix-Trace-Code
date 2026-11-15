@@ -9,13 +9,13 @@ export class ServicoDalas {
   }
 
   async loadOne(id) {
-    const response = await this.api.fetch(`/api/equipamentos.php?id=${id}`);
+    const response = await this.api.fetch(`/api/equipamentos.php?id=${encodeURIComponent(String(id))}`);
     const result = await this.jsonResponse(response, "Dala não encontrada.");
     this.state.equipmentDetail = result.data;
   }
 
   async checkStatus(id) {
-    const response = await this.api.fetch(`/api/equipamentos.php?id=${id}&check=status`);
+    const response = await this.api.fetch(`/api/equipamentos.php?id=${encodeURIComponent(String(id))}&check=status`);
     if (!response.ok) {
       return {
         status: "DESCONHECIDO",
@@ -88,7 +88,7 @@ export class ServicoDalas {
   }
 
   async delete(id) {
-    const response = await this.api.fetch(`/api/equipamentos.php?id=${id}`, {
+    const response = await this.api.fetch(`/api/equipamentos.php?id=${encodeURIComponent(String(id))}`, {
       method: "DELETE",
       headers: this.jsonHeaders(),
     });

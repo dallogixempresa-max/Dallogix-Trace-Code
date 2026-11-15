@@ -47,7 +47,7 @@ test("visor chama o dispositivo de leitor e início não exige comando de deslig
   assert.match(operation, /Aguardando leitura…/);
   assert.match(operation, /recebido automaticamente do leitor/);
   assert.doesNotMatch(operation, /Keyence/i);
-  assert.match(operation, /state\.reversalCommand === "REVERSAO_ATIVAR"/);
+  assert.match(operation, /reversalCommand === "REVERSAO_ATIVAR"/);
   assert.match(machineCommandService, /if \(\$reversalCommand === "REVERSAO_ATIVAR"\)/);
   assert.doesNotMatch(machineCommandService, /\$reversalCommand !== "REVERSAO_DESATIVAR"/);
   const commandGate = clpFlow.find((node) => node.id === "command-safe-gate")?.func || "";

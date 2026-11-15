@@ -178,6 +178,20 @@ final class RepositorioDalasEventos
      */
     public function excluirDalaVinculada(int $companyId, int $installationId, int $equipmentId): void
     {
+        $activeLoading = $this->connection->prepare(
+            "SELECT id FROM carregamentos
+             WHERE company_id = :company_id AND equipment_id = :equipment_id
+               AND state IN ('PREPARANDO', 'CARREGANDO', 'PAUSADO', 'FINALIZANDO', 'EMERGENCIA')
+             LIMIT 1",
+        );
+        $activeLoading->execute([
+            "company_id" => $companyId,
+            "equipment_id" => $equipmentId,
+        ]);
+        if ($activeLoading->fetchColumn() !== false) {
+            throw new RuntimeException("Não é possível excluir a Dala enquanto houver carregamento ativo.");
+        }
+
         $activeLoadings = $this->connection->prepare(
             "UPDATE carregamentos
              SET equipment_id = NULL, state = 'AGUARDANDO', started_at = NULL

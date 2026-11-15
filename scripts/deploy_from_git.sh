@@ -68,11 +68,16 @@ if [[ -e "$maintenance_file" ]] || ! (set -o noclobber; : > "$maintenance_file")
   exit 75
 fi
 maintenance_owned=1
+deployment_started=0
 cleanup() {
   local result="$?"
   trap - EXIT
   if [[ "${maintenance_owned:-0}" == "1" ]]; then
-    rm -f -- "$maintenance_file"
+    if [[ "$result" == "0" || "${deployment_started:-0}" != "1" ]]; then
+      rm -f -- "$maintenance_file"
+    else
+      echo "Deploy falhou após iniciar a troca de versão; manutenção permanece ativa para revisão manual." >&2
+    fi
   fi
   exit "$result"
 }
@@ -105,6 +110,7 @@ fi
 TRACE_COMPOSE_ENV_FILE="$root_dir/.env" TRACE_COMPOSE_PRODUCTION=1 \
   bash "$root_dir/scripts/backup_db.sh" "$root_dir/armazenamento/backups/git-deploy"
 
+deployment_started=1
 git checkout --detach "$target_commit"
 release_version="${release_version:-$(git describe --tags --exact-match HEAD 2>/dev/null || true)}"
 if [[ ! "$release_version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
