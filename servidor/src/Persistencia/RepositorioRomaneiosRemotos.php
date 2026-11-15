@@ -101,7 +101,8 @@ final class RepositorioRomaneiosRemotos
                AND remote_romaneio_id IS NULL ORDER BY id LIMIT 2",
         );
         $cancel = $this->connection->prepare(
-            "UPDATE romaneios SET remote_romaneio_id = :remote_id, status = 'CANCELADO'
+            "UPDATE romaneios SET remote_romaneio_id = :remote_id,
+                 status = CASE WHEN status = 'FINALIZADO' THEN status ELSE 'CANCELADO' END
              WHERE id = :id AND company_id = :company_id",
         );
 
@@ -126,8 +127,8 @@ final class RepositorioRomaneiosRemotos
                 continue;
             }
 
-            // O cancelamento remoto é terminal e deve prevalecer sobre uma
-            // atualização local antiga ainda pendente na fila de sincronização.
+            // Mantenha o vínculo remoto, mas nunca rebaixe um romaneio
+            // finalizado localmente para CANCELADO.
             $cancel->execute([
                 "remote_id" => $remoteId,
                 "id" => $localId,

@@ -72,7 +72,7 @@ export class ServicoRomaneios {
   }
 
   async loadManifest(id) {
-    const response = await this.api.fetch(`/api/romaneios.php?id=${id}`);
+    const response = await this.api.fetch(`/api/romaneios.php?id=${encodeURIComponent(String(id))}`);
     const respostaRomaneio = await this.jsonResponse(response, "Romaneio não encontrado.");
     this.state.manifestDetail = respostaRomaneio.data;
   }

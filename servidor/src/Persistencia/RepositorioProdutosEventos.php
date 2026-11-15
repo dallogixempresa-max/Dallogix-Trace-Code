@@ -282,6 +282,24 @@ final class RepositorioProdutosEventos
             return $remoteId;
         }
 
+        $activeManifest = $this->connection->prepare(
+            "SELECT 1
+             FROM romaneio_itens ri
+             JOIN romaneios r ON r.id = ri.romaneio_id AND r.company_id = :company_id
+             WHERE ri.product_id = :product_id
+               AND (r.status NOT IN ('FINALIZADO', 'CANCELADO')
+                    OR EXISTS (
+                        SELECT 1 FROM carregamentos c
+                        WHERE c.company_id = r.company_id AND c.romaneio_id = r.id
+                          AND c.state IN ('PREPARANDO', 'CARREGANDO', 'PAUSADO', 'FINALIZANDO', 'EMERGENCIA')
+                    ))
+             LIMIT 1",
+        );
+        $activeManifest->execute(["company_id" => $companyId, "product_id" => $productId]);
+        if ($activeManifest->fetchColumn() !== false) {
+            throw new RuntimeException("Não é possível excluir o produto enquanto ele estiver vinculado a um romaneio ativo.");
+        }
+
         $this->connection->prepare(
             "DELETE FROM codigos_produtos WHERE company_id = :company_id AND product_id = :id",
         )->execute(["company_id" => $companyId, "id" => $productId]);
