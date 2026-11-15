@@ -208,7 +208,7 @@ test("servidor FTP aceita JPEG somente após autenticação e grava em inbox loc
   }
 });
 
-test("integra SCANNER, fila SEM_LEITURA, imagem do Keyence e limpeza depois do PDF final", () => {
+test("integra SCANNER, fila SEM_LEITURA e preserva a origem para regenerar o PDF", () => {
   assert.match(worker, /\/api\/keyence_worker\.php/);
   assert.match(worker, /\/api\/leituras\.php/);
   assert.match(worker, /X-Trace-Offline-Id/);
@@ -257,9 +257,9 @@ test("integra SCANNER, fila SEM_LEITURA, imagem do Keyence e limpeza depois do P
   assert.match(pdfGenerator, /\$maxWidth = 360\.0/);
   assert.match(pdfGenerator, /\$maxHeight = 270\.0/);
   assert.match(reportEndpoint, /inserirDadosDaImagemDaOcorrencia/);
-  assert.match(reportEndpoint, /trace_cleanup_report_evidence/);
+  assert.doesNotMatch(reportEndpoint, /trace_cleanup_report_evidence/);
   assert.match(reportEndpoint, /solicitacoes_imagens_evidencia/);
-  assert.match(reportEndpoint, /\(\?:capture\|keyence\)-\[0-9\]/);
+  assert.match(reportEndpoint, /\"source_images\" => array_map/);
   assert.doesNotMatch(reportEndpoint, /camera-pc\/request-/);
   assert.doesNotMatch(worker, /câmera Trace|contingência RTSP/i);
   assert.match(compose, /keyence-worker:[\s\S]*?profiles: \["industrial"\]/);
