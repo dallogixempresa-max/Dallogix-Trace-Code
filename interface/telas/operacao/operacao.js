@@ -75,68 +75,108 @@ export function podeLiberarEmergencia({ role, loadingId }) {
   );
 }
 
-export function workControlLocks(state, {
+function estadoControles(state) {
+  const operationalState = String(state.operationalState || "").toUpperCase();
+  const reversalCommand = String(state.reversalCommand || "").toUpperCase();
+  const currentCommand = resolverComandoAtual(state.plcCommand, state.commandIntent);
+  const commandStatus = String(currentCommand?.status || "").toUpperCase();
+  const pendingCommand = String(currentCommand?.command || "").toUpperCase();
+  const currentCommandPending = ["PENDENTE", "PROCESSANDO"].includes(commandStatus);
+  const commandPending = state.commandInFlight === true || currentCommandPending;
+  const startPending = currentCommandPending && pendingCommand === "INICIAR_CARREGAMENTO";
+  const stopped = ["PREPARANDO", "PAUSADO"].includes(operationalState) && state.running !== true;
+  const operationRunning = (commandPending && pendingCommand === "INICIAR_CARREGAMENTO") ||
+    operationalState === "CARREGANDO" ||
+    (state.running === true && !["PREPARANDO", "PAUSADO", "FINALIZANDO", "FINALIZADO", "EMERGENCIA"].includes(operationalState));
+  const emergency = operationalState === "EMERGENCIA";
+  const planned = Number(state.planned) || 0;
+  const detected = Number(state.detectedBags) || 0;
+  const reversalConfirmedOn = reversalCommand === "REVERSAO_ATIVAR" &&
+    !(currentCommandPending && pendingCommand === "REVERSAO_ATIVAR");
+
+  return {
+    state,
+    operationalState,
+    reversalCommand,
+    currentCommand,
+    commandStatus,
+    pendingCommand,
+    currentCommandPending,
+    commandPending,
+    startPending,
+    stopped,
+    operationRunning,
+    emergency,
+    hasLoading: Boolean(state.loadingId),
+    manifestTargetReached: planned > 0 && detected >= planned,
+    canOperate: ["ADMIN_EMPRESA", "SUPERVISOR", "USUARIO"].includes(String(state.userRole || "").toUpperCase()),
+    reversalKnown: ["REVERSAO_ATIVAR", "REVERSAO_DESATIVAR"].includes(reversalCommand),
+    reversalOn: reversalCommand === "REVERSAO_ATIVAR" ||
+      (commandPending && pendingCommand === "REVERSAO_ATIVAR"),
+    reversalConfirmedOn,
+    reversalOffPermitted: reversalConfirmedOn ||
+      (currentCommandPending && pendingCommand === "REVERSAO_ATIVAR" && commandStatus === "PENDENTE"),
+    stopAvailable: (operationalState === "CARREGANDO" && state.running === true) ||
+      operationalState === "FINALIZANDO" ||
+      startPending,
+    preparedAndStopped: ["PREPARANDO", "PAUSADO"].includes(operationalState) && state.running !== true,
+    runClickableInCurrentState: ["AGUARDANDO", "EMERGENCIA"].includes(operationalState),
+  };
+}
+
+function motivosControles(context, {
   clpAvailable = true,
   clpUnavailableMessage = "Comunicação com o CLP indisponível. Novos comandos estão bloqueados.",
   machineCommandsAvailable = true,
   machineCommandsUnavailableMessage = "O gateway não confirmou a liberação dos comandos da máquina.",
 } = {}) {
-  const operationalState = String(state.operationalState || "").toUpperCase();
-  const currentCommand = resolverComandoAtual(state.plcCommand, state.commandIntent);
-  const commandStatus = String(currentCommand?.status || "").toUpperCase();
-  const pendingCommand = String(currentCommand?.command || "").toUpperCase();
-  const commandPending = state.commandInFlight === true ||
-    ["PENDENTE", "PROCESSANDO"].includes(commandStatus);
-  const stopped = ["PREPARANDO", "PAUSADO"].includes(operationalState) && state.running !== true;
-  const running = (commandPending && pendingCommand === "INICIAR_CARREGAMENTO") ||
-    operationalState === "CARREGANDO" ||
-    (state.running === true && !["PREPARANDO", "PAUSADO", "FINALIZANDO", "FINALIZADO", "EMERGENCIA"].includes(operationalState));
-  const reversalOn = state.reversalCommand === "REVERSAO_ATIVAR" ||
-    (commandPending && pendingCommand === "REVERSAO_ATIVAR");
-  const emergency = operationalState === "EMERGENCIA";
-  const hasLoading = Boolean(state.loadingId);
-  const planned = Number(state.planned) || 0;
-  const detected = Number(state.detectedBags) || 0;
-  const manifestTargetReached = planned > 0 && detected >= planned;
-  const canOperate = ["ADMIN_EMPRESA", "SUPERVISOR", "USUARIO"].includes(String(state.userRole || "").toUpperCase());
+  const {
+    state,
+    operationalState,
+    reversalCommand,
+    commandStatus,
+    pendingCommand,
+    commandPending,
+    stopped,
+    operationRunning,
+    emergency,
+    hasLoading,
+    manifestTargetReached,
+    canOperate,
+    reversalOn,
+  } = context;
   const canReverse = canOperate;
-  const locks = { run: "", stop: "", "reverse-on": "", "reverse-off": "" };
+  const motivos = { run: "", stop: "", "reverse-on": "", "reverse-off": "" };
 
   if (!hasLoading) {
-    for (const action of Object.keys(locks)) locks[action] = "Nenhum carregamento selecionado.";
-    return locks;
+    for (const action of Object.keys(motivos)) motivos[action] = "Nenhum carregamento selecionado.";
+    return motivos;
   }
 
   if (!clpAvailable) {
-    for (const action of Object.keys(locks)) locks[action] = clpUnavailableMessage;
-    return locks;
+    for (const action of Object.keys(motivos)) motivos[action] = clpUnavailableMessage;
+    return motivos;
   }
 
   if (!machineCommandsAvailable) {
-    for (const action of Object.keys(locks)) locks[action] = machineCommandsUnavailableMessage;
-    return locks;
+    for (const action of Object.keys(motivos)) motivos[action] = machineCommandsUnavailableMessage;
+    return motivos;
   }
 
   if (!canOperate) {
-    for (const action of Object.keys(locks)) locks[action] = "Seu perfil não pode enviar comandos para a máquina.";
-    return locks;
+    for (const action of Object.keys(motivos)) motivos[action] = "Seu perfil não pode enviar comandos para a máquina.";
+    return motivos;
   }
 
   if (commandPending) {
     const waiting = commandStatus === "PROCESSANDO"
       ? "Aguarde o gateway confirmar o comando."
       : "Aguarde o envio do comando atual.";
-    for (const action of Object.keys(locks)) locks[action] = waiting;
+    for (const action of Object.keys(motivos)) motivos[action] = waiting;
     if (pendingCommand === "INICIAR_CARREGAMENTO") {
-      locks.stop = "";
-    } else if (pendingCommand === "REVERSAO_ATIVAR" && commandStatus === "PENDENTE") {
-      locks["reverse-off"] = "";
+      motivos.stop = "";
     }
-    if (!canReverse) {
-      locks["reverse-on"] = "Seu perfil não pode alterar a reversão.";
-      locks["reverse-off"] = "Seu perfil não pode alterar a reversão.";
-    }
-    return locks;
+    return motivos;
   }
 
   const stateLock = (action) => {
@@ -148,7 +188,7 @@ export function workControlLocks(state, {
     if (!stopped) return `O estado ${rotuloEstado(operationalState)} não permite ${action}.`;
     return "";
   };
-  locks.run = emergency
+  motivos.run = emergency
     ? "A emergência precisa ser liberada antes de iniciar."
     : state.stopReason
       ? state.stopReason === "COTA_ROMANEIO_ATINGIDA"
@@ -160,17 +200,17 @@ export function workControlLocks(state, {
       ? "A quantidade prevista do romaneio foi atingida. Abra a conferência final para encerrar."
     : !stopped
       ? stateLock("iniciar a esteira")
-    : state.reversalCommand !== "REVERSAO_DESATIVAR"
+    : reversalCommand !== "REVERSAO_DESATIVAR"
       ? "Confirme a reversão desligada antes de ligar a esteira para frente."
       : "";
-  locks.stop = emergency
+  motivos.stop = emergency
     ? "A emergência já mantém a operação parada."
-    : running || operationalState === "FINALIZANDO"
+    : operationRunning || operationalState === "FINALIZANDO"
       ? ""
       : !stopped
         ? stateLock("parar a esteira")
         : "A esteira já está parada.";
-  locks["reverse-on"] = !canReverse
+  motivos["reverse-on"] = !canReverse
     ? "Seu perfil não pode alterar a reversão."
     : emergency
       ? "A emergência precisa ser liberada antes de alterar a direção."
@@ -179,16 +219,20 @@ export function workControlLocks(state, {
         : reversalOn
           ? "A reversão já está ligada."
           : "";
-  locks["reverse-off"] = !canReverse
+  motivos["reverse-off"] = !canReverse
     ? "Seu perfil não pode alterar a reversão."
     : emergency
       ? "A emergência precisa ser liberada antes de alterar a direção."
       : !stopped
         ? stateLock("alterar a direção")
-        : state.reversalCommand === "REVERSAO_DESATIVAR"
+        : reversalCommand === "REVERSAO_DESATIVAR"
         ? "A reversão já está desligada."
         : "";
-  return locks;
+  return motivos;
+}
+
+export function workControlLocks(state, options = {}) {
+  return motivosControles(estadoControles(state), options);
 }
 
 function workControls(store) {
@@ -214,73 +258,73 @@ function workControls(store) {
   const machineCommandsUnavailableMessage = typeof store.mensagemComandosMaquinaIndisponiveis === "function"
     ? store.mensagemComandosMaquinaIndisponiveis()
     : "O gateway não confirmou a liberação dos comandos da máquina.";
-  const commandLocks = workControlLocks(store.state, {
+  const controlState = estadoControles(store.state);
+  const motivosAcao = motivosControles(controlState, {
     clpAvailable,
     clpUnavailableMessage,
     machineCommandsAvailable,
     machineCommandsUnavailableMessage,
   });
-  const currentCommand = resolverComandoAtual(store.state.plcCommand, store.state.commandIntent);
-  const pendingCommand = String(currentCommand?.command || "").toUpperCase();
-  const pendingStatus = String(currentCommand?.status || "").toUpperCase();
-  const currentCommandPending = ["PENDENTE", "PROCESSANDO"].includes(pendingStatus);
-  const comandoPendente = store.state.commandInFlight === true || currentCommandPending;
-  const perfilPodeOperar = ["ADMIN_EMPRESA", "SUPERVISOR", "USUARIO"].includes(
-    String(store.state.userRole || "").toUpperCase(),
-  );
-  const comandosDisponiveis = Boolean(store.state.loadingId) && clpAvailable &&
-    machineCommandsAvailable && perfilPodeOperar;
-  const atributosComMotivo = (reason, disabled) => ({
-    disabled: Boolean(disabled),
-    "aria-disabled": String(Boolean(disabled)),
-    ...(reason ? { title: reason, "data-lock-reason": reason } : {}),
-  });
+  const currentCommand = controlState.currentCommand;
+  const pendingCommand = controlState.pendingCommand;
+  const pendingStatus = controlState.commandStatus;
+  const currentCommandPending = controlState.currentCommandPending;
+  const comandoPendente = controlState.commandPending;
+  const comandosDisponiveis = controlState.hasLoading && clpAvailable &&
+    machineCommandsAvailable && controlState.canOperate;
+  const atributosAcao = (reason, disabled) => {
+    const estaBloqueada = Boolean(disabled);
+    return {
+      disabled: estaBloqueada,
+      "aria-disabled": String(estaBloqueada),
+      ...(reason ? {
+        title: reason,
+        [estaBloqueada ? "data-block-reason" : "data-action-notice"]: reason,
+      } : {}),
+    };
+  };
   // A emergência continua disponível para registrar a intenção; o gateway
   // valida a comunicação e a autorização antes de qualquer escrita física.
-  const atributosEmergencia = atributosComMotivo(
+  const atributosEmergencia = atributosAcao(
     store.state.loadingId ? "" : "Nenhum carregamento selecionado",
     false,
   );
-  const estadoOperacional = String(store.state.operationalState || "").toUpperCase();
-  const inicioPendente = currentCommandPending && pendingCommand === "INICIAR_CARREGAMENTO";
-  const esteiraParadaPreparada = ["PREPARANDO", "PAUSADO"].includes(estadoOperacional) && store.state.running !== true;
-  const outroEstadoComPartidaClicavel = ["AGUARDANDO", "FINALIZADO", "EMERGENCIA"].includes(estadoOperacional);
-  const esteiraEmMovimentoOuIniciando = (estadoOperacional === "CARREGANDO" && store.state.running === true) ||
-    estadoOperacional === "FINALIZANDO" ||
-    inicioPendente;
-  const estadoReversaoConhecido = ["REVERSAO_ATIVAR", "REVERSAO_DESATIVAR"].includes(
-    store.state.reversalCommand,
-  );
-  const reversaoLigadaConfirmada = store.state.reversalCommand === "REVERSAO_ATIVAR" && !(
-    currentCommandPending && pendingCommand === "REVERSAO_ATIVAR"
-  );
-  const reversaoDesligarPermitida = reversaoLigadaConfirmada || (
-    currentCommandPending && pendingCommand === "REVERSAO_ATIVAR" && pendingStatus === "PENDENTE"
-  );
+  const estadoOperacional = controlState.operationalState;
+  const esteiraEmMovimentoOuIniciando = controlState.stopAvailable;
+  const estadoReversaoConhecido = controlState.reversalKnown;
+  const reversaoDesligarPermitida = controlState.reversalOffPermitted;
+  const metaOuParadaFisicaBloqueiaInicio = Boolean(store.state.stopReason) ||
+    controlState.manifestTargetReached;
   const motivoEstadoReversao = "Confirme o estado da reversão antes de alterar o sentido.";
-  const atributosLigarEsteira = atributosComMotivo(
-    commandLocks.run,
+  const atributosLigarEsteira = atributosAcao(
+    motivosAcao.run,
     !comandosDisponiveis || comandoPendente || esteiraEmMovimentoOuIniciando ||
-      (!esteiraParadaPreparada && !outroEstadoComPartidaClicavel),
+      (controlState.preparedAndStopped && metaOuParadaFisicaBloqueiaInicio) ||
+      (!controlState.preparedAndStopped && !controlState.runClickableInCurrentState),
   );
-  const atributosPararEsteira = atributosComMotivo(
-    commandLocks.stop || (esteiraEmMovimentoOuIniciando ? "" : "A esteira já está parada."),
-    !comandosDisponiveis || !esteiraEmMovimentoOuIniciando || Boolean(commandLocks.stop),
+  const motivoParadaIndisponivel = estadoOperacional === "CARREGANDO" && store.state.running !== true
+    ? "Aguardando confirmação de movimento para habilitar a parada."
+    : ["PREPARANDO", "PAUSADO"].includes(estadoOperacional) && store.state.running !== true
+      ? "A esteira já está parada."
+      : "Aguardando confirmação do estado da esteira para habilitar a parada.";
+  const atributosPararEsteira = atributosAcao(
+    motivosAcao.stop || (esteiraEmMovimentoOuIniciando ? "" : motivoParadaIndisponivel),
+    !comandosDisponiveis || !esteiraEmMovimentoOuIniciando || Boolean(motivosAcao.stop),
   );
   const atributosLigarReversao = esteiraEmMovimentoOuIniciando
-    ? atributosComMotivo(commandLocks["reverse-on"] || "A esteira precisa estar parada para alterar a reversão.", true)
-    : atributosComMotivo(
-      commandLocks["reverse-on"] || (!estadoReversaoConhecido ? motivoEstadoReversao : ""),
-      !comandosDisponiveis || comandoPendente || !estadoReversaoConhecido || Boolean(commandLocks["reverse-on"]),
+    ? atributosAcao(motivosAcao["reverse-on"] || "A esteira precisa estar parada para alterar a reversão.", true)
+    : atributosAcao(
+      motivosAcao["reverse-on"] || (!estadoReversaoConhecido ? motivoEstadoReversao : ""),
+      !comandosDisponiveis || comandoPendente || !estadoReversaoConhecido || Boolean(motivosAcao["reverse-on"]),
     );
   const atributosDesligarReversao = esteiraEmMovimentoOuIniciando
-    ? atributosComMotivo(commandLocks["reverse-off"] || "A esteira precisa estar parada para alterar a reversão.", true)
-    : atributosComMotivo(
-      commandLocks["reverse-off"] || (!reversaoDesligarPermitida ? motivoEstadoReversao : ""),
-      !comandosDisponiveis || comandoPendente || !reversaoDesligarPermitida || Boolean(commandLocks["reverse-off"]),
+    ? atributosAcao(motivosAcao["reverse-off"] || "A esteira precisa estar parada para alterar a reversão.", true)
+    : atributosAcao(
+      motivosAcao["reverse-off"] || (!reversaoDesligarPermitida ? motivoEstadoReversao : ""),
+      !comandosDisponiveis || comandoPendente || !reversaoDesligarPermitida || Boolean(motivosAcao["reverse-off"]),
     );
   const rotuloPararEsteira = esteiraEmMovimentoOuIniciando
-    ? store.state.reversalCommand === "REVERSAO_ATIVAR"
+    ? controlState.reversalCommand === "REVERSAO_ATIVAR"
       ? "Desligar esteira · sentido reversa"
       : "Desligar esteira · sentido normal"
     : "Desligar esteira";

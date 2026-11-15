@@ -15,6 +15,11 @@ function habilitadas(markup) {
     .map(({ action }) => action);
 }
 
+function botao(markup, action) {
+  const match = markup.match(new RegExp(`<button\\b(?=[^>]*data-action="${action}")[^>]*>`));
+  return match?.[0] || "";
+}
+
 function textoBotao(markup, action) {
   const match = markup.match(new RegExp(`<button\\b(?=[^>]*data-action="${action}")[^>]*>(.*?)<\\/button>`, "s"));
   return match?.[1] || "";
@@ -100,11 +105,22 @@ test("FINALIZANDO mantém somente a parada habilitada", () => {
   assert.deepEqual(habilitadas(markup), ["stop"]);
 });
 
-test("CARREGANDO sem confirmação de movimento não libera comandos normais", () => {
+test("CARREGANDO sem confirmação de movimento bloqueia a parada com motivo claro", () => {
   const markup = render({ operationalState: "CARREGANDO", running: false });
 
   assertTodosVisiveis(markup);
   assert.deepEqual(habilitadas(markup), []);
+  assert.match(botao(markup, "stop"), /title="Aguardando confirmação de movimento para habilitar a parada\./);
+  assert.match(botao(markup, "stop"), /data-block-reason=/);
+  assert.doesNotMatch(botao(markup, "stop"), /data-action-notice=/);
+});
+
+test("estado PREPARANDO com indicador de movimento não libera comandos normais", () => {
+  const markup = render({ operationalState: "PREPARANDO", running: true });
+
+  assertTodosVisiveis(markup);
+  assert.deepEqual(habilitadas(markup), []);
+  assert.match(botao(markup, "stop"), /data-block-reason=/);
 });
 
 test("esteira parada habilita partida e apenas a reversão aplicável", () => {
@@ -122,31 +138,97 @@ test("esteira parada habilita partida e apenas a reversão aplicável", () => {
     });
     assertTodosVisiveis(reversa);
     assert.deepEqual(habilitadas(reversa), ["run", "reverse-off"]);
-    const run = botoesDeEsteira(reversa).find(({ action }) => action === "run").html;
+    const run = botao(reversa, "run");
     assert.match(run, /title="Confirme a reversão desligada antes de ligar a esteira para frente\./);
-    assert.match(run, /data-lock-reason="Confirme a reversão desligada antes de ligar a esteira para frente\./);
+    assert.match(run, /data-action-notice="Confirme a reversão desligada antes de ligar a esteira para frente\./);
+    assert.doesNotMatch(run, /data-block-reason=/);
   }
 });
 
-test("AGUARDANDO e FINALIZADO preservam a partida clicável com o motivo do bloqueio", () => {
-  for (const operationalState of ["AGUARDANDO", "FINALIZADO"]) {
-    const markup = render({ operationalState });
+test("motivo de parada desabilita Ligar esteira sem ocultar o motivo", () => {
+  const markup = render({ operationalState: "PREPARANDO", stopReason: "COTA_ROMANEIO_ATINGIDA" });
+  const run = botao(markup, "run");
+
+  assertTodosVisiveis(markup);
+  assert.deepEqual(habilitadas(markup), ["reverse-on"]);
+  assert.match(run, /\sdisabled(?:\s|=|>)/);
+  assert.match(run, /data-block-reason="Confirme a parada física e finalize o romaneio/);
+});
+
+test("meta atingida bloqueia nova partida mesmo sem stopReason", () => {
+  const markup = render({ operationalState: "PAUSADO", planned: 1, detectedBags: 1 });
+  const run = botao(markup, "run");
+
+  assertTodosVisiveis(markup);
+  assert.deepEqual(habilitadas(markup), ["reverse-on"]);
+  assert.match(run, /\sdisabled(?:\s|=|>)/);
+  assert.match(run, /data-block-reason="A quantidade prevista do romaneio foi atingida/);
+});
+
+test("estado desconhecido da reversão impede trocar o sentido", () => {
+  const markup = render({ operationalState: "PAUSADO", reversalCommand: "DESCONHECIDO" });
+
+  assertTodosVisiveis(markup);
+  assert.deepEqual(habilitadas(markup), ["run"]);
+  assert.match(botao(markup, "reverse-on"), /data-block-reason="Confirme o estado da reversão/);
+  assert.match(botao(markup, "reverse-off"), /data-block-reason="Confirme o estado da reversão/);
+});
+
+test("reversão pendente bloqueia novos comandos e explica a espera", () => {
+  for (const status of ["PENDENTE", "PROCESSANDO"]) {
+    const markup = render({
+      operationalState: "PAUSADO",
+      plcCommand: { command: "REVERSAO_ATIVAR", status },
+      commandIntent: { command: "REVERSAO_ATIVAR", status },
+    });
 
     assertTodosVisiveis(markup);
-    assert.deepEqual(habilitadas(markup), ["run"]);
-    const run = botoesDeEsteira(markup).find(({ action }) => action === "run").html;
-    assert.match(run, /title=/);
-    assert.match(run, /data-lock-reason=/);
+    assert.deepEqual(habilitadas(markup), []);
+    assert.match(botao(markup, "reverse-off"), /data-block-reason=/);
+    assert.match(botao(markup, "reverse-off"), /title="Aguarde/);
   }
 });
 
-test("em emergência a partida mantém o motivo e o botão de emergência segue habilitado", () => {
+test("comando em voo sem estado detalhado bloqueia controles com motivo", () => {
+  const markup = render({ commandInFlight: true });
+
+  assertTodosVisiveis(markup);
+  assert.deepEqual(habilitadas(markup), []);
+  for (const action of ACOES_ESTEIRA) {
+    assert.match(botao(markup, action), /data-block-reason=/);
+  }
+});
+
+test("AGUARDANDO preserva a partida clicável com aviso", () => {
+  const markup = render({ operationalState: "AGUARDANDO" });
+
+  assertTodosVisiveis(markup);
+  assert.deepEqual(habilitadas(markup), ["run"]);
+  const run = botao(markup, "run");
+  assert.match(run, /title=/);
+  assert.match(run, /data-action-notice=/);
+  assert.doesNotMatch(run, /data-block-reason=/);
+});
+
+test("FINALIZADO bloqueia a partida e preserva o motivo", () => {
+  const markup = render({ operationalState: "FINALIZADO" });
+
+  assertTodosVisiveis(markup);
+  assert.deepEqual(habilitadas(markup), []);
+  const run = botao(markup, "run");
+  assert.match(run, /\sdisabled(?:\s|=|>)/);
+  assert.match(run, /title="Este carregamento já foi finalizado\./);
+  assert.match(run, /data-block-reason="Este carregamento já foi finalizado\./);
+});
+
+test("em emergência a partida mostra aviso e o botão de emergência segue habilitado", () => {
   const markup = render({ operationalState: "EMERGENCIA", emergency: true });
 
   assertTodosVisiveis(markup);
   assert.deepEqual(habilitadas(markup), ["run"]);
-  const run = botoesDeEsteira(markup).find(({ action }) => action === "run").html;
-  assert.match(run, /data-lock-reason=/);
+  const run = botao(markup, "run");
+  assert.match(run, /data-action-notice=/);
+  assert.doesNotMatch(run, /data-block-reason=/);
   assert.match(markup, /data-action="emergency"(?![^>]*\sdisabled)/);
 });
 
@@ -162,6 +244,8 @@ test("botão de emergência continua habilitado sem carregamento selecionado", (
   assert.deepEqual(habilitadas(markup), []);
   assert.match(markup, /data-action="emergency"(?![^>]*\sdisabled)/);
   assert.match(markup, /title="Nenhum carregamento selecionado"/);
+  assert.match(botao(markup, "emergency"), /data-action-notice="Nenhum carregamento selecionado"/);
+  assert.doesNotMatch(botao(markup, "emergency"), /data-block-reason=/);
 });
 
 test("CLP indisponível bloqueia comandos normais e mantém emergência habilitada", () => {
@@ -173,7 +257,9 @@ test("CLP indisponível bloqueia comandos normais e mantém emergência habilita
   assertTodosVisiveis(markup);
   assert.deepEqual(habilitadas(markup), []);
   assert.match(markup, /data-action="emergency"(?![^>]*\sdisabled)/);
-  assert.match(botoesDeEsteira(markup).find(({ action }) => action === "run").html, /CLP indisponível para novos comandos\./);
+  assert.match(botao(markup, "run"), /CLP indisponível para novos comandos\./);
+  assert.match(botao(markup, "run"), /data-block-reason=/);
+  assert.doesNotMatch(botao(markup, "run"), /data-action-notice=/);
 });
 
 test("gateway sem liberação bloqueia comandos normais e mantém emergência habilitada", () => {
@@ -186,5 +272,15 @@ test("gateway sem liberação bloqueia comandos normais e mantém emergência ha
   assertTodosVisiveis(markup);
   assert.deepEqual(habilitadas(markup), []);
   assert.match(markup, /data-action="emergency"(?![^>]*\sdisabled)/);
-  assert.match(botoesDeEsteira(markup).find(({ action }) => action === "run").html, /Gateway sem liberação dos comandos\./);
+  assert.match(botao(markup, "run"), /Gateway sem liberação dos comandos\./);
+  assert.match(botao(markup, "run"), /data-block-reason=/);
+  assert.doesNotMatch(botao(markup, "run"), /data-action-notice=/);
+});
+
+test("perfil sem permissão bloqueia os comandos operacionais com motivo claro", () => {
+  const markup = render({ userRole: "LEITURA" });
+
+  assertTodosVisiveis(markup);
+  assert.deepEqual(habilitadas(markup), []);
+  assert.match(botao(markup, "run"), /data-block-reason="Seu perfil não pode enviar comandos para a máquina\./);
 });
