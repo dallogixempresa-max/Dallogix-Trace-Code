@@ -1,12 +1,8 @@
-import { apresentacaoProgressoOperacao } from "../../js/funcoes/progresso-operacao.js?v=202611150003";
-import { estadoControles, motivosControles, podeLiberarEmergencia } from "../../js/funcoes/controles-operacao.js?v=202611150003";
-import { loadingSelection } from "./selecao-dala.js?v=202611150003";
-import { renderItensRomaneio } from "./itens-romaneio.js?v=202611150003";
-export { podeVincularDala, paradaPodeSubstituirInicio, paradaPodeSerEnfileiradaAposInicio, podeLiberarEmergencia, workControlLocks } from "../../js/funcoes/controles-operacao.js?v=202611150003";
 import { button, esc } from "../../js/funcoes/html.js";
 import { numero } from "../../js/funcoes/formato.js?v=202611120004";
 import { rotuloComando, rotuloEstado } from "../../js/funcoes/rotulos.js?v=202611120004";
-import { emergencyPanel } from "../../js/funcoes/view.js?v=202611120004";
+import { resolverComandoAtual } from "../../js/funcoes/estado-comando.js?v=202611120004";
+import { emergencyPanel, pageHeader } from "../../js/funcoes/view.js?v=202611120004";
 import { motivoBloqueioFinalizacao, podeFinalizarCarregamento } from "../../js/funcoes/regras-carregamento.js?v=202611120004";
 
 function equipmentLabel(store) {
@@ -19,6 +15,226 @@ function equipmentLabel(store) {
   return equipment?.equipment_code || "Esteira";
 }
 
+function loadingSelection(store) {
+  const activeLoadings = store.state.activeLoadings || [];
+  const canReassignLoading = podeVincularDala(store.state.userRole);
+  const occupiedEquipmentIds = new Set(
+    activeLoadings
+      .filter((loading) => loading.equipment_id)
+      .map((loading) => Number(loading.equipment_id)),
+  );
+  const availableEquipments = (store.state.equipments || []).filter(
+    (equipment) => !occupiedEquipmentIds.has(Number(equipment.id)),
+  );
+  const detached = activeLoadings
+    .filter((loading) => !loading.equipment_id)
+    .map((loading) => {
+      const options = availableEquipments
+        .map((equipment) => `<option value="${equipment.id}">${esc(equipment.name)} • ${esc(equipment.equipment_code)}</option>`)
+        .join("");
+      const reassignControl = canReassignLoading
+        ? `<form class="reassign-loading-form" data-loading-id="${loading.id}"><label>Selecionar nova Dala<select name="equipment_id" required ${options ? "" : "disabled"}>${options || "<option>Nenhuma Dala disponível</option>"}</select></label><button class="button primary" type="submit" ${options ? "" : 'disabled title="Nenhuma Dala disponível para vincular."'}>Vincular Dala</button><p class="form-feedback" data-form-feedback role="status" aria-live="polite" hidden></p></form>`
+        : '<p class="form-feedback" role="status">Solicite a um administrador da empresa ou supervisor para vincular uma nova Dala.</p>';
+      return `<article class="panel detached-loading-card"><span class="kicker">Dala removida</span><h3>${esc(loading.romaneio_number || "Sem romaneio")}</h3><p>Caminhão ${esc(loading.plate || "—")}. O carregamento foi interrompido e aguarda uma nova máquina.</p>${reassignControl}</article>`;
+    })
+    .join("");
+  const cards = activeLoadings
+    .filter((loading) => loading.equipment_id)
+    .map(
+      (loading) =>
+        `<button class="dala-selection-card" data-action="select-loading" data-id="${loading.id}" type="button"><span class="kicker">${esc(loading.equipment_code || "Dala")}</span><strong>${esc(loading.romaneio_number || "Sem romaneio")}</strong><span>Caminhão ${esc(loading.plate || "—")}</span><b>${esc(rotuloEstado(loading.state))}</b><span class="dala-selection-count">${numero(loading.detected_bags)} sacas detectadas</span><small>Selecionar esta Dala</small></button>`,
+    )
+    .join("");
+  const feedback = store.state.commandFeedback
+    ? `<p class="work-selection-error" role="alert">${esc(store.state.commandFeedback)}</p>`
+    : "";
+  return `${pageHeader("Operação", "Selecionar Dala", "Escolha a Dala que será acompanhada e controlada nesta tela.")}<section class="dala-selection-screen">${feedback}<div class="dala-selection-heading"><span class="kicker">Operações disponíveis</span><h3>Qual Dala você deseja operar?</h3><p>Cada seleção mantém contagem, comandos e emergência separados.</p></div>${detached ? `<div class="detached-loading-list">${detached}</div>` : ""}<div class="dala-selection-grid">${cards || (detached ? "" : '<p class="empty-cell">Nenhum carregamento disponível.</p>')}</div></section>`;
+}
+
+export function podeVincularDala(role) {
+  return ["ADMIN_EMPRESA", "SUPERVISOR"].includes(String(role || "").toUpperCase());
+}
+
+export function paradaPodeSubstituirInicio({ state, pendingStatus, pendingCommand }) {
+  return String(state || "").toUpperCase() === "PAUSADO" &&
+    String(pendingStatus || "").toUpperCase() === "PENDENTE" &&
+    String(pendingCommand || "").toUpperCase() === "INICIAR_CARREGAMENTO";
+}
+
+export function paradaPodeSerEnfileiradaAposInicio({ state, pendingStatus, pendingCommand }) {
+  return ["PREPARANDO", "CARREGANDO", "PAUSADO"].includes(
+    String(state || "").toUpperCase(),
+  ) && ["PENDENTE", "PROCESSANDO"].includes(
+    String(pendingStatus || "").toUpperCase(),
+  ) && String(pendingCommand || "").toUpperCase() === "INICIAR_CARREGAMENTO";
+}
+
+export function podeLiberarEmergencia({ role, loadingId }) {
+  return Boolean(loadingId) && ["ADMIN_EMPRESA", "SUPERVISOR"].includes(
+    String(role || "").toUpperCase(),
+  );
+}
+
+function estadoControles(state) {
+  const operationalState = String(state.operationalState || "").toUpperCase();
+  const reversalCommand = String(state.reversalCommand || "").toUpperCase();
+  const currentCommand = resolverComandoAtual(state.plcCommand, state.commandIntent);
+  const commandStatus = String(currentCommand?.status || "").toUpperCase();
+  const pendingCommand = String(currentCommand?.command || "").toUpperCase();
+  const currentCommandPending = ["PENDENTE", "PROCESSANDO"].includes(commandStatus);
+  const commandPending = state.commandInFlight === true || currentCommandPending;
+  const startPending = currentCommandPending && pendingCommand === "INICIAR_CARREGAMENTO";
+  const stopped = ["PREPARANDO", "PAUSADO"].includes(operationalState) && state.running !== true;
+  const operationRunning = (commandPending && pendingCommand === "INICIAR_CARREGAMENTO") ||
+    operationalState === "CARREGANDO" ||
+    (state.running === true && !["PREPARANDO", "PAUSADO", "FINALIZANDO", "FINALIZADO", "EMERGENCIA"].includes(operationalState));
+  const emergency = operationalState === "EMERGENCIA";
+  const planned = Number(state.planned) || 0;
+  const detected = Number(state.detectedBags) || 0;
+  const reversalConfirmedOn = reversalCommand === "REVERSAO_ATIVAR" &&
+    !(currentCommandPending && pendingCommand === "REVERSAO_ATIVAR");
+
+  return {
+    state,
+    operationalState,
+    reversalCommand,
+    currentCommand,
+    commandStatus,
+    pendingCommand,
+    currentCommandPending,
+    commandPending,
+    startPending,
+    stopped,
+    operationRunning,
+    emergency,
+    hasLoading: Boolean(state.loadingId),
+    manifestTargetReached: planned > 0 && detected >= planned,
+    canOperate: ["ADMIN_EMPRESA", "SUPERVISOR", "USUARIO"].includes(String(state.userRole || "").toUpperCase()),
+    reversalKnown: ["REVERSAO_ATIVAR", "REVERSAO_DESATIVAR"].includes(reversalCommand),
+    reversalOn: reversalCommand === "REVERSAO_ATIVAR" ||
+      (commandPending && pendingCommand === "REVERSAO_ATIVAR"),
+    reversalConfirmedOn,
+    reversalOffPermitted: reversalConfirmedOn ||
+      (currentCommandPending && pendingCommand === "REVERSAO_ATIVAR" && commandStatus === "PENDENTE"),
+    stopAvailable: (operationalState === "CARREGANDO" && state.running === true) ||
+      operationalState === "FINALIZANDO" ||
+      startPending,
+    preparedAndStopped: ["PREPARANDO", "PAUSADO"].includes(operationalState) && state.running !== true,
+    runClickableInCurrentState: ["AGUARDANDO", "EMERGENCIA"].includes(operationalState),
+  };
+}
+
+function motivosControles(context, {
+  clpAvailable = true,
+  clpUnavailableMessage = "Comunicação com o CLP indisponível. Novos comandos estão bloqueados.",
+  machineCommandsAvailable = true,
+  machineCommandsUnavailableMessage = "O gateway não confirmou a liberação dos comandos da máquina.",
+} = {}) {
+  const {
+    state,
+    operationalState,
+    reversalCommand,
+    commandStatus,
+    pendingCommand,
+    commandPending,
+    stopped,
+    operationRunning,
+    emergency,
+    hasLoading,
+    manifestTargetReached,
+    canOperate,
+    reversalOn,
+  } = context;
+  const canReverse = canOperate;
+  const motivos = { run: "", stop: "", "reverse-on": "", "reverse-off": "" };
+
+  if (!hasLoading) {
+    for (const action of Object.keys(motivos)) motivos[action] = "Nenhum carregamento selecionado.";
+    return motivos;
+  }
+
+  if (!clpAvailable) {
+    for (const action of Object.keys(motivos)) motivos[action] = clpUnavailableMessage;
+    return motivos;
+  }
+
+  if (!machineCommandsAvailable) {
+    for (const action of Object.keys(motivos)) motivos[action] = machineCommandsUnavailableMessage;
+    return motivos;
+  }
+
+  if (!canOperate) {
+    for (const action of Object.keys(motivos)) motivos[action] = "Seu perfil não pode enviar comandos para a máquina.";
+    return motivos;
+  }
+
+  if (commandPending) {
+    const waiting = commandStatus === "PROCESSANDO"
+      ? "Aguarde o gateway confirmar o comando."
+      : "Aguarde o envio do comando atual.";
+    for (const action of Object.keys(motivos)) motivos[action] = waiting;
+    if (pendingCommand === "INICIAR_CARREGAMENTO") {
+      motivos.stop = "";
+    }
+    return motivos;
+  }
+
+  const stateLock = (action) => {
+    if (emergency) return "A emergência precisa ser liberada antes de alterar a operação.";
+    if (operationalState === "CARREGANDO") return "Pare a esteira antes de alterar a direção ou iniciar novamente.";
+    if (operationalState === "FINALIZANDO") return "O carregamento está finalizando e não aceita novos comandos de operação.";
+    if (operationalState === "FINALIZADO") return "Este carregamento já foi finalizado.";
+    if (operationalState === "AGUARDANDO") return "O carregamento ainda não está preparado para receber comandos.";
+    if (!stopped) return `O estado ${rotuloEstado(operationalState)} não permite ${action}.`;
+    return "";
+  };
+  motivos.run = emergency
+    ? "A emergência precisa ser liberada antes de iniciar."
+    : state.stopReason
+      ? state.stopReason === "COTA_ROMANEIO_ATINGIDA"
+        ? "Confirme a parada física e finalize o romaneio após conferir leituras e fotos."
+        : state.stopReason === "COTA_PRODUTO_ATINGIDA"
+        ? "Confirme a parada física antes de continuar com outro produto."
+        : "Confirme que a unidade foi removida e que a esteira está fisicamente parada antes de retomar."
+    : manifestTargetReached
+      ? "A quantidade prevista do romaneio foi atingida. Abra a conferência final para encerrar."
+    : !stopped
+      ? stateLock("iniciar a esteira")
+    : reversalCommand !== "REVERSAO_DESATIVAR"
+      ? "Confirme a reversão desligada antes de ligar a esteira para frente."
+      : "";
+  motivos.stop = emergency
+    ? "A emergência já mantém a operação parada."
+    : operationRunning || operationalState === "FINALIZANDO"
+      ? ""
+      : !stopped
+        ? stateLock("parar a esteira")
+        : "A esteira já está parada.";
+  motivos["reverse-on"] = !canReverse
+    ? "Seu perfil não pode alterar a reversão."
+    : emergency
+      ? "A emergência precisa ser liberada antes de alterar a direção."
+      : !stopped
+        ? stateLock("alterar a direção")
+        : reversalOn
+          ? "A reversão já está ligada."
+          : "";
+  motivos["reverse-off"] = !canReverse
+    ? "Seu perfil não pode alterar a reversão."
+    : emergency
+      ? "A emergência precisa ser liberada antes de alterar a direção."
+      : !stopped
+        ? stateLock("alterar a direção")
+        : reversalCommand === "REVERSAO_DESATIVAR"
+        ? "A reversão já está desligada."
+        : "";
+  return motivos;
+}
+
+export function workControlLocks(state, options = {}) {
+  return motivosControles(estadoControles(state), options);
+}
+
 function workControls(store) {
   const loadingItems = Array.isArray(store.state.loadingItems)
     ? store.state.loadingItems
@@ -26,6 +242,7 @@ function workControls(store) {
   const detectedBags = Number(store.state.detectedBags) || 0;
   const plannedTotal = Number(store.state.planned) || 0;
   const validReadings = Number(store.state.loaded) || 0;
+  const remainingTotal = Math.max(0, plannedTotal - detectedBags);
   const totalPercent = plannedTotal > 0
     ? Math.min(100, Math.round((detectedBags / plannedTotal) * 100))
     : 0;
@@ -214,19 +431,59 @@ function workControls(store) {
       : store.state.operationalState === "EMERGENCIA"
       ? '<span class="badge red">Emergência solicitada · operação bloqueada</span>'
       : `<span class="badge yellow">${esc(rotuloEstado(store.state.operationalState))}</span>`;
-  const commandFeedback = store.state.commandFeedback
-    ? `<p class="work-selection-error" role="alert" aria-live="assertive">${esc(store.state.commandFeedback)}</p>`
-    : "";
-  const itemProgress = renderItensRomaneio(loadingItems);
+  const itemCountLabel = `${numero(loadingItems.length)} ${loadingItems.length === 1 ? "item" : "itens"}`;
+  const itemProgress = `<section class="panel work-items-panel"><div class="panel-heading"><div><h3>Itens do romaneio</h3></div><div class="work-items-summary"><small>${itemCountLabel}</small></div></div><div class="work-item-progress-list">${loadingItems.length ? loadingItems.map((item) => {
+    const loaded = Number(item.loaded_quantity) || 0;
+    const noRead = Number(item.no_read_quantity) || 0;
+    const planned = Number(item.planned_quantity) || 0;
+    const remainingValue = item.remaining_quantity === null || item.remaining_quantity === undefined
+      ? Math.max(0, planned - loaded)
+      : Number(item.remaining_quantity);
+    const remaining = Number.isFinite(remainingValue) ? Math.max(0, remainingValue) : Math.max(0, planned - loaded);
+    const percent = planned > 0 ? Math.min(100, Math.round((loaded / planned) * 100)) : 0;
+    const status = planned <= 0
+      ? ["Sem previsão", "yellow"]
+      : loaded > planned
+        ? ["Excedente", "red"]
+        : loaded >= planned
+          ? ["Concluído", "green"]
+          : loaded > 0 ? ["Em andamento", "blue"] : ["Pendente", "yellow"];
+    const remainingText = planned > 0 && loaded > planned
+      ? `Acima do previsto <strong>${numero(loaded - planned)}</strong>`
+      : `Faltam validar <strong>${numero(remaining)}</strong>`;
+    return `<article class="work-item-progress-card"><div class="work-item-progress-heading"><div class="work-item-identity"><strong>${esc(item.name || "Produto")}</strong><code>${esc(item.code || "—")}</code></div><span class="badge ${status[1]}">${status[0]}</span></div><div class="work-item-progress-values"><strong>${numero(loaded)} <span>/ ${numero(planned)} lidas</span></strong><span>${percent}%</span></div>${noRead > 0 ? `<small class="work-item-no-read">${numero(noRead)} sem leitura de código (passou pelo sensor)</small>` : ""}<div class="work-item-progress-track" role="progressbar" aria-label="Leituras válidas de ${esc(item.name || "produto")}" aria-valuemin="0" aria-valuemax="${planned}" aria-valuenow="${Math.min(loaded, planned)}"><i style="width:${percent}%"></i></div><div class="work-item-progress-foot"><span>Identificadas</span><span>${remainingText}</span></div></article>`;
+  }).join("") : '<p class="empty-cell">Nenhum item detalhado para este carregamento.</p>'}</div></section>`;
   const workTitle = store.state.romaneio && store.state.romaneio !== "—"
     ? `Romaneio #${store.state.romaneio}`
     : "Operação";
-  const { endNotice, endNoticeTone, remainingLabel } = apresentacaoProgressoOperacao(store.state);
+  const nearEndThreshold = plannedTotal > 0 ? Math.max(1, Math.ceil(plannedTotal * 0.1)) : 0;
+  const nearEnd = plannedTotal > 0 && detectedBags > 0 && remainingTotal > 0 && remainingTotal <= nearEndThreshold;
+  const complete = plannedTotal > 0 && detectedBags >= plannedTotal;
+  const excess = plannedTotal > 0 && detectedBags > plannedTotal;
+  const quotaPauseConfirmed = quotaStopReason
+    && store.state.operationalState === "PAUSADO"
+    && pendingCommand === "PAUSAR_CARREGAMENTO"
+    && pendingStatus === "APLICADO";
+  const endNotice = excess
+    ? `Passagem acima da quantidade prevista registrada. ${quotaPauseConfirmed ? "O gateway confirmou o comando de pausa." : "Um comando de pausa foi solicitado ao gateway."} A finalização permanece bloqueada.`
+    : complete
+      ? finishReady
+        ? `Quantidade prevista atingida e comando de pausa confirmado. Leituras e fotos conferidas; finalize o romaneio.`
+        : `Quantidade prevista atingida. ${quotaPauseConfirmed ? "O gateway confirmou o comando de pausa." : "Aguardando o comando de pausa do gateway."} Aguarde a conferência das leituras e fotos para liberar a finalização.`
+      : nearEnd
+        ? "Atenção: o carregamento está próximo da quantidade prevista."
+        : "";
+  const endNoticeTone = excess ? "excess" : complete ? "complete" : "near-end";
+  const remainingLabel = plannedTotal <= 0
+    ? "Quantidade prevista não informada"
+    : remainingTotal === 0
+      ? `Quantidade física atingida · ${numero(validReadings)} códigos válidos`
+      : `Falta${remainingTotal === 1 ? "" : "m"} ${numero(remainingTotal)} saca${remainingTotal === 1 ? "" : "s"} para a quantidade prevista`;
   const totalSummary = `<section class="work-live-summary" aria-label="Contagem e progresso do carregamento"><div class="work-live-summary-heading"><strong>Sacas detectadas pelo sensor</strong><span><b data-live="detected">${numero(detectedBags)}</b> / <b data-live="planned">${numero(plannedTotal)}</b> previstas · <span data-live="progress-percent">${totalPercent}%</span></span></div><div class="work-live-summary-foot"><span>Scanner: <b data-live="scanner-readings">${numero(store.state.scannerReadings || 0)}</b> sacas com código</span></div><div class="progress work-live-progress" role="progressbar" aria-label="Progresso de sacas detectadas pelo sensor M2052" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${totalPercent}"><i data-live="progress-bar" style="width:${totalPercent}%"></i></div><div class="work-live-summary-foot"><span data-live="remaining-label">${remainingLabel}</span> · <b>${numero(validReadings)}</b> leituras válidas</div><p class="work-completion-notice ${endNoticeTone}" data-live="end-notice"${endNotice ? "" : " hidden"}>${endNotice}</p>${finishBlockNotice}${scannerMonitor}</section>`;
   const panelHeading = estadoOperacional === "EMERGENCIA"
     ? ""
     : `<div class="panel-heading"><div><span class="kicker">Comandos da máquina</span><h3>Operar Dala</h3></div></div>`;
-  const machinePanel = `<section class="panel work-machine-panel">${panelHeading}${commandFeedback}<div class="work-machine-controls">${emergencySection}${stopConfirmation}${controls}</div></section>`;
+  const machinePanel = `<section class="panel work-machine-panel">${panelHeading}<div class="work-machine-controls">${emergencySection}${stopConfirmation}${controls}</div></section>`;
   const statusColumn = `<section class="work-status-column">${totalSummary}${itemProgress}</section>`;
   const workHeader = `<header class="work-screen-header">${loadingPicker}<div class="work-screen-heading"><h2>${esc(workTitle)}</h2><p>Dala ${esc(equipmentLabel(store))} · Caminhão ${esc(store.state.truck || "—")} <span class="work-header-state">${badge}</span></p></div>${finishAction}</header>`;
   return `<div class="work-operation-screen">${workHeader}<div class="work-operation-layout">${statusColumn}${machinePanel}</div></div>`;

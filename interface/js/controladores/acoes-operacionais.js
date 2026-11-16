@@ -33,17 +33,6 @@ export function criarTratadorAcoesOperacionais({
   executarComandoDeOperacao,
   changeOperationLoading,
 }) {
-  function informarBloqueioDeComando(mensagem) {
-    const message = String(mensagem || "Esta ação não está disponível no estado atual.");
-    if (paginaAtual() === "work") {
-      store.state.commandFeedback = message;
-      render();
-    } else {
-      notificarForaDaOperacao(message, "aviso");
-    }
-    return true;
-  }
-
   async function carregarLeiturasPendentes(node) {
     if (node.dataset.busy === "1") return;
     const page = Number(node.dataset.page);
@@ -275,26 +264,6 @@ export function criarTratadorAcoesOperacionais({
         return finalizarRomaneio(node);
       default:
         if (ACOES_COMANDO_MAQUINA.has(acao)) {
-          const operationalState = String(store.state.operationalState || "").toUpperCase();
-          if (["run", "start-machine"].includes(acao) && ["AGUARDANDO", "EMERGENCIA", "FINALIZADO"].includes(operationalState)) {
-            const message = node?.dataset?.actionNotice
-              || (operationalState === "FINALIZADO"
-                ? "Este carregamento já foi finalizado."
-                : operationalState === "EMERGENCIA"
-                  ? "A emergência precisa ser liberada antes de iniciar."
-                  : "O carregamento ainda não está preparado para receber comandos.");
-            return informarBloqueioDeComando(message);
-          }
-          if (acao === "emergency" && !Number(store.state.loadingId)) {
-            return informarBloqueioDeComando(
-              "Nenhum carregamento está selecionado para identificar a Dala. Em risco imediato, acione a emergência física da máquina.",
-            );
-          }
-          if (acao === "emergency" && operationalState === "FINALIZADO") {
-            return informarBloqueioDeComando(
-              "Este carregamento já foi finalizado e não aceita comando remoto de emergência. Em risco imediato, acione a emergência física da máquina.",
-            );
-          }
           return executarComandoDeOperacao(node, acao);
         }
         return false;

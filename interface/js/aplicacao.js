@@ -1,4 +1,3 @@
-import { criarExecutorComandosOperacao } from "./controladores/executor-comandos-operacao.js?v=202611150003";
 import {
   configurarSessaoPorAba,
 } from "./sessao.js?v=202611120004";
@@ -7,7 +6,7 @@ import { confirmarAcao, limparNotificacao, notificar, solicitarTexto } from "./c
 import { setFormFeedback } from "./componentes/form-feedback.js?v=202611120004";
 import { ServicoEmergencia } from "./servicos/ServicoEmergencia.js?v=202611120004";
 import { ServicoOperacao } from "./servicos/ServicoOperacao.js?v=202611120004";
-import { ArmazenamentoTrace } from "./classes/ArmazenamentoTrace.js?v=202611150003";
+import { ArmazenamentoTrace } from "./classes/ArmazenamentoTrace.js?v=202611150001";
 import { FORM_ACTIONS } from "./constantes/acoes.js?v=202611120004";
 import { changeOperationLoading, linhaItemRomaneio } from "./controladores/operacao.js?v=202611120004";
 import { createOperationalRealtimeController } from "./controladores/tempo-real.js?v=202611120004";
@@ -17,15 +16,15 @@ import { createMachineCommandQueue } from "./controladores/comandos-maquina.js?v
 import { criarRegistroTelas } from "./controladores/registro-telas.js?v=202611120004";
 import { criarTratadorAcoesNavegacao } from "./controladores/acoes-navegacao.js?v=202611120004";
 import { criarTratadorAcoesAdministracao } from "./controladores/acoes-administracao.js?v=202611120004";
-import { criarTratadorAcoesOperacionais } from "./controladores/acoes-operacionais.js?v=202611150003";
+import { criarTratadorAcoesOperacionais } from "./controladores/acoes-operacionais.js?v=202611120004";
 import { criarTratadorAcoesDiagnostico } from "./controladores/acoes-diagnostico.js?v=202611120004";
 import { criarTratadorAcoesCadastros } from "./controladores/acoes-cadastros.js?v=202611120004";
 import { criarTratadorAcoesInterface, instalarInteracoesGlobaisInterface } from "./controladores/acoes-interface.js?v=202611120004";
 import { criarTratadorAcoesRelatorios } from "./controladores/acoes-relatorios.js?v=202611120004";
 import { criarDelegacaoAcoes, criarDespachanteAcoes } from "./controladores/despachante-acoes.js?v=202611120004";
 import { criarCarregadorPaginas } from "./controladores/carregador-paginas.js?v=202611120004";
-import { createLiveViewController } from "./controladores/estado-visualizacao.js?v=202611150003";
-import { createHidScannerCapture, isScannerNoReadMarker } from "./controladores/captura-leitor-hid.js?v=202611150003";
+import { createLiveViewController } from "./controladores/estado-visualizacao.js?v=202611120004";
+import { createHidScannerCapture, isScannerNoReadMarker } from "./controladores/captura-leitor-hid.js?v=202611150001";
 import { createLocalConnectivityController } from "./controladores/conectividade-local.js?v=202611120004";
 import { bindManifestCreationForm, bindManifestEditForm } from "./controladores/formulario-romaneio.js?v=202611120004";
 import { bindProductForm } from "./controladores/formulario-produto.js?v=202611120004";
@@ -80,7 +79,7 @@ const registroTelas = criarRegistroTelas({
   division: () =>
     import("../telas/divisao-carga/divisao-carga.js?v=202611120004").then(({ division }) => division),
   work: () =>
-    import("../telas/operacao/operacao.js?v=202611150003").then(({ work }) => work),
+    import("../telas/operacao/operacao.js?v=202611150001").then(({ work }) => work),
   occurrences: () =>
     import("../telas/ocorrencias/ocorrencias.js?v=202611120004").then(({ occurrences }) => occurrences),
   products: () =>
@@ -203,12 +202,72 @@ const machineCommandQueue = createMachineCommandQueue({
   },
 });
 
-const executarComandoDeOperacao = criarExecutorComandosOperacao({
-  store, servicoOperacao, machineCommandQueue, render,
-  getPage: () => currentPage,
-  registrarErro: (...args) => logFrontend.erro(...args),
-  notificarForaDaOperacao,
-});
+async function executarComandoDeOperacao(node, action) {
+  const loadingId = Number(node.dataset.loadingId || store.state.loadingId) || null;
+  const commands = {
+    "start-machine": "INICIAR_CARREGAMENTO",
+    run: "INICIAR_CARREGAMENTO",
+    "stop-machine": "PAUSAR_CARREGAMENTO",
+    stop: "PAUSAR_CARREGAMENTO",
+    "reverse-machine": "REVERSAO_ATIVAR",
+    "reverse-on": "REVERSAO_ATIVAR",
+    "reverse-off": "REVERSAO_DESATIVAR",
+    emergency: "EMERGENCIA",
+  };
+  const command = action === "reverse-toggle"
+    ? (store.state.returnMode ? "REVERSAO_DESATIVAR" : "REVERSAO_ATIVAR")
+    : commands[action];
+  // Trava os botões já no clique, antes de o servidor confirmar o PENDENTE:
+  // fecha a janela entre "operador clicou" e "status chegou" em que um
+  // segundo clique (duplicado) ou um clique perdido podiam ocorrer.
+  // EMERGÊNCIA é isenta de propósito: por design (ver bloqueioEmergencia em
+  // telas/operacao/operacao.js) ela precisa continuar disponível mesmo com
+  // outro comando em voo — nunca pode ser descartada aqui, só serializada
+  // pela fila como já era antes desta trava.
+  const isEmergency = command === "EMERGENCIA";
+  const commandToken = !isEmergency && store.beginCommand ? store.beginCommand() : null;
+  if (!isEmergency && !commandToken && store.state.commandInFlight) {
+    // Já existe um comando em voo (clique duplicado antes do re-render
+    // desabilitar o botão): ignora silenciosamente em vez de enfileirar
+    // outro envio ao CLP.
+    return;
+  }
+  if (!isEmergency && currentPage === "work") render();
+  try {
+    await machineCommandQueue.enqueue(loadingId, command, async () => {
+      if (command === "INICIAR_CARREGAMENTO") return servicoOperacao.iniciar(loadingId);
+      if (command === "PAUSAR_CARREGAMENTO") return servicoOperacao.parar(loadingId);
+      if (command === "REVERSAO_ATIVAR") return servicoOperacao.reversao(true, loadingId);
+      if (command === "REVERSAO_DESATIVAR") return servicoOperacao.reversao(false, loadingId);
+      if (command === "EMERGENCIA") return store.requestMachineEmergency(loadingId);
+      throw new Error("Comando operacional inválido.");
+    });
+    if (currentPage === "work") render();
+  } catch (error) {
+    if (currentPage === "work") {
+      logFrontend.erro("operacao.comando.falhou", error, {
+        acao: action,
+        carregamento_id: loadingId,
+      });
+      // A falha precisa ficar visível na própria tela de operação (quiosque):
+      // antes, o erro era apenas logado e o operador não recebia feedback.
+      store.state.commandFeedback = error?.message
+        || "Não foi possível enviar o comando à máquina. Verifique o equipamento.";
+      render();
+    } else {
+      notificarForaDaOperacao(error.message, "erro");
+    }
+  } finally {
+    // Libera a trava de clique independentemente do resultado: sucesso,
+    // erro, ou mesmo se o comando foi deduplicado pela fila (nesse caso o
+    // commandPending do status PENDENTE/PROCESSANDO assume a trava a partir
+    // daqui, então destravar aqui não reabre a janela de clique perdido).
+    if (store.endCommand && commandToken) {
+      store.endCommand(commandToken);
+      if (currentPage === "work") render();
+    }
+  }
+}
 
 let automaticFinishInFlight = false;
 let automaticFinishAttemptedLoadingId = null;
@@ -422,7 +481,7 @@ const conectividadeLocal = createLocalConnectivityController({
   refreshSettingsView: () => refreshSettingsStatusView(),
   render: () => render(),
   logWarning: (...args) => logFrontend.aviso(...args),
-  serviceWorkerUrl: "/service-worker.js?v=202611150003",
+  serviceWorkerUrl: "/service-worker.js?v=202611150001",
 });
 
 function waitForDocumentStyles() {

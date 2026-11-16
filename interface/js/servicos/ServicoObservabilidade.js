@@ -10,7 +10,6 @@ export class ServicoObservabilidade {
     this.state = state;
     this.jsonHeaders = jsonHeaders;
     this.jsonResponse = jsonResponse;
-    this.summaryRequestId = 0;
     this.commandHistoryRequestId = 0;
     this.commandHistoryPending = null;
     this.errorLogsRequestId = 0;
@@ -41,7 +40,6 @@ export class ServicoObservabilidade {
   }
 
   async loadSummaryMonitoring() {
-    const requestId = ++this.summaryRequestId;
     const loadingId = Number(this.state.loadingId || this.state.selectedLoadingId) || null;
     const [response, loadingResponse] = await Promise.all([
       this.api.fetch("/api/monitoramento.php?view=resumo"),
@@ -53,18 +51,13 @@ export class ServicoObservabilidade {
     const loadingResult = loadingResponse
       ? await this.jsonResponse(loadingResponse, "Não foi possível conferir as passagens pendentes.")
       : null;
-    if (requestId !== this.summaryRequestId
-      || loadingId !== (Number(this.state.loadingId || this.state.selectedLoadingId) || null)) {
-      return this.state.summaryMonitoring;
-    }
     this.state.summaryMonitoring = {
       ...(result.data || {}),
       carregamento: loadingResult?.data || null,
     };
     this.state.summaryMonitoringUpdatedAt = new Date().toISOString();
-    const rawSacas = this.state.summaryMonitoring?.carregamento?.sacas_detectadas;
-    const sacas = rawSacas === null || rawSacas === undefined ? NaN : Number(rawSacas);
-    if (Number.isInteger(sacas) && sacas >= 0) this.state.detectedBags = sacas;
+    const sacas = Number(this.state.summaryMonitoring?.carregamento?.sacas_detectadas);
+    if (!Number.isNaN(sacas)) this.state.detectedBags = sacas;
     return this.state.summaryMonitoring;
   }
 

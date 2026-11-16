@@ -4,8 +4,7 @@ import test from "node:test";
 import { ServicoLeiturasOperacionais } from "../interface/js/servicos/ServicoLeiturasOperacionais.js";
 import { createHidScannerCapture, isScannerNoReadMarker } from "../interface/js/controladores/captura-leitor-hid.js";
 
-const operation = await readFile(new URL("../interface/telas/operacao/operacao.js", import.meta.url), "utf8")
-  + await readFile(new URL("../interface/js/funcoes/controles-operacao.js", import.meta.url), "utf8");
+const operation = await readFile(new URL("../interface/telas/operacao/operacao.js", import.meta.url), "utf8");
 const liveView = await readFile(new URL("../interface/js/controladores/estado-visualizacao.js", import.meta.url), "utf8");
 const operationalForms = await readFile(new URL("../interface/js/controladores/formularios-operacionais.js", import.meta.url), "utf8");
 const activeLoading = await readFile(new URL("../interface/js/servicos/ServicoCarregamentoAtivo.js", import.meta.url), "utf8");
