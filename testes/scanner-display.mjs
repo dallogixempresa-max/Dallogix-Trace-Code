@@ -18,6 +18,7 @@ const sensorQueueRepository = await readFile(new URL("../servidor/src/Persistenc
 const finishLoadingApi = await readFile(new URL("../servidor/api/operacoes/encerrar_carregamento.php", import.meta.url), "utf8");
 const loadingSummaryApi = await readFile(new URL("../servidor/api/operacoes/resumo_carregamento.php", import.meta.url), "utf8");
 const installationHeartbeatDetails = await readFile(new URL("../servidor/src/Aplicacao/DetalhesHeartbeatInstalacao.php", import.meta.url), "utf8");
+const remoteSyncService = await readFile(new URL("../servidor/src/Aplicacao/ServicoSincronizacaoRemota.php", import.meta.url), "utf8");
 const observabilityService = await readFile(new URL("../interface/js/servicos/ServicoObservabilidade.js", import.meta.url), "utf8");
 const operationalRealtime = await readFile(new URL("../interface/js/controladores/tempo-real.js", import.meta.url), "utf8");
 const loadingFinishRules = await readFile(new URL("../interface/js/funcoes/regras-carregamento.js", import.meta.url), "utf8");
@@ -97,8 +98,13 @@ test("heartbeat SENSOR preserva a fila agregada para liberar a finalização no 
   assert.match(sensorBranch, /sensor_event_outbox_pending/);
   assert.match(sensorBranch, /FILTER_VALIDATE_INT/);
   assert.match(sensorBranch, /min_range[^\n]*0/);
-  assert.doesNotMatch(sensorBranch, /sensor_event_outbox_pending_by_loading/);
+  assert.match(sensorBranch, /sensor_event_outbox_pending_by_loading/);
+  assert.match(sensorBranch, /count\(\$pendingByLoading\) <= 1000/);
+  assert.match(sensorBranch, /\$normalized\["sensor_event_outbox_pending_by_loading"\] = \$normalizedMap/);
+  assert.match(remoteSyncService, /SELECT id, remote_carregamento_id FROM carregamentos/);
+  assert.match(remoteSyncService, /\$translated\[\$key\] = \(\$translated\[\$key\] \?\? 0\) \+ \$count/);
   assert.match(loadingSummaryApi, /ValidadorFilaSensor::pendentes/);
+  assert.match(loadingSummaryApi, /\$pendingEventsByLoading\)\s*\?\s*\(int\)\s*\(\$pendingEventsByLoading\[\(string\) \$loadingId\][\s\S]*?:\s*\(\$sensorOutboxState\["pending_events"\]/);
 });
 
 test("a meta do romaneio solicita parada sem criar uma ocorrência de excesso", () => {
