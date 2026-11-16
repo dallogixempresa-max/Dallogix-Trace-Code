@@ -82,19 +82,14 @@ test("fila durável do M2052 é reprocessada após reinício e fechamento aguard
   assert.doesNotMatch(retry, /attempt >= 3/);
   assert.match(heartbeat, /sensor_event_outbox_pending = events\.length/);
   assert.match(heartbeat, /sensor_event_outbox_pending_by_loading = outbox\.countEventsByLoading\(events\)/);
-  assert.match(finishLoadingApi, /NOT EXISTS \(SELECT 1 FROM leituras l WHERE l\.sensor_event_id = s\.id\)/);
-  assert.match(sensorQueueRepository, /sensor_event_outbox_pending/);
-  assert.match(finishLoadingApi, /RepositorioFilaSensor/);
-  assert.match(sensorQueueRepository, /pending_events_by_loading/);
+  assert.doesNotMatch(finishLoadingApi, /\$pendingSensorEvents =/);
+  assert.match(finishLoadingApi, /\$loadingDetectedQuantity !== \$loadingPlannedQuantity/);
   assert.match(loadingSummaryApi, /leituras_pendentes_sensor/);
   assert.match(loadingSummaryApi, /RepositorioFilaSensor/);
   assert.match(observabilityService, /resumo_carregamento\.php\?carregamento_id=/);
   assert.match(operationalRealtime, /store\.loadSummaryMonitoring\(\)/);
-  assert.match(loadingFinishRules, /outboxPending === null/);
-  assert.match(loadingFinishRules, /outboxPending === undefined/);
-  assert.match(loadingFinishRules, /!Number\.isInteger\(pendingOutboxCount\)/);
-  assert.match(loadingFinishRules, /pendingOutboxCount < 0/);
-  assert.match(loadingFinishRules, /pendingOutboxCount > 0/);
+  assert.match(loadingFinishRules, /detected < planned/);
+  assert.match(loadingFinishRules, /hasPendingMachineCommand/);
 });
 
 test("heartbeat SENSOR preserva a fila agregada para liberar a finalização no Central", () => {

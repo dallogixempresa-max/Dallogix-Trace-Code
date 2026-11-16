@@ -41,6 +41,7 @@ for(const [name,input,ready] of [
     assert.equal(result.status,0,result.stderr);
     const response=JSON.parse(result.stdout);
     const state={loadingId:42,operationalState:'PAUSADO',planned:1,detectedBags:1,loadingItems:[{planned_quantity:1,loaded_quantity:1}],summaryMonitoring:{carregamento:{id:42,leituras_pendentes_sensor:0,imagens_pendentes:0,imagens_com_falha:0,...response}}};
-    assert.equal(podeFinalizarCarregamento(state),ready);
+    assert.equal(response.sensor_outbox_pendentes === 0, ready);
+    assert.equal(podeFinalizarCarregamento(state), true, "fila é pendência de conferência posterior");
   });
 }

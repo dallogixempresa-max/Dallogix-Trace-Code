@@ -1,4 +1,7 @@
-# Operações: escopo vigente
+# Operações: regras e histórico das revisões
+
+**Regra vigente:** ver a seção de conclusão por meta no final deste documento.
+Os registros abaixo descrevem as etapas anteriores.
 
 A interface foi restaurada integralmente à base `d3cd3c24` (v1.0.261),
 conforme a orientação do usuário de manter o trabalho restrito ao backend.
@@ -72,3 +75,52 @@ externa relatou falta de PHP no ambiente dela; isso não foi reproduzido neste
 Mac, onde os testes PHP foram executados. O teste PDO controlado não comprova
 lock real de MySQL e essa limitação permanece aberta. Frontend byte-idêntico
 à base d3cd3c24; nenhuma publicação efetuada nesta rodada.
+
+## Regra vigente: concluir na meta, relatório posterior — 16/11/2026
+
+O usuário definiu explicitamente: ao atingir a quantidade prevista de passagens,
+solicitar parada da esteira e liberar o botão de finalizar. Relatório é processo
+posterior. Essa orientação substitui as exigências anteriores de fotos e filas
+vazias para a conclusão operacional.
+
+- Permanece a exigência de PAUSADO, confirmação do comando de parada e ausência
+  de comandos em voo. Quantidade abaixo/acima da prevista, excesso conhecido de
+  produto e emergência continuam bloqueando o fechamento.
+- Não se aguarda fila do sensor, resultado do leitor, imagens pendentes ou fotos
+  com falha para finalizar operacionalmente. Os indicadores continuam reais;
+  nenhum contador de pendência é zerado para liberar o botão.
+- O botão Finalizar permanece o acionador. Foi retirado o disparo automático
+  que podia finalizar sem o clique do operador. A parada na meta continua no
+  fluxo original do sensor/CLP, sem alteração de endereços ou Ladder.
+- O endpoint encerra o romaneio ao concluir o último carregamento com quantidades
+  compatíveis. Não gera PDF nessa transação. Auditoria e resposta indicam
+  report_processing_deferred=true. A autorização é mantida para os três perfis
+  operacionais; as divergências da conferência serão apuradas no relatório.
+- A rota explícita de encerramento do romaneio também deixa de depender de fotos.
+  O cancelamento conserva suas regras próprias, não foi equiparado à conclusão.
+- O relatório mantém seus bloqueios de leitura/evidência pendente. Não foi alterado
+  para publicar um PDF como se fotos ausentes tivessem sido recebidas.
+- Worker e timeout do sensor também selecionam cargas FINALIZADAS com passagens
+  já registradas ainda sem resultado, antes da próxima carga. Cargas resolvidas
+  não bloqueiam a seguinte e canceladas não entram nessa seleção.
+- Leituras de carga finalizada permanecem restritas a evento existente, Dala e
+  empresa correspondentes. Produto incorreto descoberto depois gera registro e
+  evidência, sem enviar parada para a nova operação ou reabrir a antiga.
+- Mudança mínima no frontend autorizada pela nova definição: decisão do botão,
+  tratamento do clique e textos relativos à conferência. CSS e layout intactos.
+  Recursos tiveram apenas atualização de versão de cache.
+
+Validação: 146 testes Node passaram. Há execução do endpoint PHP real com PDO e
+transporte controlados para meta exata, abaixo/acima da meta, emergência, comando
+pendente e falta de confirmação da parada. Consultas de seleção do worker e timeout
+foram executadas com SQLite para pendência finalizada, próxima carga, empresa
+incorreta e carga cancelada. Classificação, retenção e proteção do histórico também
+passaram. Isso não é validação HTTP autenticada, de lock MySQL ou de hardware.
+
+As correções aqui estão locais: não houve deploy ou comando enviado ao CLP.
+
+Análise estática desta alteração: Semgrep nos sete módulos centrais apontou dois
+avisos no armazenamento de imagens do worker (hash_file/unlink). A mesma análise
+sobre a versão anterior do worker reproduziu os dois avisos; o diff do worker
+altera somente a consulta de seleção das pendências. Não foram classificados
+como defeitos introduzidos por esta mudança.

@@ -54,44 +54,29 @@ test("servidor bloqueia excesso antes de gravar FINALIZADO", () => {
 
 test("nenhum perfil finaliza abaixo da quantidade prevista", () => {
   const exactQuotaGuard = finishEndpoint.indexOf("if ($loadingPlannedQuantity < 1 || $loadingDetectedQuantity !== $loadingPlannedQuantity) {");
-  const supervisorOverride = finishEndpoint.indexOf("if (($hasDivergence && !$evidenceCoveredDivergence)");
   const finishUpdate = finishEndpoint.indexOf("UPDATE carregamentos SET state = 'FINALIZADO'");
-  assert.ok(exactQuotaGuard >= 0 && exactQuotaGuard < supervisorOverride);
-  assert.ok(supervisorOverride < finishUpdate);
-  assert.match(finishEndpoint, /"error" => "O carregamento só pode ser finalizado quando a quantidade prevista de sacas válidas ou sem leitura for atingida\."\],\s*409/);
+  assert.ok(exactQuotaGuard >= 0 && exactQuotaGuard < finishUpdate);
+  assert.doesNotMatch(finishEndpoint, /Somente supervisores/);
 });
 
-test("interface não oferece exceção de supervisor para finalizar excesso", () => {
-  assert.match(operationController, /const requiresSupervisorReview = hasItemDivergence && !evidenceCoversDivergence/);
-  assert.doesNotMatch(operationController, /hasExcess/);
-  assert.doesNotMatch(operationController, /autorizar o encerramento com justificativa/);
+test("o clique em Finalizar conclui pela meta física sem exigir fotos ou revisão de supervisor", () => {
+  assert.match(operationController, /podeFinalizarCarregamento\(store.state\)/);
+  assert.match(operationController, /store.finishLoading\(""\)/);
+  assert.doesNotMatch(operationController, /requiresSupervisorReview/);
 });
 
-test("o botão exige uma foto capturada para cada passagem sem leitura", () => {
-  assert.match(loadingSummary, /\$data\["sem_leitura_com_foto"\] = \$count/);
-  assert.match(loadingSummary, /\$data\["sem_leitura_evidencias_com_imagem"\] = max\([\s\S]*?contarLeiturasSemImagemValida/);
-  assert.match(loadingSummary, /ValidadorEvidenciasOperacionais/);
-  assert.match(loadingSummary, /e\.sensor_event_id = l\.sensor_event_id/);
-  assert.match(loadingSummary, /e\.reason = 'SEM_LEITURA' AND e\.status = 'CAPTURADA'/);
-  assert.match(loadingRules, /Aguarde a foto Keyence de cada saca sem leitura/);
-  assert.match(loadingRules, /Number\(summary\.sem_leitura_com_foto\) >= noRead/);
-  assert.match(manifestEndpoint, /contarLeiturasSemImagemValidaNoRomaneio/);
-  assert.match(finishEndpoint, /contarLeiturasSemImagemValida\([\s\S]*?"SEM_LEITURA"/);
-  assert.match(finishEndpoint, /contarLeiturasSemImagemValida\([\s\S]*?"PRODUTO_INCORRETO"/);
-  assert.match(manifestEndpoint, /contarLeiturasSemImagemValidaNoRomaneio\([\s\S]*?"PRODUTO_INCORRETO"/);
-  assert.match(loadingSummary, /\$data\["produtos_incorretos_com_foto"\] = max\([\s\S]*?contarLeiturasSemImagemValida/);
-  assert.match(loadingRules, /produtos_incorretos_com_foto/);
-  assert.match(loadingRules, /Aguarde a foto Keyence de cada produto fora do romaneio/);
-  assert.match(manifestEndpoint, /\$failedEvidence = \$pdo->prepare/);
-});
-
-test("as APIs também bloqueiam foto com falha e leituras incorretas", () => {
-  assert.match(finishEndpoint, /\$failedEvidenceStatement = \$pdo->prepare/);
-  assert.match(finishEndpoint, /\$failedEvidenceForLoading = \$pdo->prepare/);
-  assert.match(finishEndpoint, /\$failedEvidenceCountForManifestLoading > 0/);
-  assert.match(finishEndpoint, /status = 'ERRO'/);
-  assert.match(manifestEndpoint, /\$unsupportedReadings = \$pdo->prepare/);
-  assert.match(manifestEndpoint, /l\.result NOT IN \('VALIDO', 'SEM_LEITURA'\)/);
+test("leituras e evidências bloqueiam o relatório posterior, não a conclusão operacional", async () => {
+  const report = await readFile(new URL("../servidor/api/relatorios/relatorio_auditoria.php", import.meta.url), "utf8");
+  assert.match(report, /\$unresolvedPassages = \$pdo->prepare/);
+  assert.match(report, /\$pendingCaptures = \$pdo->prepare/);
+  assert.match(report, /missing_evidence_count/);
+  assert.match(report, /PRODUTO_INCORRETO/);
+  assert.doesNotMatch(finishEndpoint, /contarLeiturasSemImagemValida/);
+  assert.doesNotMatch(finishEndpoint, /imagens de falha.*antes do encerramento/);
+  const finishManifest = manifestEndpoint.slice(manifestEndpoint.indexOf('if ($action === "finish")'), manifestEndpoint.indexOf('if ($action === "cancel")'));
+  assert.doesNotMatch(finishManifest, /contarLeiturasSemImagemValida/);
+  assert.match(finishManifest, /\$quantityMismatch/);
+  assert.match(finishManifest, /\$manifestExcess/);
 });
 
 test("passagem excedente reenvia a pausa sem substituir o motivo original", () => {

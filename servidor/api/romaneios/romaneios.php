@@ -240,68 +240,7 @@ if ($_SERVER["REQUEST_METHOD"] === "PATCH") {
                     responder_json(["error" => "Finalize todos os carregamentos antes de encerrar o romaneio."], 409);
                 }
             }
-            $pendingEvidence = $pdo->prepare(
-                "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia i
-                 JOIN carregamentos c ON c.id = i.carregamento_id
-                 WHERE c.romaneio_id = :romaneio_id AND c.company_id = :company_id
-                   AND i.status IN ('PENDENTE', 'CAPTURANDO')",
-            );
-            $pendingEvidence->execute(["romaneio_id" => $romaneioId, "company_id" => $companyId]);
-            if ((int) $pendingEvidence->fetchColumn() > 0) {
-                $pdo->rollBack();
-                responder_json(["error" => "Aguarde o recebimento das imagens de falha antes de encerrar o romaneio."], 409);
-            }
-
-            $failedEvidence = $pdo->prepare(
-                "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia i
-                 JOIN carregamentos c ON c.id = i.carregamento_id
-                 WHERE c.romaneio_id = :romaneio_id AND c.company_id = :company_id
-                   AND i.status = 'ERRO'",
-            );
-            $failedEvidence->execute([
-                "romaneio_id" => $romaneioId,
-                "company_id" => $companyId,
-            ]);
-            if ((int) $failedEvidence->fetchColumn() > 0) {
-                $pdo->rollBack();
-                responder_json(["error" => "Há foto(s) de evidência com falha; o romaneio não pode ser encerrado."], 409);
-            }
-
-            $unsupportedReadings = $pdo->prepare(
-                "SELECT COUNT(*) FROM leituras l
-                 JOIN carregamentos c ON c.id = l.carregamento_id
-                 WHERE c.romaneio_id = :romaneio_id AND c.company_id = :company_id
-                   AND l.conta_na_meta = 1 AND l.result NOT IN ('VALIDO', 'SEM_LEITURA')",
-            );
-            $unsupportedReadings->execute([
-                "romaneio_id" => $romaneioId,
-                "company_id" => $companyId,
-            ]);
-            if ((int) $unsupportedReadings->fetchColumn() > 0) {
-                $pdo->rollBack();
-                responder_json(["error" => "Há leitura incorreta ou excedente; o romaneio não pode ser encerrado."], 409);
-            }
-
-            $uncoveredNoReadCount = $evidenceValidator->contarLeiturasSemImagemValidaNoRomaneio(
-                $companyId,
-                (int) $romaneioId,
-                ["SEM_LEITURA"],
-            );
-            if ($uncoveredNoReadCount > 0) {
-                $pdo->rollBack();
-                responder_json(["error" => "Aguarde a foto Keyence de cada saca sem leitura antes de encerrar o romaneio."], 409);
-            }
-
-            $uncoveredWrongProductCount = $evidenceValidator->contarLeiturasSemImagemValidaNoRomaneio(
-                $companyId,
-                (int) $romaneioId,
-                ["PRODUTO_INCORRETO"],
-            );
-            if ($uncoveredWrongProductCount > 0) {
-                $pdo->rollBack();
-                responder_json(["error" => "Aguarde a foto Keyence de cada produto fora do romaneio antes de encerrar."], 409);
-            }
-
+            // Evidências e leituras continuam em processamento após a conclusão operacional.
             $quantityMismatch = $pdo->prepare(
                 "SELECT COUNT(*) FROM carregamentos c
                  WHERE c.romaneio_id = :romaneio_id AND c.company_id = :company_id

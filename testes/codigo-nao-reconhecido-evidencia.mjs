@@ -35,7 +35,7 @@ test("produto reconhecido fora do romaneio mantém ocorrência e parada apropria
   assert.match(endpoint, /\$wrongProductDetected = \$classification\["wrong_product_detected"\]/);
   assert.match(
     endpoint,
-    /if \(\$wrongProductDetected\) \{[\s\S]*?if \(\$result === "PRODUTO_INCORRETO"\) \{/,
+    /if \(\$wrongProductDetected\) \{[\s\S]*?if \(\$result === "PRODUTO_INCORRETO" && \$loading\["state"\] !== "FINALIZADO"\) \{/,
   );
   assert.match(endpoint, /solicitarParadaPorProdutoIncorreto/);
   assert.doesNotMatch(endpoint, /solicitarParadaPorExcesso/);

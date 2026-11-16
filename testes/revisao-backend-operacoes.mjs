@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {spawnSync} from 'node:child_process';
 import test from 'node:test';
-test('cancelamento, encerramento e resumo usam o mesmo validador da fila',async()=>{
-  for(const route of ['romaneios/romaneios.php','operacoes/encerrar_carregamento.php','operacoes/resumo_carregamento.php']) {
+test('cancelamento e resumo usam o mesmo validador da fila',async()=>{
+  for(const route of ['romaneios/romaneios.php','operacoes/resumo_carregamento.php']) {
     const source=await readFile(new URL('../servidor/api/'+route,import.meta.url),'utf8');
     assert.match(source,/RepositorioFilaSensor\(\$pdo\)/,route);
     assert.match(source,/ValidadorFilaSensor::pendentes\(/,route);

@@ -40,61 +40,10 @@ export function motivoBloqueioFinalizacao(state) {
   if (detected < planned) {
     return "Aguarde o sensor atingir a quantidade prevista do romaneio.";
   }
-  const pendingSensor = Number(loading.leituras_pendentes_sensor);
-  if (loading.leituras_pendentes_sensor === null
-    || loading.leituras_pendentes_sensor === undefined
-    || !Number.isFinite(pendingSensor)
-    || pendingSensor > 0) {
-    return "Aguarde o leitor concluir a conferência das passagens detectadas.";
-  }
-  // Eventos já recebidos pelo servidor não provam que a fila local do sensor
-  // permaneceu vazia depois do último heartbeat.
-  const outboxPending = loading.sensor_outbox_pendentes;
-  const pendingOutboxCount = typeof outboxPending === "number"
-    ? outboxPending
-    : typeof outboxPending === "string" && outboxPending.trim() !== ""
-      ? Number(outboxPending)
-      : Number.NaN;
-  if (outboxPending === null || outboxPending === undefined
-    || !Number.isInteger(pendingOutboxCount)
-    || pendingOutboxCount < 0
-    || pendingOutboxCount > 0) {
-    return "Aguarde o sensor confirmar o envio de todas as passagens.";
-  }
-  const pendingImagesValue = loading.imagens_pendentes;
-  const pendingImages = Number(pendingImagesValue);
-  if (pendingImagesValue === null || pendingImagesValue === undefined || !Number.isFinite(pendingImages)) {
-    return "Aguarde o recebimento das fotos de evidência.";
-  }
-  if (pendingImages > 0) {
-    const photoLabel = pendingImages === 1 ? "foto" : "fotos";
-    return `Aguarde o recebimento de ${pendingImages} ${photoLabel} de evidência.`;
-  }
-  if (Number(loading.imagens_com_falha) > 0) {
-    return "Há foto(s) de evidência com falha. Verifique o envio do Keyence/FTP antes de finalizar.";
-  }
-  const wrongProductCount = Number(loading.produtos_incorretos) || 0;
-  if (wrongProductCount > 0) {
-    const photographedWrongProducts = Number(loading.produtos_incorretos_com_foto);
-    if (!Number.isFinite(photographedWrongProducts) || photographedWrongProducts < wrongProductCount) {
-      return "Aguarde a foto Keyence de cada produto fora do romaneio antes de finalizar.";
-    }
-  }
-  const requiredNoReadEvidence = Number(
-    loading.sem_leitura_evidencias_obrigatorias ?? loading.sem_leitura,
-  ) || 0;
-  if (requiredNoReadEvidence > 0) {
-    const validNoReadEvidence = Number(
-      loading.sem_leitura_evidencias_com_imagem ?? loading.sem_leitura_com_foto,
-    );
-    if (!Number.isFinite(validNoReadEvidence) || validNoReadEvidence < requiredNoReadEvidence) {
-      return "Aguarde a foto Keyence de cada saca sem leitura antes de finalizar.";
-    }
-  }
   return "";
 }
 
-/** Só libera o fechamento com meta física atingida, parada confirmada e filas concluídas. */
+/** Só libera o fechamento com meta física atingida, parada confirmada; evidências são processadas depois. */
 export function podeFinalizarCarregamento(state) {
   return motivoBloqueioFinalizacao(state) === "";
 }

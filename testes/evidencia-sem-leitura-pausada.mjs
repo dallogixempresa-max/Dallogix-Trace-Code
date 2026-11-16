@@ -33,22 +33,19 @@ test("o leitor associa a passagem pausada e registra o resultado sem consumir a 
   assert.doesNotMatch(readings, /Esta passagem foi capturada durante a pausa e não pode gerar leitura operacional/);
 });
 
-test("a finalização aguarda qualquer passagem sem resultado e toda foto legível", () => {
-  const pendingQuery = finish.slice(finish.indexOf("$pendingSensorEvents ="), finish.indexOf("$pendingSensorEvents->execute"));
-  assert.doesNotMatch(pendingQuery, /s\.conta_na_meta = 1/);
-  assert.match(finish, /contarLeiturasSemImagemValida\([\s\S]*?"SEM_LEITURA"/);
-  assert.match(finish, /contarLeiturasSemImagemValida\([\s\S]*?"PRODUTO_INCORRETO"/);
+test("a conclusão operacional não espera leitura ou foto, mas mantém meta e parada", () => {
+  assert.doesNotMatch(finish, /contarLeiturasSemImagemValida/);
+  assert.doesNotMatch(finish, /\$pendingSensorEvents =/);
+  assert.match(finish, /\$loadingDetectedQuantity !== \$loadingPlannedQuantity/);
+  assert.match(finish, /\$automaticQuotaStopAcknowledged/);
   assert.match(summary, /sem_leitura_evidencias_obrigatorias/);
-  assert.match(summary, /sem_leitura_evidencias_com_imagem/);
-  assert.match(finishRules, /sem_leitura_evidencias_obrigatorias/);
-  assert.match(finishRules, /sem_leitura_evidencias_com_imagem/);
   assert.match(validator, /trace_evidence_image_path/);
   assert.match(validator, /image_sha256/);
 });
 
 test("cancelamento e relatório não contornam evidência nem passagem pendente", () => {
   assert.match(romaneios, /contarLeiturasSemImagemValida\([\s\S]*?"SEM_LEITURA"/);
-  assert.match(romaneios, /contarLeiturasSemImagemValidaNoRomaneio/);
+  assert.match(report, /contarLeiturasSemImagemValida|missing_evidence_count/);
   assert.match(report, /\$unresolvedPassages = \$pdo->prepare/);
   const noReadRows = report.slice(report.indexOf("$noReadQuery ="), report.indexOf("$noReadQuery->execute"));
   assert.doesNotMatch(noReadRows, /l\.conta_na_meta = 1/);

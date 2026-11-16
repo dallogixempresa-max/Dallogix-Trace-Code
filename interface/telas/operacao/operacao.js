@@ -3,7 +3,7 @@ import { numero } from "../../js/funcoes/formato.js?v=202611120004";
 import { rotuloComando, rotuloEstado } from "../../js/funcoes/rotulos.js?v=202611120004";
 import { resolverComandoAtual } from "../../js/funcoes/estado-comando.js?v=202611120004";
 import { emergencyPanel, pageHeader } from "../../js/funcoes/view.js?v=202611120004";
-import { motivoBloqueioFinalizacao, podeFinalizarCarregamento } from "../../js/funcoes/regras-carregamento.js?v=202611120004";
+import { motivoBloqueioFinalizacao, podeFinalizarCarregamento } from "../../js/funcoes/regras-carregamento.js?v=202611160001";
 
 function equipmentLabel(store) {
   if (store.state.equipmentCode && store.state.equipmentCode !== "—") {
@@ -390,7 +390,7 @@ function workControls(store) {
     : store.state.stopReason === "COTA_PRODUTO_ATINGIDA"
       ? "A cota deste produto foi atingida. Aguarde a confirmação da parada física antes de continuar com outro produto."
     : store.state.stopReason === "COTA_ROMANEIO_ATINGIDA"
-      ? "A quantidade do romaneio foi atingida. Confirme a parada física e aguarde as leituras e fotos antes de finalizar."
+      ? "A quantidade do romaneio foi atingida. Confirme a parada física para finalizar; leituras e fotos serão conferidas no relatório."
     : !stopCommand
     ? "O gateway ainda não confirmou um comando de parada. Verifique a máquina antes de confirmar."
     : ["PENDENTE", "PROCESSANDO"].includes(pendingStatus)
@@ -413,7 +413,7 @@ function workControls(store) {
       ? "Quantidade excedida"
       : "Ação de segurança necessária";
   const stopConfirmationCheckLabel = stopReasonIsManifestQuota
-    ? "Confirmo que a esteira está fisicamente parada e vou conferir as leituras e fotos antes de finalizar."
+    ? "Confirmo que a esteira está fisicamente parada para finalizar a operação."
     : stopReasonIsProductQuota
     ? "Confirmo que a esteira está fisicamente parada e vou continuar com outro produto."
     : "Confirmo que a unidade foi removida e que a esteira está fisicamente parada.";
@@ -468,8 +468,8 @@ function workControls(store) {
     ? `Passagem acima da quantidade prevista registrada. ${quotaPauseConfirmed ? "O gateway confirmou o comando de pausa." : "Um comando de pausa foi solicitado ao gateway."} A finalização permanece bloqueada.`
     : complete
       ? finishReady
-        ? `Quantidade prevista atingida e comando de pausa confirmado. Leituras e fotos conferidas; finalize o romaneio.`
-        : `Quantidade prevista atingida. ${quotaPauseConfirmed ? "O gateway confirmou o comando de pausa." : "Aguardando o comando de pausa do gateway."} Aguarde a conferência das leituras e fotos para liberar a finalização.`
+        ? `Quantidade prevista atingida e comando de pausa confirmado. Finalize o romaneio; o relatório será conferido depois.`
+        : `Quantidade prevista atingida. ${quotaPauseConfirmed ? "O gateway confirmou o comando de pausa." : "Aguardando o comando de pausa do gateway."} Aguarde a confirmação da parada para liberar a finalização.`
       : nearEnd
         ? "Atenção: o carregamento está próximo da quantidade prevista."
         : "";

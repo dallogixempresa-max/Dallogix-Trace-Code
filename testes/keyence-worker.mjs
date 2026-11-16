@@ -223,7 +223,7 @@ test("integra SCANNER, fila SEM_LEITURA e preserva a origem para regenerar o PDF
   assert.match(sensorEventsEndpoint, /"image_action" => "AGUARDANDO_RESULTADO_LEITURA"/);
   assert.match(sensorEventsEndpoint, /"command_request_id" => \$targetStop\["command_request_id"\]/);
   assert.doesNotMatch(sensorEventsEndpoint, /SET state = 'FINALIZANDO'/);
-  assert.match(readingsEndpoint, /!in_array\(\$loading\["state"\], \["CARREGANDO", "FINALIZANDO", "PAUSADO"\], true\)/);
+  assert.match(readingsEndpoint, /!in_array\(\$loading\["state"\], \["CARREGANDO", "FINALIZANDO", "PAUSADO", "FINALIZADO"\], true\)/);
   assert.match(readingsEndpoint, /\$loading\["state"\] === "PAUSADO" && !\$sensorEventId/);
   assert.match(readingsEndpoint, /"Leitura aguardando o evento de passagem do sensor M2052\."/);
   assert.match(readingsEndpoint, /solicitarParadaPorProdutoIncorreto/);
