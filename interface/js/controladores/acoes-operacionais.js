@@ -1,8 +1,7 @@
 import {
-  divergenciaCobertaPorEvidencia,
   motivoBloqueioFinalizacao,
   podeFinalizarCarregamento,
-} from "../funcoes/regras-carregamento.js?v=202611120004";
+} from "../funcoes/regras-carregamento.js?v=202611160003";
 
 const ACOES_COMANDO_MAQUINA = new Set([
   "start-machine",
@@ -180,29 +179,7 @@ export function criarTratadorAcoesOperacionais({
       node.disabled = true;
     }
     try {
-      const hasItemDivergence = (store.state.loadingItems || []).some((item) =>
-        Number(item.loaded_quantity || 0) !== Number(item.planned_quantity || 0),
-      );
-      const evidenceCoversDivergence = divergenciaCobertaPorEvidencia(store.state);
-      const requiresSupervisorReview = hasItemDivergence && !evidenceCoversDivergence;
-      const canAuthorizeDivergence = ["ADMIN_EMPRESA", "SUPERVISOR"].includes(
-        String(store.state.userRole || "").toUpperCase(),
-      );
-      if (requiresSupervisorReview && !canAuthorizeDivergence) {
-        notificarForaDaOperacao(
-          "Há produto sem identificação ou com quantidade divergente. Um supervisor ou administrador precisa encerrar o carregamento com justificativa.",
-          "aviso",
-        );
-        return;
-      }
-      const justification = requiresSupervisorReview
-        ? await solicitarTexto(
-          "Justificativa obrigatória para finalizar com divergência:",
-          { obrigatorio: true, multilinha: true },
-        ) || ""
-        : "";
-      if (requiresSupervisorReview && !justification.trim()) return;
-      const result = await store.finishLoading(justification.trim());
+      const result = await store.finishLoading("");
       const manifestId = Number(result?.romaneio_id) || 0;
       if (!manifestId) throw new Error("Não foi possível identificar o romaneio finalizado.");
       let manifestLoaded = false;
@@ -210,22 +187,8 @@ export function criarTratadorAcoesOperacionais({
       if (result?.romaneio_pronto_para_encerrar && !result?.romaneio_finalizado) {
         await store.loadManifest(manifestId);
         manifestLoaded = true;
-        const pendingEvidence = Number(store.state.manifestDetail?.pending_evidence_count) || 0;
-        if (pendingEvidence > 0) {
-          notificarForaDaOperacao(
-            `O carregamento terminou, mas ainda há ${pendingEvidence} imagem(ns) de evidência pendente(s). O romaneio não foi encerrado.`,
-            "aviso",
-          );
-        } else {
-          try {
-            await store.finishManifest(manifestId);
-            manifestLoaded = true;
-            notificar("Romaneio encerrado. O relatório de auditoria já está disponível.");
-          } catch (error) {
-            manifestLoaded = false;
-            notificarForaDaOperacao(error.message || "Não foi possível encerrar o romaneio.", "erro");
-          }
-        }
+        await store.finishManifest(manifestId);
+        notificar("Romaneio encerrado. O relatório será processado após a conferência das pendências.");
       }
 
       if (!result?.romaneio_pronto_para_encerrar) {
