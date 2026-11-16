@@ -47,7 +47,7 @@ if ($_SERVER["REQUEST_METHOD"] === "PATCH") {
             "company_id" => $usuarioAtor["company_id"],
         ]);
         $current = $loading->fetch();
-        if (!$current || $current["state"] === "FINALIZADO" || $current["equipment_id"] !== null) {
+        if (!$current || $current["state"] !== "AGUARDANDO" || $current["equipment_id"] !== null) {
             $pdo->rollBack();
             responder_json(["error" => "Carregamento não está aguardando uma Dala."], 409);
         }
@@ -84,7 +84,7 @@ if ($_SERVER["REQUEST_METHOD"] === "PATCH") {
         }
         $update = $pdo->prepare(
             "UPDATE carregamentos
-             SET equipment_id = :equipment_id, state = 'AGUARDANDO', started_at = NULL
+             SET equipment_id = :equipment_id, state = 'PREPARANDO'
              WHERE id = :id AND company_id = :company_id",
         );
         $update->execute([
@@ -103,7 +103,7 @@ if ($_SERVER["REQUEST_METHOD"] === "PATCH") {
                 "equipment_code" => $target["equipment_code"],
                 "previous_equipment_id" => null,
                 "remote_carregamento_id" => $current["remote_carregamento_id"] === null ? null : (int) $current["remote_carregamento_id"],
-                "state" => "AGUARDANDO",
+                "state" => "PREPARANDO",
             ],
         );
         $pdo->commit();
@@ -111,7 +111,7 @@ if ($_SERVER["REQUEST_METHOD"] === "PATCH") {
             "id" => (int) $loadingId,
             "equipment_id" => (int) $equipmentId,
             "equipment_code" => $target["equipment_code"],
-            "state" => "AGUARDANDO",
+            "state" => "PREPARANDO",
         ]]);
     } catch (Throwable $exception) {
         if ($pdo->inTransaction()) {

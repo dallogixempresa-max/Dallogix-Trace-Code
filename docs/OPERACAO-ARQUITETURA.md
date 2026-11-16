@@ -22,3 +22,25 @@ continuam no histórico para rastreabilidade.
 A consulta PDO controlada não substitui integração com MySQL real. Não houve
 homologação física ou publicação destas alterações locais. A contagem no sentido
 normal permanece pendente da identificação de feedback físico do sentido no CLP.
+
+## Compatibilidade com o frontend finalizado — 16/11/2026
+
+Foram conferidos os serviços existentes de comandos, carregamento ativo,
+monitoramento, leituras, devoluções e finalização, seus caminhos públicos e
+os formatos de resposta usados pela tela.
+
+Foi corrigido o vínculo de Dala no PATCH de `carregamentos.php`: a operação
+ficava em AGUARDANDO, enquanto o comando de início aceita PREPARANDO/PAUSADO.
+O vínculo agora exige carregamento AGUARDANDO sem equipamento e passa para
+PREPARANDO, preservando o started_at anterior. Banco, auditoria e resposta
+passam a informar o mesmo estado. Vincular não envia comando ao CLP.
+
+`testes/contrato-operacoes.mjs` cobre dez casos: caminhos dos controladores,
+estado do vínculo aceito pelo frontend e serialização real do validador PHP
+consumida pela regra de finalização JavaScript existente. A suíte completa
+passou em 137 testes Node; os testes PHP da fila, consulta, classificação,
+retenção e histórico também passaram. Nenhum arquivo em interface foi alterado.
+
+O Docker local estava indisponível nesta revisão. Não foram executadas chamadas
+HTTP autenticadas contra MySQL real nem comandos no equipamento. Os testes de
+contrato não substituem essas validações.
