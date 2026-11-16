@@ -153,6 +153,44 @@ test("HID registra o código no Enter automático sem acionar um botão da tela"
   assert.equal(timers.size, 0);
 });
 
+test("HID recebe injeção Unicode do Windows sem duplicar teclas normais", () => {
+  const readings = [];
+  const capture = createHidScannerCapture({
+    isEnabled: () => true,
+    onBarcode: (barcode) => readings.push(barcode),
+    setTimer: () => 1,
+    clearTimer: () => {},
+  });
+  for (const character of "7898250782141") {
+    assert.equal(capture.handleKeyDown(keyboardEvent("Unidentified")), false);
+    assert.equal(capture.handleKeyPress(keyboardEvent(character)), true);
+  }
+  capture.handleKeyDown(keyboardEvent("Enter"));
+  for (const character of "7898250782141") {
+    capture.handleKeyDown(keyboardEvent(character));
+    assert.equal(capture.handleKeyPress(keyboardEvent(character)), false);
+  }
+  capture.handleKeyDown(keyboardEvent("Enter"));
+  assert.deepEqual(readings, ["7898250782141", "7898250782141"]);
+});
+
+test("HID Unicode respeita campos editáveis e desativação da captura", () => {
+  let enabled = true;
+  const readings = [];
+  const capture = createHidScannerCapture({
+    isEnabled: () => enabled,
+    onBarcode: (value) => readings.push(value),
+  });
+  capture.handleKeyDown(keyboardEvent("Unidentified"));
+  const editable = keyboardEvent("7", { target: { closest: () => ({}) } });
+  assert.equal(capture.handleKeyPress(editable), false);
+  assert.equal(editable.defaultPrevented, false);
+  capture.handleKeyDown(keyboardEvent("Unidentified"));
+  enabled = false;
+  assert.equal(capture.handleKeyPress(keyboardEvent("7")), false);
+  assert.deepEqual(readings, []);
+});
+
 test("HID envia automaticamente após silêncio quando o Wedge não acrescenta Enter", () => {
   let timestamp = 2000;
   const readings = [];
