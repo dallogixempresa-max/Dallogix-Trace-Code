@@ -124,3 +124,40 @@ avisos no armazenamento de imagens do worker (hash_file/unlink). A mesma anális
 sobre a versão anterior do worker reproduziu os dois avisos; o diff do worker
 altera somente a consulta de seleção das pendências. Não foram classificados
 como defeitos introduzidos por esta mudança.
+
+## Identidade das evidências do relatório — 16/11/2026
+
+O processamento do relatório continua posterior ao encerramento operacional.
+Esta revisão altera apenas backend e testes; não altera o botão Finalizar,
+layout, CSS, comandos da esteira ou mapa do CLP.
+
+- Antes de incorporar uma foto, conferir solicitação, empresa, Dala, carga,
+  passagem, motivo e leitura vinculada quando informada. O nome do arquivo
+  deve identificar a solicitação e seu SHA-256; os bytes continuam conferidos
+  contra esse hash. Não há tentativa de adivinhar um vínculo divergente.
+- Conferir cobertura de todas as solicitações capturadas selecionadas, sem
+  duplicar a mesma solicitação. As regras existentes de retorno de excesso
+  continuam aplicadas. A legenda registra evento e solicitação de evidência.
+- No PC, reconstruir o relatório com os dados atuais em vez de reutilizar o
+  PDF só porque a quantidade de fotos permanece igual. Preservar originais e
+  recuperação de bytes do PDF anterior. Inconsistência não libera PDF parcial.
+- O manifesto registra UUID da passagem, leitura, carga, motivo e hash de cada
+  foto. A assinatura do conjunto usa UUID estável, motivo e hash, independentes
+  dos IDs diferentes entre PC e Central. A assinatura acompanha a publicação
+  autenticada e é armazenada junto ao hash do PDF no Central.
+- O Central não replica as solicitações de captura nem recebe JPEGs separados.
+  Quando não há solicitações locais, confia na identidade conferida no PC e
+  recebida pelo upload autenticado, além dos controles existentes de quantidade
+  de incidentes e hash do PDF. Não reconfere associação física de fotos no Central.
+  Quando existem solicitações locais, compara também suas identidades individuais.
+- PDFs antigos sem assinatura nova permanecem preservados. Para serem servidos
+  pelo novo caminho de validação, precisam ser regenerados e republicados pelo
+  PC; esta revisão não apaga nem migra silenciosamente os arquivos anteriores.
+
+Validação local: 148 testes Node passaram, além dos testes PHP de classificação,
+retenção/recuperação e proteção de histórico. O novo teste recusa troca de
+empresa, Dala, carga, passagem, leitura, motivo, foto ausente e mudança de hash
+mesmo com totais iguais. PDF sintético gerado pelo renderizador de produção,
+inspecionado visualmente e com os três originais extraídos byte a byte.
+Isso não homologa captura física Keyence, transporte HTTP real ou concorrência
+MySQL. Nenhuma publicação ou ação sobre hardware realizada nesta revisão.

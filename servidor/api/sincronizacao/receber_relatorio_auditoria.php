@@ -14,6 +14,10 @@ $excessCount = filter_var($_SERVER["HTTP_X_TRACE_REPORT_EXCESS_COUNT"] ?? "0", F
 $excessEvidenceCount = filter_var($_SERVER["HTTP_X_TRACE_REPORT_EXCESS_EVIDENCE_COUNT"] ?? "0", FILTER_VALIDATE_INT);
 $wrongProductCount = filter_var($_SERVER["HTTP_X_TRACE_REPORT_WRONG_PRODUCT_COUNT"] ?? "0", FILTER_VALIDATE_INT);
 $wrongProductEvidenceCount = filter_var($_SERVER["HTTP_X_TRACE_REPORT_WRONG_PRODUCT_EVIDENCE_COUNT"] ?? "0", FILTER_VALIDATE_INT);
+$evidenceIdentity = strtolower(trim((string) ($_SERVER["HTTP_X_TRACE_REPORT_EVIDENCE_IDENTITY"] ?? "")));
+if ($evidenceIdentity !== "" && preg_match('/\A[a-f0-9]{64}\z/', $evidenceIdentity) !== 1) {
+    responder_json(["error" => "Identidade das evidências inválida."], 422);
+}
 $contentType = strtolower(trim(explode(";", (string) ($_SERVER["CONTENT_TYPE"] ?? ""))[0]));
 $contentLength = filter_var($_SERVER["CONTENT_LENGTH"] ?? null, FILTER_VALIDATE_INT);
 $maximumBytes = 24 * 1024 * 1024;
@@ -79,6 +83,7 @@ if (file_put_contents($temporaryPath, $pdf, LOCK_EX) !== strlen($pdf)
 $evidenceManifest = json_encode([
     "version" => 3,
     "pdf_sha256" => $expectedHash,
+    "evidence_identity_sha256" => $evidenceIdentity !== "" ? $evidenceIdentity : null,
     "no_read_count" => (int) $evidenceNoReadCount,
     "evidence_count" => (int) $evidenceCount,
     "excess_count" => (int) $excessCount,

@@ -8,6 +8,7 @@ use PDO;
 use RuntimeException;
 
 require_once __DIR__ . "/../../../scripts/image_storage_path.php";
+require_once __DIR__ . "/ConferidorEvidenciasRelatorio.php";
 
 /** Enfileira cópias imutáveis dos PDFs para publicação no Central. */
 final class ServicoPublicacaoRelatoriosAuditoria
@@ -193,6 +194,7 @@ final class ServicoPublicacaoRelatoriosAuditoria
         }
         $reportData = [
             "source_romaneio_id" => $romaneioId,
+            "evidence_identity_sha256" => is_array($evidenceManifest) ? ConferidorEvidenciasRelatorio::assinaturaManifesto($evidenceManifest) : null,
             "report_path" => $snapshot["relative_path"],
             "sha256" => $snapshot["sha256"],
             "size_bytes" => $snapshot["size_bytes"],
@@ -236,6 +238,8 @@ final class ServicoPublicacaoRelatoriosAuditoria
                     && array_key_exists($key, $existingData)
                     && (int) $existingData[$key] === (int) $reportData[$key];
             }
+            $metadataMatches = $metadataMatches
+                && ($existingData["evidence_identity_sha256"] ?? null) === $reportData["evidence_identity_sha256"];
             if ($metadataMatches) {
                 return false;
             }

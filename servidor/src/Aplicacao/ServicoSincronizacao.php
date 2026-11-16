@@ -637,6 +637,7 @@ final class ServicoSincronizacao
                 "X-Trace-Source-Romaneio-Id" => (string) (int) $sourceManifestId,
                 "X-Trace-Remote-Romaneio-Id" => (string) (int) $remoteManifestId,
                 "X-Trace-Report-SHA256" => $expectedHash,
+                "X-Trace-Report-Evidence-Identity" => (string) ($data["evidence_identity_sha256"] ?? ""),
                 "X-Trace-Report-No-Read-Count" => (string) (int) $evidenceNoReadCount,
                 "X-Trace-Report-Evidence-Count" => (string) (int) $evidenceCount,
                 "X-Trace-Report-Excess-Count" => (string) (int) $evidenceExcessCount,

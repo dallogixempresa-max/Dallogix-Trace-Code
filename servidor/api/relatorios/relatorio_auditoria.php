@@ -5,11 +5,13 @@ require_once __DIR__ . "/../../configuracao/bootstrap.php";
 require_once __DIR__ . "/../operacoes/temporizacao_leitor.php";
 require_once __DIR__ . "/../../src/Aplicacao/RelatorioAuditoriaPdf.php";
 require_once __DIR__ . "/../../src/Aplicacao/FontesEvidenciasRelatorio.php";
+require_once __DIR__ . "/../../src/Aplicacao/ConferidorEvidenciasRelatorio.php";
 require_once __DIR__ . "/../../src/Aplicacao/ServicoPublicacaoRelatoriosAuditoria.php";
 require_once __DIR__ . "/../../../scripts/image_storage_path.php";
 
 use App\Aplicacao\RelatorioAuditoriaPdf;
 use App\Aplicacao\FontesEvidenciasRelatorio;
+use App\Aplicacao\ConferidorEvidenciasRelatorio;
 use App\Aplicacao\ServicoPublicacaoRelatoriosAuditoria;
 
 $apiClient = $GLOBALS["trace_api_v1_client"] ?? null;
@@ -105,6 +107,28 @@ if ($loadIds !== []) {
         ], 409);
     }
 }
+// Hashes das capturas são comparáveis entre PC e Central sem depender dos IDs locais.
+$manifestCaptureQuery = $pdo->prepare(
+    "SELECT e.reason, e.image_sha256, s.event_uuid AS sensor_event_uuid FROM solicitacoes_imagens_evidencia e
+     JOIN carregamentos c ON c.id = e.carregamento_id
+     JOIN eventos_sensor s ON s.id = e.sensor_event_id AND s.carregamento_id = e.carregamento_id
+     WHERE c.romaneio_id = :romaneio_id AND c.company_id = :company_id
+       AND e.reason IN ('SEM_LEITURA', 'PRODUTO_INCORRETO', 'EXCESSO')
+       AND e.status = 'CAPTURADA'
+       AND (e.reason <> 'EXCESSO' OR s.conta_na_meta = 1) ORDER BY e.id",
+);
+$manifestCaptureQuery->execute(["romaneio_id" => $romaneioId, "company_id" => $user["company_id"]]);
+$manifestCaptures = $manifestCaptureQuery->fetchAll(PDO::FETCH_ASSOC);
+$isLocalReport = function_exists("trace_e_instalacao_local") && trace_e_instalacao_local();
+// O Central não replica as solicitações de captura. Nesse caso, a identidade
+// verificada no PC chega pelo upload autenticado e fica junto ao hash do PDF.
+// Havendo solicitações locais, exigimos também correspondência individual.
+$publishedIdentityMatches = static function (array $data) use ($manifestCaptures): bool {
+    if ($manifestCaptures !== []) {
+        return ConferidorEvidenciasRelatorio::manifestoCorresponde($data, $manifestCaptures);
+    }
+    return preg_match('/\A[a-f0-9]{64}\z/', (string) ($data["evidence_identity_sha256"] ?? "")) === 1;
+};
 // Um PDF publicado pelo PC já contém as fotos Keyence originais. O Central não
 // recebe os arquivos de imagem separadamente, então precisa servir esse PDF
 // validado antes de exigir evidências locais que só existem no PC industrial.
@@ -159,7 +183,8 @@ if ($publishedStorageRoot !== false) {
                 || ($publishedVersion === 1 && $publishedExcessCount === 0 && $publishedWrongProductCount === 0))
             && is_string($publishedHash)
             && hash_equals((string) ($publishedManifestData["pdf_sha256"] ?? ""), $publishedHash);
-        if ($publishedEvidenceValid) {
+        if ($publishedEvidenceValid && !$isLocalReport
+            && $publishedIdentityMatches($publishedManifestData)) {
             $publishedPdfBytes = file_get_contents($publishedReport);
             if (!is_string($publishedPdfBytes) || !str_starts_with($publishedPdfBytes, "%PDF-")) {
                 $respondJson(["error" => "O PDF publicado está inválido; as evidências foram preservadas."], 503);
@@ -327,7 +352,8 @@ if ($savedReport !== null && is_file($evidenceManifestPath) && !is_link($evidenc
         && is_string($cachedPdfHash)
         && hash_equals((string) ($manifestData["pdf_sha256"] ?? ""), $cachedPdfHash);
  }
-if ($savedReport !== null && $cachedEvidenceValid) {
+if ($savedReport !== null && $cachedEvidenceValid && !$isLocalReport
+    && $publishedIdentityMatches($manifestData)) {
     // nosemgrep: php.lang.security.injection.tainted-filename.tainted-filename -- Caminho usa IDs inteiros validados e é resolvido na raiz canônica, recusando links simbólicos.
     $savedPdf = file_get_contents($savedReport);
     if (!is_string($savedPdf) || !str_starts_with($savedPdf, "%PDF-")) {
@@ -622,14 +648,14 @@ if ($loadIds !== []) {
     $occurrences = $occurrenceQuery->fetchAll();
 
     $imageQuery = $pdo->prepare(
-        "SELECT i.id AS image_id, i.path, i.reason, i.captured_at,
+        "SELECT i.id AS image_id, i.company_id, i.equipment_id, i.carregamento_id, i.reading_id, i.path, i.reason, i.captured_at,
                 COALESCE(l.sensor_event_id, r.sensor_event_id) AS sensor_event_id,
                 r.id AS request_id, r.image_sha256
          FROM imagens i LEFT JOIN leituras l
            ON l.id = i.reading_id AND l.carregamento_id = i.carregamento_id
          LEFT JOIN solicitacoes_imagens_evidencia r
            ON r.carregamento_id = i.carregamento_id AND r.reason = i.reason
-          AND i.path LIKE CONCAT('%keyence-', r.id, '-%')
+          AND (i.path LIKE CONCAT('%keyence-', r.id, '-%') OR i.path LIKE CONCAT('%capture-', r.id, '-%'))
          WHERE i.carregamento_id IN ({$placeholders}) AND i.reason <> 'NORMAL'
            AND (i.reason <> 'EXCESSO'
              OR COALESCE(l.sensor_event_id, r.sensor_event_id) IS NULL
@@ -645,9 +671,10 @@ if ($loadIds !== []) {
     $capturedRequestsQuery = $pdo->prepare(
         "SELECT r.id AS request_id, r.carregamento_id, c.company_id,
                 COALESCE(r.equipment_id, c.equipment_id) AS equipment_id,
-                r.reason, r.captured_at, r.sensor_event_id, r.image_sha256, l.id AS reading_id
+                r.reason, r.captured_at, r.sensor_event_id, r.image_sha256, l.id AS reading_id, s_ref.event_uuid AS sensor_event_uuid
          FROM solicitacoes_imagens_evidencia r
          JOIN carregamentos c ON c.id = r.carregamento_id
+         JOIN eventos_sensor s_ref ON s_ref.id = r.sensor_event_id AND s_ref.carregamento_id = r.carregamento_id
          LEFT JOIN leituras l ON l.sensor_event_id = r.sensor_event_id
            AND l.carregamento_id = r.carregamento_id AND l.company_id = c.company_id
            AND ((r.reason = 'SEM_LEITURA' AND l.result = 'SEM_LEITURA')
@@ -688,6 +715,9 @@ if ($loadIds !== []) {
         }
         $incidentImages[] = [
             "image_id" => null,
+            "carregamento_id" => (int) $request["carregamento_id"],
+            "company_id" => $companyId,
+            "equipment_id" => $equipmentId,
             "path" => "company_{$companyId}/equipment_{$equipmentId}/keyence-{$requestId}-{$imageHash}.jpg",
             "reason" => (string) $request["reason"],
             "captured_at" => (string) $request["captured_at"],
@@ -697,6 +727,11 @@ if ($loadIds !== []) {
             "reading_id" => $request["reading_id"] === null ? null : (int) $request["reading_id"],
         ];
         $representedRequestIds[$requestId] = true;
+    }
+    try {
+        $incidentImages = ConferidorEvidenciasRelatorio::vincular($incidentImages, $capturedRequests);
+    } catch (Throwable $exception) {
+        $reportFailure($exception);
     }
     usort($incidentImages, static function (array $left, array $right): int {
         $timeOrder = strcmp((string) ($left["captured_at"] ?? ""), (string) ($right["captured_at"] ?? ""));
@@ -798,6 +833,7 @@ if ($incidentImages !== []) {
             $sackReference = $sackReferencesByEvent[$sensorEventId] ?? "passagem sem número";
             $caption = "Saca em excesso · {$sackReference} · {$capturedAt}";
         }
+        $caption .= " · Evento {$sensorEventId} · Evidência {$requestId}";
         foreach ($sourceImages as $sourceImage) {
             $sourceHash = hash("sha256", $sourceImage["bytes"]);
             if ($expectedImageHash !== "" && preg_match('/\A[a-f0-9]{64}\z/', $expectedImageHash) === 1
@@ -811,6 +847,9 @@ if ($incidentImages !== []) {
                 "image_id" => $imageId > 0 ? $imageId : null,
                 "request_id" => $requestId > 0 ? $requestId : null,
                 "sha256" => $sourceHash,
+                "carregamento_id" => (int) $image["carregamento_id"],
+                "reading_id" => $image["reading_id"] ?? null,
+                "sensor_event_uuid" => $image["sensor_event_uuid"] ?? null,
                 "reason" => (string) $image["reason"],
                 "captured_at" => (string) $image["captured_at"],
                 "sensor_event_id" => $sensorEventId > 0 ? $sensorEventId : null,
@@ -1034,6 +1073,9 @@ if (file_put_contents($temporaryReportPath, $pdfBytes, LOCK_EX) !== strlen($pdfB
                 "image_id" => $image["image_id"],
                 "request_id" => $image["request_id"],
                 "sha256" => $image["sha256"],
+                "carregamento_id" => $image["carregamento_id"],
+                "reading_id" => $image["reading_id"],
+                "sensor_event_uuid" => $image["sensor_event_uuid"],
                 "reason" => $image["reason"],
                 "captured_at" => $image["captured_at"],
                 "sensor_event_id" => $image["sensor_event_id"],
