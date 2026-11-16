@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . "/../../configuracao/bootstrap.php";
+require_once __DIR__ . "/../../src/Aplicacao/PoliticaVinculoDala.php";
 require_once __DIR__ . "/../../src/Aplicacao/ServicoMonitoramento.php";
 
 use App\Aplicacao\ServicoMonitoramento;
@@ -47,7 +48,8 @@ if ($_SERVER["REQUEST_METHOD"] === "PATCH") {
             "company_id" => $usuarioAtor["company_id"],
         ]);
         $current = $loading->fetch();
-        if (!$current || $current["state"] !== "AGUARDANDO" || $current["equipment_id"] !== null) {
+        $nextState = $current ? \App\Aplicacao\PoliticaVinculoDala::estadoAposVinculo($current) : null;
+        if ($nextState === null) {
             $pdo->rollBack();
             responder_json(["error" => "Carregamento não está aguardando uma Dala."], 409);
         }
@@ -84,11 +86,12 @@ if ($_SERVER["REQUEST_METHOD"] === "PATCH") {
         }
         $update = $pdo->prepare(
             "UPDATE carregamentos
-             SET equipment_id = :equipment_id, state = 'PREPARANDO'
+             SET equipment_id = :equipment_id, state = :state
              WHERE id = :id AND company_id = :company_id",
         );
         $update->execute([
             "equipment_id" => $equipmentId,
+            "state" => $nextState,
             "id" => $loadingId,
             "company_id" => $usuarioAtor["company_id"],
         ]);
@@ -103,7 +106,7 @@ if ($_SERVER["REQUEST_METHOD"] === "PATCH") {
                 "equipment_code" => $target["equipment_code"],
                 "previous_equipment_id" => null,
                 "remote_carregamento_id" => $current["remote_carregamento_id"] === null ? null : (int) $current["remote_carregamento_id"],
-                "state" => "PREPARANDO",
+                "state" => $nextState,
             ],
         );
         $pdo->commit();
@@ -111,7 +114,7 @@ if ($_SERVER["REQUEST_METHOD"] === "PATCH") {
             "id" => (int) $loadingId,
             "equipment_id" => (int) $equipmentId,
             "equipment_code" => $target["equipment_code"],
-            "state" => "PREPARANDO",
+            "state" => $nextState,
         ]]);
     } catch (Throwable $exception) {
         if ($pdo->inTransaction()) {

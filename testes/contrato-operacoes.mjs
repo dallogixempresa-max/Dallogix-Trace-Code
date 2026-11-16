@@ -9,10 +9,10 @@ const root = new URL('../', import.meta.url);
 const source = await readFile(new URL('servidor/api/operacoes/carregamentos.php', root), 'utf8');
 test('vínculo de Dala devolve estado aceito pelo início sem apagar horário original', () => {
   const patch = source.split('if ($_SERVER["REQUEST_METHOD"] === "PATCH") {')[1].split('if ($_SERVER["REQUEST_METHOD"] !== "POST")')[0];
-  assert.match(patch, /\$current\["state"\] !== "AGUARDANDO"/);
-  assert.match(patch, /SET equipment_id = :equipment_id, state = 'PREPARANDO'/);
+  assert.match(patch, /PoliticaVinculoDala::estadoAposVinculo/);
+  assert.match(patch, /SET equipment_id = :equipment_id, state = :state/);
   assert.doesNotMatch(patch, /started_at\s*=/);
-  assert.equal([...patch.matchAll(/"state" => "PREPARANDO"/g)].length, 2, 'auditoria e resposta devem refletir o estado gravado');
+  assert.equal([...patch.matchAll(/"state" => \$nextState/g)].length, 3, 'auditoria e resposta devem refletir o estado gravado');
   const locks = workControlLocks({loadingId:42, operationalState:'PREPARANDO',running:false,userRole:'USUARIO',reversalCommand:'REVERSAO_DESATIVAR',planned:10,detectedBags:0});
   assert.equal(locks.run, '');
 });

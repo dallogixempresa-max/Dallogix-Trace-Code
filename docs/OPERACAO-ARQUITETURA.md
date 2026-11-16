@@ -31,8 +31,8 @@ os formatos de resposta usados pela tela.
 
 Foi corrigido o vínculo de Dala no PATCH de `carregamentos.php`: a operação
 ficava em AGUARDANDO, enquanto o comando de início aceita PREPARANDO/PAUSADO.
-O vínculo agora exige carregamento AGUARDANDO sem equipamento e passa para
-PREPARANDO, preservando o started_at anterior. Banco, auditoria e resposta
+A política vigente de vínculo está detalhada na revisão independente abaixo;
+o started_at anterior é preservado. Banco, auditoria e resposta
 passam a informar o mesmo estado. Vincular não envia comando ao CLP.
 
 `testes/contrato-operacoes.mjs` cobre dez casos: caminhos dos controladores,
@@ -44,3 +44,31 @@ retenção e histórico também passaram. Nenhum arquivo em interface foi altera
 O Docker local estava indisponível nesta revisão. Não foram executadas chamadas
 HTTP autenticadas contra MySQL real nem comandos no equipamento. Os testes de
 contrato não substituem essas validações.
+
+## Revisão independente incorporada — 16/11/2026
+
+Referência da revisão recebida: `86d91926`. A revisão anterior considerava o
+estado desse commit; as correções seguintes não estavam naquele diff.
+
+- Cancelamento de romaneio também passa a usar `RepositorioFilaSensor` e
+  `ValidadorFilaSensor`, com lock dentro da transação já existente. Assim,
+  mapa `[]`, literal JSON `null`, valor inválido e dispositivo sem confirmação
+  recente seguem a mesma recusa no cancelamento e no encerramento.
+- A política de vínculo aceita apenas cargas sem equipamento em AGUARDANDO,
+  PREPARANDO ou PAUSADO. AGUARDANDO passa para PREPARANDO; PREPARANDO e PAUSADO
+  preservam seus estados. CARREGANDO, FINALIZANDO, EMERGENCIA, FINALIZADO e
+  estados desconhecidos são recusados. Vincular não libera emergência nem
+  inicia movimento.
+- O horário original permanece preservado. Um timestamp recebido por
+  sincronização pode representar início real; não há evidência suficiente
+  nesta revisão para apagá-lo ou reinterpretá-lo automaticamente.
+- Ao ficar PREPARANDO, a Dala tem operação ativa e sua exclusão é recusada
+  pelo bloqueio existente. Um teste exercita a política de vínculo e a
+  recusa no repositório de Dalas com SQLite.
+- Foi removido o teste de `false` após a função que retorna apenas int/null.
+
+Validação local: 139 testes Node e 16 casos PHP da fila passaram. A revisão
+externa relatou falta de PHP no ambiente dela; isso não foi reproduzido neste
+Mac, onde os testes PHP foram executados. O teste PDO controlado não comprova
+lock real de MySQL e essa limitação permanece aberta. Frontend byte-idêntico
+à base d3cd3c24; nenhuma publicação efetuada nesta rodada.

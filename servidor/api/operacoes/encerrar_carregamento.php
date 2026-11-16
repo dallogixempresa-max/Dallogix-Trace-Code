@@ -146,8 +146,7 @@ $pendingEventsCount = \App\Aplicacao\ValidadorFilaSensor::pendentes(
 // Exija confirmação recente do outbox local para garantir que não há passagens
 // ainda aguardando envio no sensor.
 if (
-    $pendingEventsCount === false
-    || $pendingEventsCount === null
+    $pendingEventsCount === null
     || $pendingEventsCount > 0
 ) {
     $pdo->rollBack();
