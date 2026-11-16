@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . "/../../configuracao/bootstrap.php";
 require_once __DIR__ . "/../../src/Aplicacao/ValidadorFilaSensor.php";
+require_once __DIR__ . "/../../src/Persistencia/RepositorioFilaSensor.php";
 require_once __DIR__ . "/../../src/Aplicacao/ValidadorEvidenciasOperacionais.php";
 
 $user = require_session_user();
@@ -133,20 +134,10 @@ if ((int) $pendingSensorEvents->fetchColumn() > 0) {
     $pdo->rollBack();
     json_response(["error" => "Aguarde o leitor concluir ou expirar as passagens detectadas antes de encerrar."], 409);
 }
-$sensorOutbox = $pdo->prepare(
-    "SELECT status,
-            CASE WHEN last_seen_at >= DATE_SUB(NOW(3), INTERVAL 5 SECOND) THEN 1 ELSE 0 END AS heartbeat_fresh,
-            JSON_UNQUOTE(JSON_EXTRACT(details, '$.sensor_event_outbox_pending')) AS pending_events,
-            JSON_EXTRACT(details, '$.sensor_event_outbox_pending_by_loading') AS pending_events_by_loading
-     FROM status_dispositivos
-     WHERE equipment_id = :equipment_id AND device_type = 'SENSOR'
-     LIMIT 1 FOR UPDATE",
+$sensorOutboxState = (new \App\Persistencia\RepositorioFilaSensor($pdo))->consultar(
+    (int) $loading["equipment_id"],
+    true,
 );
-$sensorOutbox->execute(["equipment_id" => (int) $loading["equipment_id"]]);
-$sensorOutboxState = $sensorOutbox->fetch(PDO::FETCH_ASSOC);
-$sensorOutboxFresh = $sensorOutboxState
-    && $sensorOutboxState["status"] === "ONLINE"
-    && (int) $sensorOutboxState["heartbeat_fresh"] === 1;
 $pendingEventsCount = \App\Aplicacao\ValidadorFilaSensor::pendentes(
     $sensorOutboxState ?: [],
     (int) $loadingId,
@@ -155,8 +146,7 @@ $pendingEventsCount = \App\Aplicacao\ValidadorFilaSensor::pendentes(
 // Exija confirmação recente do outbox local para garantir que não há passagens
 // ainda aguardando envio no sensor.
 if (
-    !$sensorOutboxFresh
-    || $pendingEventsCount === false
+    $pendingEventsCount === false
     || $pendingEventsCount === null
     || $pendingEventsCount > 0
 ) {

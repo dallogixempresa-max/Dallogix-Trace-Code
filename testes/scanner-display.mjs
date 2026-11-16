@@ -4,7 +4,8 @@ import test from "node:test";
 import { ServicoLeiturasOperacionais } from "../interface/js/servicos/ServicoLeiturasOperacionais.js";
 import { createHidScannerCapture, isScannerNoReadMarker } from "../interface/js/controladores/captura-leitor-hid.js";
 
-const operation = await readFile(new URL("../interface/telas/operacao/operacao.js", import.meta.url), "utf8");
+const operation = await readFile(new URL("../interface/telas/operacao/operacao.js", import.meta.url), "utf8")
+  + await readFile(new URL("../interface/js/funcoes/controles-operacao.js", import.meta.url), "utf8");
 const liveView = await readFile(new URL("../interface/js/controladores/estado-visualizacao.js", import.meta.url), "utf8");
 const operationalForms = await readFile(new URL("../interface/js/controladores/formularios-operacionais.js", import.meta.url), "utf8");
 const activeLoading = await readFile(new URL("../interface/js/servicos/ServicoCarregamentoAtivo.js", import.meta.url), "utf8");
@@ -14,6 +15,7 @@ const keyenceWorkerApi = await readFile(new URL("../servidor/api/keyence_worker.
 const equipmentGatewayApi = await readFile(new URL("../servidor/api/dalas/equipamentos_gateway.php", import.meta.url), "utf8");
 const sensorEventsApi = await readFile(new URL("../servidor/api/operacoes/sensor_eventos.php", import.meta.url), "utf8");
 const readingsEndpoint = await readFile(new URL("../servidor/api/operacoes/leituras.php", import.meta.url), "utf8");
+const sensorQueueRepository = await readFile(new URL("../servidor/src/Persistencia/RepositorioFilaSensor.php", import.meta.url), "utf8");
 const finishLoadingApi = await readFile(new URL("../servidor/api/operacoes/encerrar_carregamento.php", import.meta.url), "utf8");
 const loadingSummaryApi = await readFile(new URL("../servidor/api/operacoes/resumo_carregamento.php", import.meta.url), "utf8");
 const installationHeartbeatDetails = await readFile(new URL("../servidor/src/Aplicacao/DetalhesHeartbeatInstalacao.php", import.meta.url), "utf8");
@@ -82,10 +84,11 @@ test("fila durável do M2052 é reprocessada após reinício e fechamento aguard
   assert.match(heartbeat, /sensor_event_outbox_pending = events\.length/);
   assert.match(heartbeat, /sensor_event_outbox_pending_by_loading = outbox\.countEventsByLoading\(events\)/);
   assert.match(finishLoadingApi, /NOT EXISTS \(SELECT 1 FROM leituras l WHERE l\.sensor_event_id = s\.id\)/);
-  assert.match(finishLoadingApi, /sensor_event_outbox_pending/);
-  assert.match(finishLoadingApi, /pending_events_by_loading/);
+  assert.match(sensorQueueRepository, /sensor_event_outbox_pending/);
+  assert.match(finishLoadingApi, /RepositorioFilaSensor/);
+  assert.match(sensorQueueRepository, /pending_events_by_loading/);
   assert.match(loadingSummaryApi, /leituras_pendentes_sensor/);
-  assert.match(loadingSummaryApi, /pending_events_by_loading/);
+  assert.match(loadingSummaryApi, /RepositorioFilaSensor/);
   assert.match(observabilityService, /resumo_carregamento\.php\?carregamento_id=/);
   assert.match(operationalRealtime, /store\.loadSummaryMonitoring\(\)/);
   assert.match(loadingFinishRules, /outboxPending === null/);

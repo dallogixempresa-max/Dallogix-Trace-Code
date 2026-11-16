@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . "/../../configuracao/bootstrap.php";
 require_once __DIR__ . "/../../src/Aplicacao/ValidadorFilaSensor.php";
+require_once __DIR__ . "/../../src/Persistencia/RepositorioFilaSensor.php";
 require_once __DIR__ . "/../../src/Aplicacao/ValidadorEvidenciasOperacionais.php";
 
 $user = require_session_user();
@@ -234,23 +235,10 @@ $data["leituras_pendentes_sensor"] = $count(
        AND NOT EXISTS (SELECT 1 FROM leituras l WHERE l.sensor_event_id = s.id)",
     ["id" => $loadingId],
 );
-$sensorOutbox = $pdo->prepare(
-    "SELECT CASE
-       WHEN status = 'ONLINE' AND last_seen_at >= DATE_SUB(NOW(3), INTERVAL 5 SECOND)
-       THEN JSON_UNQUOTE(JSON_EXTRACT(details, '$.sensor_event_outbox_pending'))
-       ELSE NULL
-     END AS pending_events,
-     CASE
-       WHEN status = 'ONLINE' AND last_seen_at >= DATE_SUB(NOW(3), INTERVAL 5 SECOND)
-       THEN JSON_EXTRACT(details, '$.sensor_event_outbox_pending_by_loading')
-       ELSE NULL
-     END AS pending_events_by_loading
-     FROM status_dispositivos
-     WHERE equipment_id = :equipment_id AND device_type = 'SENSOR'
-     LIMIT 1",
+$sensorOutboxState = (new \App\Persistencia\RepositorioFilaSensor($pdo))->consultar(
+    (int) $data["equipment_id"],
+    false,
 );
-$sensorOutbox->execute(["equipment_id" => (int) $data["equipment_id"]]);
-$sensorOutboxState = $sensorOutbox->fetch(PDO::FETCH_ASSOC) ?: [];
 $data["sensor_outbox_pendentes"] = \App\Aplicacao\ValidadorFilaSensor::pendentes(
     $sensorOutboxState ?: [],
     (int) $loadingId,

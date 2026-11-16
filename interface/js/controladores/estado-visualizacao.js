@@ -1,3 +1,4 @@
+import { apresentacaoProgressoOperacao } from "../funcoes/progresso-operacao.js?v=202611150003";
 import { apresentacaoConectividadePc, apresentacaoStatusDispositivo, renderStatusDalaBinario, resumoStatusDispositivos } from "../../telas/configuracoes/configuracoes.js?v=202611120004";
 import { operationStructureSignature, renderDalaStatuses } from "./operacao.js?v=202611120004";
 import { numero, relativo, dataHora } from "../funcoes/formato.js?v=202611120004";
@@ -72,7 +73,7 @@ export function createLiveViewController({
     const scannerValue = document.querySelector('[data-live="scanner-value"]');
     scannerValue?.classList.toggle(
       "is-error",
-      leitorPodeConcluirPassagens && store.state.latestScannerReading?.result === "SEM_LEITURA",
+      leitorPodeConcluirPassagens && ["SEM_LEITURA", "PRODUTO_INCORRETO"].includes(store.state.latestScannerReading?.result),
     );
     const progressBar = document.querySelector('[data-live="progress-bar"]');
     if (progressBar) {
@@ -81,20 +82,9 @@ export function createLiveViewController({
     }
     const endNotice = document.querySelector('[data-live="end-notice"]');
     if (endNotice) {
-      const threshold = planned > 0 ? Math.max(1, Math.ceil(planned * 0.1)) : 0;
-      const nearEnd = planned > 0 && detectedBags > 0 && remaining > 0 && remaining <= threshold;
-      const complete = planned > 0 && detectedBags >= planned;
-      const excess = planned > 0 && detectedBags > planned;
+      const { nearEnd, complete, excess, endNotice: message } = apresentacaoProgressoOperacao(store.state);
       const finishReady = podeFinalizarCarregamento(store.state);
-      endNotice.textContent = excess
-        ? `Atenção: ${numero(detectedBags - planned)} sacas passaram do total previsto.`
-        : complete
-          ? finishReady
-            ? "Quantidade prevista atingida e conferência concluída. Finalize o romaneio no botão acima."
-            : "Quantidade prevista atingida. Conclua as confirmações pendentes para liberar a finalização."
-          : nearEnd
-            ? "Atenção: o carregamento está próximo da quantidade prevista."
-            : "";
+      endNotice.textContent = message;
       endNotice.hidden = !complete && !nearEnd && !excess;
       endNotice.classList.toggle("complete", complete && !excess);
       endNotice.classList.toggle("near-end", nearEnd && !complete);

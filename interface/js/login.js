@@ -3,7 +3,7 @@ import { ClienteApi, erroRespostaHttp } from "./api/ClienteApi.js?v=202611120004
 import { notificar } from "./componentes/notificacoes.js?v=202611120004";
 import { logFrontend, configurarTransporteLogs } from "./utilitarios/LogFrontend.js?v=202611120004";
 import { ServicoAtivacaoLocal } from "./servicos/ServicoAtivacaoLocal.js?v=202611120004";
-import { ServicoObservabilidade } from "./servicos/ServicoObservabilidade.js?v=202611120004";
+import { ServicoObservabilidade } from "./servicos/ServicoObservabilidade.js?v=202611150003";
 import {
   bindLoginForm,
   bindLocalActivationForm,

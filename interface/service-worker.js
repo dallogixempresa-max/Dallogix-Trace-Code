@@ -1,5 +1,5 @@
-const CACHE_NAME = "trace-shell-20261115-02";
-const APPLICATION_ASSET_VERSION = "202611150002";
+const CACHE_NAME = "trace-shell-20261115-03";
+const APPLICATION_ASSET_VERSION = "202611150003";
 const PRECACHE_CONCURRENCY = 4;
 const SHELL = [
   "/",
@@ -62,6 +62,11 @@ const SHELL = [
   "/telas/logs-erros/logs-erros.js",
   "/telas/ocorrencias/ocorrencias.js",
   "/telas/operacao/operacao.js",
+  "/telas/operacao/selecao-dala.js",
+  "/telas/operacao/itens-romaneio.js",
+  "/js/funcoes/controles-operacao.js",
+  "/js/funcoes/progresso-operacao.js",
+  "/js/controladores/executor-comandos-operacao.js",
   "/telas/painel/painel.js",
   "/telas/painel-dallogix/painel-dallogix.js",
   "/telas/produtos/produtos.js",
