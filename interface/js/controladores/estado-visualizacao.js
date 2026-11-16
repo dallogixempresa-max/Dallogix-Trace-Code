@@ -3,7 +3,7 @@ import { operationStructureSignature, renderDalaStatuses } from "./operacao.js?v
 import { numero, relativo, dataHora } from "../funcoes/formato.js?v=202611120004";
 import { el } from "../funcoes/html.js";
 import { refreshCompanyStatusCards } from "../funcoes/view.js?v=202611120004";
-import { motivoBloqueioFinalizacao, podeFinalizarCarregamento } from "../funcoes/regras-carregamento.js?v=202611120004";
+import { motivoBloqueioFinalizacao, podeFinalizarCarregamento } from "../funcoes/regras-carregamento.js?v=202611160001";
 
 /** Mantém as regiões de estado sincronizadas sem recriar formulários ou a tela toda. */
 export function createLiveViewController({
@@ -90,7 +90,7 @@ export function createLiveViewController({
         ? `Atenção: ${numero(detectedBags - planned)} sacas passaram do total previsto.`
         : complete
           ? finishReady
-            ? "Quantidade prevista atingida e conferência concluída. Finalize o romaneio no botão acima."
+            ? "Quantidade prevista atingida e parada confirmada. Finalize o romaneio; o relatório será conferido depois."
             : "Quantidade prevista atingida. Conclua as confirmações pendentes para liberar a finalização."
           : nearEnd
             ? "Atenção: o carregamento está próximo da quantidade prevista."

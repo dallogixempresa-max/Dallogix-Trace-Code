@@ -104,7 +104,7 @@ test("heartbeat SENSOR preserva a fila agregada para liberar a finalização no 
   assert.match(remoteSyncService, /SELECT id, remote_carregamento_id FROM carregamentos/);
   assert.match(remoteSyncService, /\$translated\[\$key\] = \(\$translated\[\$key\] \?\? 0\) \+ \$count/);
   assert.match(loadingSummaryApi, /ValidadorFilaSensor::pendentes/);
-  assert.match(loadingSummaryApi, /\$pendingEventsByLoading\)\s*\?\s*\(int\)\s*\(\$pendingEventsByLoading\[\(string\) \$loadingId\][\s\S]*?:\s*\(\$sensorOutboxState\["pending_events"\]/);
+  assert.match(loadingSummaryApi, /ValidadorFilaSensor::pendentes\([\s\S]*\(int\) \$loadingId/);
 });
 
 test("a meta do romaneio solicita parada sem criar uma ocorrência de excesso", () => {
