@@ -347,7 +347,7 @@ final class ServicoSincronizacaoRemota
             throw new RuntimeException("A instalação não possui uma Dala vinculada para enviar o heartbeat.");
         }
         $statement = $this->connection->prepare(
-            "SELECT e.remote_equipment_id, e.equipment_code, s.device_type, s.status, s.last_seen_at, s.details
+            "SELECT e.company_id, e.remote_equipment_id, e.equipment_code, s.device_type, s.status, s.last_seen_at, s.details
              FROM status_dispositivos s JOIN equipamentos e ON e.id = s.equipment_id
              WHERE e.company_id = :company_id AND e.remote_equipment_id = :remote_equipment_id",
         );
@@ -355,18 +355,48 @@ final class ServicoSincronizacaoRemota
             "company_id" => $companyId,
             "remote_equipment_id" => $remoteEquipmentId,
         ]);
-        $heartbeats = array_map(static fn (array $row): array => [
+        $heartbeats = array_map(function (array $row): array {
+            $details = DetalhesHeartbeatInstalacao::normalizar(
+                (string) $row["device_type"],
+                (string) $row["status"],
+                $row["details"] ?? null,
+            );
+            if (strtoupper((string) $row["device_type"]) === "SENSOR"
+                && isset($details["sensor_event_outbox_pending_by_loading"])) {
+                $localIds = array_keys($details["sensor_event_outbox_pending_by_loading"]);
+                $remoteIds = [];
+                if ($localIds !== []) {
+                    $placeholders = implode(",", array_fill(0, count($localIds), "?"));
+                    $lookup = $this->connection->prepare(
+                        "SELECT id, remote_carregamento_id FROM carregamentos
+                         WHERE company_id = ? AND id IN ({$placeholders})",
+                    );
+                    $lookup->execute([(int) $row["company_id"], ...array_map("intval", $localIds)]);
+                    foreach ($lookup->fetchAll(PDO::FETCH_ASSOC) as $loading) {
+                        $remoteId = (int) ($loading["remote_carregamento_id"] ?? 0);
+                        if ($remoteId > 0) {
+                            $remoteIds[(string) $loading["id"]] = (string) $remoteId;
+                        }
+                    }
+                }
+                $translated = [];
+                foreach ($details["sensor_event_outbox_pending_by_loading"] as $localId => $count) {
+                    if (isset($remoteIds[$localId])) {
+                        $key = $remoteIds[$localId];
+                        $translated[$key] = ($translated[$key] ?? 0) + $count;
+                    }
+                }
+                $details["sensor_event_outbox_pending_by_loading"] = $translated;
+            }
+            return [
             "remote_equipment_id" => $row["remote_equipment_id"] === null ? null : (int) $row["remote_equipment_id"],
             "equipment_code" => $row["equipment_code"],
             "device_type" => $row["device_type"],
             "status" => $row["status"],
             "last_seen_at" => $row["last_seen_at"],
-            "details" => DetalhesHeartbeatInstalacao::normalizar(
-                (string) $row["device_type"],
-                (string) $row["status"],
-                $row["details"] ?? null,
-            ),
-        ], $statement->fetchAll());
+            "details" => $details,
+            ];
+        }, $statement->fetchAll());
         $storagePath = dirname(__DIR__, 3) . "/armazenamento";
         $diskFree = is_dir($storagePath) ? @disk_free_space($storagePath) : false;
         $diskTotal = is_dir($storagePath) ? @disk_total_space($storagePath) : false;
