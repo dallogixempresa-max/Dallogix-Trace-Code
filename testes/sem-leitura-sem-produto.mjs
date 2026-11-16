@@ -23,10 +23,10 @@ test("a query de falhas de leitura inclui product_id e nome do produto", () => {
   assert.match(auditoria, /LEFT JOIN produtos p ON p\.id = l\.product_id/);
 });
 
-test("a tabela de falhas exibe coluna Produto com fallback 'Não identificado'", () => {
-  // Produto NULL deve aparecer como texto explícito, não como vazio ou travessão.
+test("a tabela de falhas identifica códigos válidos sem produto cadastrado", () => {
   assert.match(auditoria, /\$row\["product_name"\] \?\? "Não identificado"/);
-  assert.match(auditoria, /"Data\/hora", "Produto", "Passagem e tratamento"/);
+  assert.match(auditoria, /"Data\/hora", "Produto", "Código recebido", "Passagem e tratamento"/);
+  assert.match(auditoria, /\$row\["product_name"\] \?\? "Código válido não cadastrado"/);
   assert.doesNotMatch(auditoria, /"Evidência da imagem"|evidence_label/);
 });
 

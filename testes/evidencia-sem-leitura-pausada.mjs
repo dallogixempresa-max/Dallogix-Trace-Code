@@ -37,8 +37,10 @@ test("a conclusão operacional não espera leitura ou foto, mas mantém meta e p
   assert.doesNotMatch(finish, /contarLeiturasSemImagemValida/);
   assert.doesNotMatch(finish, /\$pendingSensorEvents =/);
   assert.match(finish, /\$loadingDetectedQuantity < \$loadingPlannedQuantity/);
-  assert.match(finish, /\$automaticQuotaStopAcknowledged/);
-  assert.match(finish, /ValidadorParadaCarregamento::confirmada/);
+  assert.match(finish, /\$automaticQuotaStopRequested/);
+  assert.match(finish, /ValidadorParadaCarregamento::solicitada/);
+  assert.doesNotMatch(finish, /ValidadorParadaCarregamento::confirmada/);
+  assert.match(summary, /ValidadorParadaCarregamento::confirmada/);
   assert.match(summary, /sem_leitura_evidencias_obrigatorias/);
   assert.match(validator, /trace_evidence_image_path/);
   assert.match(validator, /image_sha256/);

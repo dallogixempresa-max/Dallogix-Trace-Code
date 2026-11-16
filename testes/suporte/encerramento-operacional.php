@@ -20,6 +20,7 @@ final class FinishStatement extends PDOStatement {
         if(str_contains($this->sql,'FROM logs_auditoria')) return $scenario['stopApplied']??1;
         if(str_contains($this->sql,"command = 'PAUSAR_CARREGAMENTO'")) return $scenario['stopRequested']??1;
         if(str_contains($this->sql,'FROM solicitacoes_comandos_clp')) return $scenario['pendingCommands']??0;
+        if(str_contains($this->sql,'NOT EXISTS (SELECT 1 FROM leituras l WHERE l.sensor_event_id = s.id)')) return $scenario['pendingReadings']??0;
         if(str_contains($this->sql,'SELECT COUNT(*) FROM carregamentos c')) return 0;
         if(str_contains($this->sql,'SUM(ri.planned_quantity)')) return $scenario['planned']??2;
         if(str_contains($this->sql,'COUNT(*) FROM eventos_sensor')) return $scenario['detected']??2;

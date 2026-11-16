@@ -63,10 +63,12 @@ test("card de produto na operação separa lidas de sem leitura", async () => {
   assert.match(monitoramento, /"no_read_quantity" => \(int\) \$item\["no_read_quantity"\]/);
 });
 
-test("auditoria e encerramento contam por produto, o que o contador não permite", () => {
-  // Esta é a razão de não unificar no contador: ambos filtram por product_id.
+test("o relatório mantém contagem por produto e o encerramento usa a meta física", () => {
+  // O PDF preserva a granularidade por produto; o encerramento operacional
+  // verifica a quantidade de passagens no sensor.
   assert.match(reportEndpoint, /l\.product_id = ri\.product_id/);
-  assert.match(finishEndpoint, /l\.product_id = ri\.product_id/);
+  assert.match(finishEndpoint, /SELECT COUNT\(\*\) FROM eventos_sensor[\s\S]*?conta_na_meta = 1/);
+  assert.doesNotMatch(finishEndpoint, /l\.product_id = ri\.product_id/);
 });
 
 test("a contagem do detalhe do romaneio é escopada por empresa", () => {

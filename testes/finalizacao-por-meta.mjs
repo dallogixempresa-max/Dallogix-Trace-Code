@@ -22,6 +22,10 @@ for(const [name,scenario] of [['abaixo da meta',{detected:1}],['parada não soli
    assert.ok(!result.events.includes('CARREGAMENTO_FINALIZADO'));
  });
 }
+test('endpoint aguarda a classificação das passagens ainda sem leitura',()=>{
+ const result=finish({pendingReadings:1});assert.equal(result.status,409);
+ assert.ok(!result.events.includes('CARREGAMENTO_FINALIZADO'));
+});
 test('endpoint finaliza com pausa solicitada sem aguardar confirmação do gateway',()=>{
  const result=finish({stopApplied:0,stopRequested:1});assert.equal(result.status,200);
  assert.equal(result.body.data.state,'FINALIZADO');
@@ -30,12 +34,19 @@ test('endpoint finaliza pela meta física e deixa excesso para o relatório',()=
  const result=finish({detected:3});assert.equal(result.status,200);
  assert.equal(result.body.data.state,'FINALIZADO');
 });
-test('botão fica liberado na meta mesmo com produto incorreto, excesso e pendências de relatório',()=>{
- const state={selectedLoadingId:42,loadingId:42,operationalState:'PAUSADO',stopReason:'PRODUTO_INCORRETO',userRole:'USUARIO',planned:2,detectedBags:2,loaded:0,running:false,reversalCommand:'REVERSAO_DESATIVAR',excessEvidenceRequests:1,loadingItems:[{planned_quantity:2,loaded_quantity:3}],plcCommand:{command:'PAUSAR_CARREGAMENTO',status:'APLICADO'},summaryMonitoring:{carregamento:{id:42,leituras_pendentes_sensor:2,sensor_outbox_pendentes:null,imagens_pendentes:2,imagens_com_falha:1}}};
+test('botão fica liberado na meta mesmo com divergência e pendências de relatório',()=>{
+ const state={selectedLoadingId:42,loadingId:42,operationalState:'PAUSADO',stopReason:'PRODUTO_INCORRETO',userRole:'USUARIO',planned:2,detectedBags:2,loaded:0,running:false,reversalCommand:'REVERSAO_DESATIVAR',excessEvidenceRequests:1,loadingItems:[{planned_quantity:2,loaded_quantity:3}],plcCommand:{command:'PAUSAR_CARREGAMENTO',status:'APLICADO'},summaryMonitoring:{carregamento:{id:42,leituras_pendentes_sensor:0,sensor_outbox_pendentes:null,imagens_pendentes:2,imagens_com_falha:1}}};
  const markup=work({state});
  const button=markup.match(/<button[^>]*data-action="finish"[^>]*>/)?.[0];
  assert.ok(button);assert.doesNotMatch(button,/\sdisabled/);
  assert.doesNotMatch(markup, /id="work-stop-dialog"|name="confirmar_remocao"/);
+});
+test('classificação de passagem pendente continua bloqueando a finalização',()=>{
+ const state={selectedLoadingId:42,loadingId:42,operationalState:'PAUSADO',stopReason:'COTA_ROMANEIO_ATINGIDA',userRole:'USUARIO',planned:2,detectedBags:2,plcCommand:{command:'PAUSAR_CARREGAMENTO',status:'APLICADO'},summaryMonitoring:{carregamento:{id:42,leituras_pendentes_sensor:1}}};
+ const markup=work({state});
+ const button=markup.match(/<button[^>]*data-action="finish"[^>]*>/)?.[0];
+ assert.ok(button);assert.match(button,/\sdisabled/);
+ assert.match(button,/Aguarde o leitor classificar as passagens detectadas/);
 });
 test('consultas do leitor e do timeout continuam tratando pendências após finalizar',()=>{
  const result=spawnSync('php',[new URL('./pendencias-apos-finalizacao.php',import.meta.url).pathname],{encoding:'utf8'});

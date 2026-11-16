@@ -40,7 +40,7 @@ test("última leitura do serviço Keyence alimenta o visor em atualizações ao 
   assert.match(monitoringRepository, /lr\.barcode AS last_scanner_barcode/);
   assert.match(monitoringRepository, /lr\.result AS last_scanner_result/);
   assert.match(activeLoading, /latestScannerReading = loading\.last_scanner_read_at/);
-  assert.match(activeLoading, /Código não cadastrado: \$\{barcode\}/);
+  assert.match(activeLoading, /Código válido não cadastrado: \$\{barcode/);
   assert.match(activeLoading, /Falha na leitura \(sem código\)/);
   assert.match(activeLoading, /Produto fora do romaneio: \$\{barcode/);
   assert.match(liveView, /leitorPodeConcluirPassagens = Boolean\(store\.state\.loadingId\)\s*&& \["CARREGANDO", "FINALIZANDO", "PAUSADO"\]\.includes\(operationalState\)/);
@@ -92,7 +92,7 @@ test("fila durável do M2052 é reprocessada após reinício e fechamento aguard
   assert.match(observabilityService, /resumo_carregamento\.php\?carregamento_id=/);
   assert.match(operationalRealtime, /store\.loadSummaryMonitoring\(\)/);
   assert.match(loadingFinishRules, /detected < planned/);
-  assert.match(loadingFinishRules, /hasPendingMachineCommand/);
+  assert.match(loadingFinishRules, /pendingNonPauseCommand/);
 });
 
 test("heartbeat SENSOR preserva a fila agregada para liberar a finalização no Central", () => {

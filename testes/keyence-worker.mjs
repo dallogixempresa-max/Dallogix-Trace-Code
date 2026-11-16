@@ -250,7 +250,8 @@ test("integra SCANNER, fila SEM_LEITURA e preserva a origem para regenerar o PDF
   assert.match(reportEndpoint, /RelatorioAuditoriaPdf/);
   assert.match(reportEndpoint, /COALESCE\(l\.sensor_event_id, r\.sensor_event_id\) AS sensor_event_id/);
   assert.match(reportEndpoint, /Falha de leitura · \{\$sackReference\} · \{\$capturedAt\}/);
-  assert.match(reportEndpoint, /Produto fora do romaneio · \{\$sackReference\} · \{\$capturedAt\}/);
+  assert.match(reportEndpoint, /\$captionType = isset\(\$unregisteredCodeEvents\[\$sensorEventId\]\)/);
+  assert.match(reportEndpoint, /\$caption = "\{\$captionType\} · \{\$sackReference\} · \{\$capturedAt\}"/);
   assert.match(reportEndpoint, /relatorio_pendencia_evidencia/);
   assert.match(reportEndpoint, /"wrong_product_count" => \$wrongProductCount/);
   assert.match(reportEndpoint, /"wrong_product_evidence_count" => count\(array_filter/);
