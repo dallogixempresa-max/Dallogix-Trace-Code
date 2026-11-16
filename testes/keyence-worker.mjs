@@ -230,7 +230,9 @@ test("integra SCANNER, fila SEM_LEITURA e preserva a origem para regenerar o PDF
   assert.match(readingsEndpoint, /PARADA_PRODUTO_INCORRETO/);
   assert.match(manifestEndpoint, /\$action === "finish"/);
   assert.match(manifestEndpoint, /UPDATE romaneios SET status = 'FINALIZADO'/);
-  assert.match(manifestEndpoint, /status IN \('PENDENTE', 'CAPTURANDO'\)/);
+  const cancellation = manifestEndpoint.slice(manifestEndpoint.indexOf('if ($action === "cancel")'), manifestEndpoint.indexOf('// O ramo cancel'));
+  assert.doesNotMatch(cancellation, /solicitacoes_imagens_evidencia|contarLeiturasSemImagemValida/);
+  assert.match(cancellation, /CARREGAMENTO_CANCELADO/);
   assert.doesNotMatch(readingsEndpoint, /CAMERA_CAPTURA|camera_status/);
   assert.match(worker, /KEYENCE_TCP_ALLOWED_ADDRESS/);
   assert.match(worker, /async function quarantineImageGroup/);
