@@ -69,7 +69,7 @@ test("leituras e evidências pendentes ficam explícitas sem bloquear relatório
   const report = await readFile(new URL("../servidor/api/relatorios/relatorio_auditoria.php", import.meta.url), "utf8");
   assert.match(report, /\$unresolvedPassages = \$pdo->prepare/);
   assert.match(report, /\$unavailableCaptures = \$pdo->prepare/);
-  assert.match(report, /Pendências de evidência nesta emissão/);
+  assert.match(report, /relatorio_pendencia_evidencia/);
   assert.doesNotMatch(report, /O relatório aguarda|Aguarde o envio das imagens/);
   assert.match(report, /PRODUTO_INCORRETO/);
   assert.doesNotMatch(finishEndpoint, /contarLeiturasSemImagemValida/);

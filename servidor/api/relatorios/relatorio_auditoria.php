@@ -526,27 +526,8 @@ if ($loadIds !== []) {
     foreach ($noReadRows as &$noRead) {
         $sensorEventId = (int) ($noRead["sensor_event_id"] ?? 0);
         $noRead["sack_reference"] = $sackReferencesByEvent[$sensorEventId] ?? "Passagem não vinculada";
-        $noRead["has_image"] = (bool) $noRead["has_image"];
-        if ($noRead["has_image"]) {
-            $noRead["evidence_label"] = "Foto anexada";
-            $operationSummary["no_read_images"]++;
-        } elseif ($noRead["evidence_status"] === "CAPTURADA") {
-            $noRead["evidence_label"] = "Foto recebida anteriormente";
-        } elseif (in_array($noRead["evidence_status"], ["PENDENTE", "CAPTURANDO"], true)) {
-            $noRead["evidence_label"] = "Foto pendente";
-        } elseif ($noRead["evidence_status"] === "ERRO") {
-            $noRead["evidence_label"] = "Foto não recebida";
-        } else {
-            $noRead["evidence_label"] = "Foto não solicitada";
-        }
-        if ($noRead["return_reason"] !== null) {
-            $noRead["evidence_label"] = "Retirada: " . $noRead["return_reason"] . " · " . $noRead["evidence_label"];
-        }
     }
     unset($noRead);
-    $missingEvidence = count(array_filter($noReadRows, static fn(array $row): bool => !$row["has_image"]));
-
-
     $wrongProductQuery = $pdo->prepare(
         "SELECT l.id, l.sensor_event_id, l.carregamento_id, l.read_at, l.barcode,
                 p.name AS product_name,
@@ -574,21 +555,8 @@ if ($loadIds !== []) {
     foreach ($wrongProductRows as &$wrongProduct) {
         $sensorEventId = (int) ($wrongProduct["sensor_event_id"] ?? 0);
         $wrongProduct["sack_reference"] = $sackReferencesByEvent[$sensorEventId] ?? "Passagem não contabilizada";
-        $wrongProduct["has_image"] = (bool) $wrongProduct["has_image"];
-        $wrongProduct["evidence_label"] = $wrongProduct["has_image"]
-            ? "Foto anexada"
-            : (($wrongProduct["evidence_status"] === "CAPTURADA") ? "Foto recebida anteriormente" : "Foto não recebida");
-        if ($wrongProduct["has_image"]) {
-            $operationSummary["wrong_product_images"]++;
-        }
     }
     unset($wrongProduct);
-    $wrongProductMissingImages = count(array_filter(
-        $wrongProductRows,
-        static fn(array $row): bool => !$row["has_image"],
-    ));
-
-
     $occurrenceQuery = $pdo->prepare("SELECT o.type, o.quantity, o.description, o.created_at, p.name AS product_name
         FROM ocorrencias o LEFT JOIN produtos p ON p.id = o.product_id WHERE o.carregamento_id IN ({$placeholders}) ORDER BY o.created_at");
     $occurrenceQuery->execute($loadIds);
@@ -832,10 +800,6 @@ $operationSummary["wrong_product_images"] = 0;
 foreach (["SEM_LEITURA" => &$noReadRows, "PRODUTO_INCORRETO" => &$wrongProductRows] as $reason => &$rows) {
     foreach ($rows as &$row) {
         $row["has_image"] = isset($attachedEvents[$reason . ":" . ($row["sensor_event_id"] ?? 0)]);
-        $row["evidence_label"] = $row["has_image"] ? "Foto anexada" : "Foto não disponível nesta emissão";
-        if (!empty($row["return_reason"])) {
-            $row["evidence_label"] = "Retirada: " . $row["return_reason"] . " · " . $row["evidence_label"];
-        }
         if ($row["has_image"]) {
             $operationSummary[$reason === "SEM_LEITURA" ? "no_read_images" : "wrong_product_images"]++;
         } else {
@@ -866,14 +830,15 @@ $report->escreverCartoesResumo([
     "Fim" => $formatDateTime($lastLoad["finished_at"] ?? null),
 ]);
 $report->escreverTitulo("Resumo da operação");
+if ($unresolvedPassageCount > 0) {
+    $report->escreverParagrafo("{$unresolvedPassageCount} passagem(ns) com leitura ainda em processamento. Valores disponíveis nesta emissão.");
+}
 $resumoOp = [
     "Sacas detectadas pelo sensor M2052" => $operationSummary["passages"],
     "Leituras válidas" => $operationSummary["valid_readings"],
     "Sacas retornadas" => $operationSummary["returned_bags"],
     "Falhas sem leitura" => $operationSummary["no_reads"],
-    "Fotos de falha anexadas" => $operationSummary["no_read_images"],
     "Produtos fora do romaneio" => $operationSummary["wrong_products"],
-    "Fotos desses produtos anexadas" => $operationSummary["wrong_product_images"],
 ];
 // Exibe "Sacas não identificadas" somente quando há SEM_LEITURA com product_id
 // NULL — situação exclusiva de romaneios com múltiplos produtos. Em romaneios
@@ -886,37 +851,35 @@ $report->escreverTitulo("Falhas de leitura do código de barras");
 if ($noReadRows === []) {
     $report->escreverParagrafo("Nenhuma falha sem leitura foi registrada nesta operação.");
 } else {
-    $report->escreverParagrafo("Cada falha corresponde a uma passagem de saco registrada pelo sensor; a foto é anexada quando disponível. O relatório só é liberado quando todas as fotos foram recebidas e validadas. Passagens ocorridas durante a pausa aparecem como não contabilizadas. Em romaneios com vários produtos, a identidade de uma saca sem código é registrada como \"Não identificado\".");
+    $report->escreverParagrafo("Cada falha corresponde a uma passagem de saco registrada pelo sensor. Passagens ocorridas durante a pausa aparecem como não contabilizadas. Em romaneios com vários produtos, a identidade de uma saca sem código é registrada como \"Não identificado\".");
     $report->escreverTabela(
-        ["Data/hora", "Produto", "Passagem", "Evidência da imagem"],
+        ["Data/hora", "Produto", "Passagem e tratamento"],
         array_map(
             static fn(array $row): array => [
                 $formatDateTime($row["read_at"]),
                 $row["product_name"] ?? "Não identificado",
-                $row["sack_reference"],
-                $row["evidence_label"],
+                $row["sack_reference"] . (!empty($row["return_reason"]) ? " · Retirada: " . $row["return_reason"] : ""),
             ],
             $noReadRows,
         ),
-        [110, 120, 140, 145],
+        [110, 175, 230],
     );
 }
 if ($wrongProductRows !== []) {
     $report->escreverTitulo("Produtos fora do romaneio");
-    $report->escreverParagrafo("Cada linha representa um código reconhecido de um produto que não pertence ao romaneio. Essas passagens não entram na quantidade prevista; as fotos disponíveis aparecem na seção de evidências. A ausência de foto fica registrada nesta emissão.");
+    $report->escreverParagrafo("Cada linha representa um código reconhecido de um produto que não pertence ao romaneio. Essas passagens não entram na quantidade prevista; as evidências disponíveis são apresentadas ao final.");
     $report->escreverTabela(
-        ["Data/hora", "Produto reconhecido", "Código lido", "Passagem", "Evidência"],
+        ["Data/hora", "Produto reconhecido", "Código lido", "Passagem"],
         array_map(
             static fn(array $row): array => [
                 $formatDateTime($row["read_at"]),
                 $row["product_name"] ?? "Produto não identificado",
                 $row["barcode"] ?? "—",
                 $row["sack_reference"],
-                $row["evidence_label"],
             ],
             $wrongProductRows,
         ),
-        [88, 105, 95, 115, 92],
+        [100, 135, 130, 150],
     );
 }
 if ($romaneio["status"] === "CANCELADO") {
@@ -1037,12 +1000,9 @@ if ($evidenceImages !== []) {
     }
     $evidenceImages = $embeddedImages;
 }
-if ($evidenceWarnings !== []) {
-    $report->escreverTitulo("Pendências de evidência nesta emissão");
-    $report->escreverParagrafo("Emitido com os dados disponíveis. Fotos ausentes não impedem o relatório. Uma nova emissão poderá incorporar evidências recebidas depois; nenhum vínculo duvidoso foi usado.");
-    foreach (array_unique($evidenceWarnings) as $warning) {
-        $report->escreverParagrafo($warning);
-    }
+// R11: falhas de foto ficam somente no log; sem aviso ou espaço reservado no PDF.
+foreach (array_unique($evidenceWarnings) as $warning) {
+    registrar_log_erro(new RuntimeException($warning), "relatorio_pendencia_evidencia");
 }
 
 try {
@@ -1072,7 +1032,6 @@ if (file_put_contents($temporaryReportPath, $pdfBytes, LOCK_EX) !== strlen($pdfB
         "excess_evidence_count" => count(array_filter($evidenceImages, static fn(array $image): bool => $image["reason"] === "EXCESSO")),
         "wrong_product_count" => $wrongProductCount,
         "wrong_product_evidence_count" => count(array_filter($evidenceImages, static fn(array $image): bool => $image["reason"] === "PRODUTO_INCORRETO")),
-        "evidence_warnings" => array_values(array_unique($evidenceWarnings)),
         "pending_passage_count" => $unresolvedPassageCount,
         "source_images" => array_map(
             static fn(array $image): array => [

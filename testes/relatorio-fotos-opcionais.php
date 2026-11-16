@@ -31,6 +31,9 @@ $pipeline = substr($source, $start, $end - $start);
 $start = strpos($source, 'if ($evidenceImages !== []) {');
 $end = strpos($source, "try {\n    \$pdfBytes =", $start);
 $render = substr($source, $start, $end - $start);
+$start = strpos($source, '$report->escreverTitulo("Falhas de leitura do código de barras");');
+$end = strpos($source, 'if ($romaneio["status"] === "CANCELADO")', $start);
+$incidentTables = substr($source, $start, $end - $start);
 $root = sys_get_temp_dir() . '/trace-evidence-' . bin2hex(random_bytes(8));
 mkdir($root, 0700);
 
@@ -38,6 +41,7 @@ mkdir($root, 0700);
 // Não substitui testes HTTP/MySQL nem representa captura física de câmera.
 function emitir(string $pipeline, string $render, string $storageRoot, array $images, array $requests, array $previous = []): array
 {
+    global $incidentTables;
     $selection = ConferidorEvidenciasRelatorio::selecionarDisponiveis($images, $requests);
     $incidentImages = $selection['images'];
     $evidenceWarnings = array_map(static fn(array $issue): string => 'Vínculo não confirmado: ' . $issue['detail'], $selection['issues']);
@@ -45,17 +49,21 @@ function emitir(string $pipeline, string $render, string $storageRoot, array $im
     $formatDateTime = static fn(string $value): string => $value;
     $sackReferencesByEvent = [101 => 'Saca 1', 102 => 'Saca 2'];
     $operationSummary = [];
-    $noReadRows = [['sensor_event_id' => 101, 'sack_reference' => 'Saca 1', 'return_reason' => 'Retirada confirmada']];
-    $wrongProductRows = [['sensor_event_id' => 102, 'sack_reference' => 'Saca 2']];
+    $noReadRows = [['sensor_event_id' => 101, 'read_at' => '2026-11-16 13:00:00', 'product_name' => null,
+        'sack_reference' => 'Saca 1', 'return_reason' => 'Retirada confirmada']];
+    $wrongProductRows = [['sensor_event_id' => 102, 'read_at' => '2026-11-16 13:00:00', 'product_name' => 'Produto externo',
+        'barcode' => '789123', 'sack_reference' => 'Saca 2']];
     eval('use App\\Aplicacao\\RelatorioAuditoriaPdf;' . $pipeline);
     $report = new RelatorioAuditoriaPdf('Teste sintético', 'Fotos opcionais — sem operação real');
-    $report->escreverTitulo('Incidentes');
-    foreach ([...$noReadRows, ...$wrongProductRows] as $row) {
-        $report->escreverParagrafo($row['sack_reference'] . ': ' . $row['evidence_label']);
-    }
+    eval($incidentTables);
     eval($render);
     $pdf = $report->obterArquivoPdf();
     verificar(str_starts_with($pdf, '%PDF-') && str_contains($pdf, '%%EOF'), 'PDF não foi concluído');
+    foreach (['indispon', 'recebida', 'Pendências', 'Pendencias', 'inválida', 'invalida', 'Foto n'] as $forbidden) {
+        verificar(!str_contains($pdf, $forbidden), 'Aviso de ausência de foto apareceu no PDF: ' . $forbidden);
+    }
+    verificar(str_contains($pdf, 'Retirada confirmada'), 'Tratamento da retirada sumiu do PDF');
+    verificar(str_contains($pdf, 'Produto externo'), 'Incidente sem foto sumiu do PDF');
     return compact('pdf', 'evidenceImages', 'evidenceWarnings', 'noReadRows', 'operationSummary');
 }
 
@@ -73,7 +81,8 @@ try {
     $missing = emitir($pipeline, $render, $root, $images, $requests);
     verificar(count($missing['evidenceImages']) === 0 && count($missing['evidenceWarnings']) >= 2, 'Foto ausente não foi registrada');
     verificar($missing['operationSummary']['no_read_images'] === 0, 'Foto ausente contada como anexada');
-    verificar(str_contains($missing['noReadRows'][0]['evidence_label'], 'Retirada confirmada'), 'Histórico de retirada perdido');
+    verificar($missing['noReadRows'][0]['return_reason'] === 'Retirada confirmada', 'Histórico de retirada perdido');
+    verificar(count($GLOBALS['evidence_test_errors']) >= 2, 'Foto ausente não foi registrada no log');
 
     file_put_contents($root . '/' . $images[0]['path'], $bytes[0]);
     $partial = emitir($pipeline, $render, $root, $images, $requests);

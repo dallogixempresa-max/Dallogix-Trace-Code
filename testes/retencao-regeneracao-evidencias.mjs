@@ -44,7 +44,7 @@ test("PDF anterior recupera a foto pelo identificador e pelo SHA-256", () => {
 test("evidência Keyence capturada continua válida para regenerar o relatório", () => {
   assert.match(report, /r\.status = 'CAPTURADA' AND r\.image_sha256 REGEXP/);
   assert.match(report, /r\.status = 'CAPTURADA'[\s\S]*?r\.reason IN \('SEM_LEITURA', 'PRODUTO_INCORRETO', 'EXCESSO'\)/);
-  assert.match(report, /Foto não disponível nesta emissão/);
+  assert.match(report, /relatorio_pendencia_evidencia/);
   assert.match(report, /capturedRequestsQuery/);
 });
 

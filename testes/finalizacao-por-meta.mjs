@@ -27,6 +27,7 @@ test('botão fica liberado na meta e parada aplicada mesmo com todas as pendênc
  const markup=work({state});
  const button=markup.match(/<button[^>]*data-action="finish"[^>]*>/)?.[0];
  assert.ok(button);assert.doesNotMatch(button,/\sdisabled/);
+ assert.doesNotMatch(markup, /id="work-stop-dialog"|name="confirmar_remocao"/);
 });
 test('consultas do leitor e do timeout continuam tratando pendências após finalizar',()=>{
  const result=spawnSync('php',[new URL('./pendencias-apos-finalizacao.php',import.meta.url).pathname],{encoding:'utf8'});

@@ -9,7 +9,7 @@ test('PDF é emitido sem fotos, com foto parcial, tardia, trocada ou vínculo in
   assert.equal(result.stdout.trim(), 'ok');
 });
 
-test('ausência de foto não impede transporte e pendências ficam explícitas no PDF', async () => {
+test('ausência de foto não impede transporte e fica somente no log, sem espaço no PDF', async () => {
   for (const name of ['servidor/src/Aplicacao/ServicoSincronizacao.php', 'servidor/api/sincronizacao/receber_relatorio_auditoria.php']) {
     const source = await readFile(new URL('../' + name, import.meta.url), 'utf8');
     assert.match(source, /\$evidenceCount < 0 \|\| \(int\) \$evidenceCount > \(int\) \$evidenceNoReadCount/);
@@ -18,6 +18,7 @@ test('ausência de foto não impede transporte e pendências ficam explícitas n
   }
   const report = await readFile(new URL('../servidor/api/relatorios/relatorio_auditoria.php', import.meta.url), 'utf8');
   assert.doesNotMatch(report, /O relatório aguarda|Aguarde o envio das imagens|missing_evidence_count/);
-  assert.match(report, /"evidence_warnings" =>/);
+  assert.match(report, /registrar_log_erro\(new RuntimeException\(\$warning\), "relatorio_pendencia_evidencia"\)/);
+  assert.doesNotMatch(report, /evidence_label|Pendências de evidência nesta emissão|O relatório só é liberado|"evidence_warnings" =>/);
   assert.match(report, /"pending_passage_count" =>/);
 });

@@ -197,3 +197,37 @@ legenda longa. Retenção, identidade, classificação e proteção de históric
 passaram. PDF sintético com uma foto disponível e outra ausente inspecionado
 visualmente. Não é homologação HTTP/MySQL ou captura física Keyence.
 Alteração local; nenhuma publicação realizada nesta rodada.
+
+## R11 e conferência da R6 — 16/11/2026
+
+O usuário trouxe a revisão independente e reafirmou a R11: foto ausente não
+reserva espaço e não produz indicação no PDF; a falha fica somente no log.
+Essa orientação substitui a apresentação de pendências em PDF documentada na
+seção anterior. O relatório continua disponível após finalizar/cancelar.
+
+- Mantidos os incidentes e o histórico de retirada. Retiradas as colunas/rótulos
+  de disponibilidade de imagem, os cartões de quantidade de fotos e o bloco
+  de pendências de evidência no PDF. Só fotos válidas ocupam espaço na seção
+  de evidências. Falhas são registradas em relatorio_pendencia_evidencia.
+- A recuperação de originais, comparação de hash/vínculo e reemissão com foto
+  tardia continuam funcionando. O manifesto mantém as identidades e quantidades
+  reais das fotos; não inclui o texto dos avisos de foto ausente.
+- Removido um texto residual incorreto no PDF que ainda dizia aguardar todas
+  as fotos. Pendência de leitura pode ser informada como dado operacional;
+  não é aviso de foto nem bloqueio da emissão.
+- R6 na finalização por meta: o código vigente já exclui COTA_ROMANEIO_ATINGIDA
+  do work-stop-dialog. Com PAUSADO, meta exata e PAUSAR_CARREGAMENTO/APLICADO,
+  Finalizar é liberado sem checkbox ou confirmação manual da parada. Há teste
+  de renderização dessa condição e teste do endpoint sem confirmação manual.
+  APLICADO é retorno do comando do gateway, não sensor físico de
+  movimento. Comando ainda PENDENTE/PROCESSANDO continua bloqueando conclusão.
+  O diálogo de outras ocorrências não foi retirado nesta correção.
+- Contra d3cd3c24, a branch acumula 28 arquivos de interface alterados: oito
+  JavaScript e vinte HTML de versão de cache. Os commits c268d074 e deb93a23
+  individualmente não alteraram interface. A frase anterior “frontend intacto”
+  tinha escopo da rodada, não de toda a branch; não deve ser usada para o diff
+  acumulado. Esta correção também não modifica arquivos de interface.
+
+A revisão independente ficou limitada por ausência de PHP na VM dela. Isso
+não representa execução das asserções PHP naquele ambiente. Neste Mac, PHP
+8.5.9 está disponível e os testes são executados, sem usar skip para falta de PHP.

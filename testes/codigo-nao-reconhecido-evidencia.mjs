@@ -42,7 +42,7 @@ test("produto reconhecido fora do romaneio mantém ocorrência e parada apropria
   assert.match(imageEndpoint, /"PRODUTO_INCORRETO" => \["PRODUTO_INCORRETO"\]/);
   assert.match(imageEndpoint, /r\.reason IN \('SEM_LEITURA', 'PRODUTO_INCORRETO', 'EXCESSO'\)/);
   assert.match(reportEndpoint, /l\.result = 'PRODUTO_INCORRETO'/);
-  assert.match(reportEndpoint, /Foto não disponível nesta emissão/);
+  assert.match(reportEndpoint, /relatorio_pendencia_evidencia/);
   assert.match(reportEndpoint, /Produto fora do romaneio · \{\$sackReference\} · \{\$capturedAt\}/);
   assert.match(reportEndpoint, /"version" => 3/);
   assert.match(reportEndpoint, /"wrong_product_count" => \$wrongProductCount/);

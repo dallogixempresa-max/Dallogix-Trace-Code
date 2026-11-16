@@ -45,7 +45,7 @@ test("a conclusão operacional não espera leitura ou foto, mas mantém meta e p
 
 test("cancelamento mantém sua trava e relatório explicita evidência ausente", () => {
   assert.match(romaneios, /contarLeiturasSemImagemValida\([\s\S]*?"SEM_LEITURA"/);
-  assert.match(report, /Pendências de evidência nesta emissão/);
+  assert.match(report, /relatorio_pendencia_evidencia/);
   assert.match(report, /\$unresolvedPassages = \$pdo->prepare/);
   const noReadRows = report.slice(report.indexOf("$noReadQuery ="), report.indexOf("$noReadQuery->execute"));
   assert.doesNotMatch(noReadRows, /l\.conta_na_meta = 1/);
