@@ -55,6 +55,7 @@ if ($loading["state"] !== "PAUSADO") {
 $pendingCommand = $pdo->prepare(
     "SELECT COUNT(*) FROM solicitacoes_comandos_clp
      WHERE carregamento_id = :loading_id AND company_id = :company_id
+       AND command <> 'PAUSAR_CARREGAMENTO'
        AND status IN ('PENDENTE', 'PROCESSANDO')",
 );
 $pendingCommand->execute(["loading_id" => $loadingId, "company_id" => $user["company_id"]]);
@@ -62,18 +63,16 @@ if ((int) $pendingCommand->fetchColumn() > 0) {
     $pdo->rollBack();
     json_response(["error" => "Aguarde o CLP confirmar o último comando antes de encerrar."], 409);
 }
-$automaticQuotaStopAcknowledged = !$requiresConfirmedStop
-    || \App\Aplicacao\ValidadorParadaCarregamento::confirmada(
+$automaticQuotaStopRequested = !$requiresConfirmedStop
+    || \App\Aplicacao\ValidadorParadaCarregamento::solicitada(
         $pdo,
         (int) $user["company_id"],
         (int) $loadingId,
-        (int) $loading["equipment_id"],
-        $stopReason,
     );
-if (!$automaticQuotaStopAcknowledged) {
+if (!$automaticQuotaStopRequested) {
         $pdo->rollBack();
         json_response(
-            ["error" => "Aguarde o PC industrial confirmar a parada da esteira antes de finalizar."],
+            ["error" => "A solicitação de pausa da esteira não foi registrada. Solicite a pausa antes de finalizar."],
             409,
         );
 }

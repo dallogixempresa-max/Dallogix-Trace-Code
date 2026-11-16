@@ -92,7 +92,7 @@ export function createLiveViewController({
           : "Atenção: " + numero(detectedBags - planned) + " sacas passaram do total previsto; aguarde a confirmação da pausa."
         : complete
           ? finishReady
-            ? "Quantidade prevista atingida e parada confirmada. Finalize o romaneio; o relatório será conferido depois."
+            ? "Quantidade prevista atingida e solicitação de pausa registrada. Finalize o romaneio; o relatório será processado depois."
             : "Quantidade prevista atingida. Conclua as confirmações pendentes para liberar a finalização."
           : nearEnd
             ? "Atenção: o carregamento está próximo da quantidade prevista."

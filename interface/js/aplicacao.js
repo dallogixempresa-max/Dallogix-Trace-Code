@@ -599,7 +599,15 @@ function installScannerHidReceiver() {
         try {
           const reading = await store.registerScannerReading(barcode, capturedAtEpochMs);
           if (reading?.result === "PRODUTO_INCORRETO") {
-            store.state.latestScannerReading = { ...store.state.latestScannerReading, result: reading.result };
+            const value = reading.unregistered_product_detected
+              ? `Código válido não cadastrado: ${barcode}`
+              : `Produto fora do romaneio: ${barcode}`;
+            store.state.latestScannerReading = {
+              ...store.state.latestScannerReading,
+              result: reading.result,
+              value,
+            };
+            displayBarcode(value, { error: true });
             notificar(
               reading.operator_alert || "Produto fora do romaneio. Remova a unidade e confirme a parada física antes de continuar.",
               "erro",

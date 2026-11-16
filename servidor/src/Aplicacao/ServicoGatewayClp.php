@@ -112,7 +112,7 @@ final class ServicoGatewayClp
                        r.command = 'EMERGENCIA'
                        OR (r.id = :priority_stop_request_id
                            AND r.command = 'PAUSAR_CARREGAMENTO'
-                           AND c.state = 'PAUSADO'
+                           AND c.state IN ('PAUSADO', 'FINALIZADO')
                            AND c.stop_reason IN (
                                'EXCESSO', 'PRODUTO_INCORRETO',
                                'COTA_PRODUTO_ATINGIDA', 'COTA_ROMANEIO_ATINGIDA'
@@ -278,11 +278,11 @@ final class ServicoGatewayClp
                     : "PAUSADO";
                 $allowedStates = $request["command"] === "INICIAR_CARREGAMENTO"
                     ? ["PREPARANDO", "PAUSADO"]
-                    : ["PREPARANDO", "CARREGANDO", "PAUSADO", "FINALIZANDO"];
+                    : ["PREPARANDO", "CARREGANDO", "PAUSADO", "FINALIZANDO", "FINALIZADO"];
                 if (!in_array($previousState, $allowedStates, true)) {
                     $status = "ERRO";
                     $message = "O estado do carregamento mudou antes da confirmação física; o comando não foi aplicado ao estado local.";
-                } else {
+                } elseif ($previousState !== "FINALIZADO") {
                     $stateUpdate = $this->connection->prepare(
                         "UPDATE carregamentos SET state = :state
                          WHERE id = :id AND company_id = :company_id AND state = :previous_state",

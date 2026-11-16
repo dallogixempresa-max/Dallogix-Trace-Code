@@ -16,12 +16,16 @@ test('endpoint real finaliza carregamento e romaneio pela meta sem leituras nem 
  assert.ok(result.events.includes('ROMANEIO_FINALIZADO'));
  assert.ok(!result.events.includes('DIVERGENCIA_FINAL_REGISTRADA'));
 });
-for(const [name,scenario] of [['abaixo da meta',{detected:1}],['parada não confirmada',{stopApplied:0}],['comando pendente',{pendingCommands:1}],['emergência',{state:'EMERGENCIA'}]]) {
+for(const [name,scenario] of [['abaixo da meta',{detected:1}],['parada não solicitada',{stopRequested:0}],['outro comando pendente',{pendingCommands:1}],['emergência',{state:'EMERGENCIA'}]]) {
  test(`endpoint continua bloqueando ${name}`,()=>{
    const result=finish(scenario);assert.equal(result.status,409);
    assert.ok(!result.events.includes('CARREGAMENTO_FINALIZADO'));
  });
 }
+test('endpoint finaliza com pausa solicitada sem aguardar confirmação do gateway',()=>{
+ const result=finish({stopApplied:0,stopRequested:1});assert.equal(result.status,200);
+ assert.equal(result.body.data.state,'FINALIZADO');
+});
 test('endpoint finaliza pela meta física e deixa excesso para o relatório',()=>{
  const result=finish({detected:3});assert.equal(result.status,200);
  assert.equal(result.body.data.state,'FINALIZADO');

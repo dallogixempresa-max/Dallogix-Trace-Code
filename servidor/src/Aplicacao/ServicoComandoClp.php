@@ -187,9 +187,13 @@ final class ServicoComandoClp
     }
 
     /** @param array{id:int|string|null, company_id:int|string|null} $user */
-    public function solicitarParadaPorProdutoIncorreto(array $user, int $loadingId): array
+    public function solicitarParadaPorProdutoIncorreto(
+        array $user,
+        int $loadingId,
+        string $incidentLabel = "Produto fora do romaneio ou da quantidade prevista",
+    ): array
     {
-        return $this->solicitarParadaPorDivergencia($user, $loadingId, "PRODUTO_INCORRETO");
+        return $this->solicitarParadaPorDivergencia($user, $loadingId, "PRODUTO_INCORRETO", $incidentLabel);
     }
 
     /** @param array{id:int|string|null, company_id:int|string|null} $user
@@ -209,7 +213,12 @@ final class ServicoComandoClp
     /** @param array{id:int|string|null, company_id:int|string|null} $user
      * @return array{command_request_id:?int,physical_stop_request_status:string,operator_alert:string,stop_reason:?string}
      */
-    private function solicitarParadaPorDivergencia(array $user, int $loadingId, string $reason): array
+    private function solicitarParadaPorDivergencia(
+        array $user,
+        int $loadingId,
+        string $reason,
+        ?string $incidentLabel = null,
+    ): array
     {
         if ($user["company_id"] === null) {
             throw new ExcecaoComandoClp("Usuário sem empresa vinculada.", 403);
@@ -221,7 +230,7 @@ final class ServicoComandoClp
             "COTA_ROMANEIO_ATINGIDA" => "trace_parada_meta_romaneio",
             default => "trace_parada_produto",
         };
-        $label = match ($reason) {
+        $label = $incidentLabel ?? match ($reason) {
             "EXCESSO" => "Quantidade excedida",
             "COTA_PRODUTO_ATINGIDA" => "Meta do produto atingida",
             "COTA_ROMANEIO_ATINGIDA" => "Quantidade do romaneio atingida",
@@ -246,24 +255,24 @@ final class ServicoComandoClp
                     "COTA_PRODUTO_ATINGIDA",
                     "COTA_ROMANEIO_ATINGIDA",
                 ], true)) {
-                    $operatorAlert = "Produto fora do romaneio ou da quantidade prevista. Remova a unidade e confirme somente quando a esteira estiver fisicamente parada.";
+                    $operatorAlert = "$label. Remova a unidade e confirme somente quando a esteira estiver fisicamente parada.";
                     $pendingPause = $this->repositorio->comandoPendente($loadingId, "PAUSAR_CARREGAMENTO");
                     if ($pendingPause) {
                         $requestId = (int) $pendingPause["id"];
                         $requestStatus = (string) $pendingPause["status"];
-                        $operatorAlert = "Produto fora do romaneio ou da quantidade prevista. A parada física aguarda confirmação do CLP; remova a unidade somente após a esteira parar.";
+                        $operatorAlert = "$label. A parada física aguarda confirmação do CLP; remova a unidade somente após a esteira parar.";
                     } else {
                         $lastPause = $this->repositorio->ultimaSolicitacaoComando($loadingId, "PAUSAR_CARREGAMENTO");
                         if ($lastPause && $lastPause["status"] === "APLICADO") {
                             $requestId = (int) $lastPause["id"];
                             $requestStatus = "APLICADO";
-                            $operatorAlert = "Produto fora do romaneio ou da quantidade prevista. O CLP confirmou a parada física; remova a unidade e confirme antes de retomar.";
+                            $operatorAlert = "$label. O CLP confirmou a parada física; remova a unidade e confirme antes de retomar.";
                         } else {
                             try {
                                 $request = $this->solicitarOperacao($user, $loadingId, "PAUSAR_CARREGAMENTO");
                                 $requestId = (int) $request["command_request_id"];
                                 $requestStatus = (string) $request["status"];
-                                $operatorAlert = "Produto fora do romaneio ou da quantidade prevista. Foi solicitada a parada da esteira; remova a unidade somente após a parada física.";
+                                $operatorAlert = "$label. Foi solicitada a parada da esteira; remova a unidade somente após a parada física.";
                             } catch (ExcecaoComandoClp|ExcecaoDisponibilidadeClp $exception) {
                                 if ($exception->httpStatus >= 500) {
                                     throw $exception;

@@ -3,21 +3,27 @@ export function motivoBloqueioFinalizacao(state) {
   const loading = state?.summaryMonitoring?.carregamento || {};
   const operationalState = String(state?.operationalState || "").toUpperCase();
   if (operationalState !== "PAUSADO") {
-    return "Confirme a parada física da esteira antes de finalizar.";
+    return "A esteira precisa estar pausada antes de finalizar.";
   }
-  const hasPendingMachineCommand = state?.commandInFlight === true
+  const pauseCommandInFlight = [state?.plcCommand, state?.commandIntent].some((command) =>
+    String(command?.command || "").toUpperCase() === "PAUSAR_CARREGAMENTO"
+      && ["PENDENTE", "PROCESSANDO"].includes(String(command?.status || "").toUpperCase()),
+  );
+  const pendingNonPauseCommand = [state?.plcCommand, state?.commandIntent].some((command) =>
+    ["PENDENTE", "PROCESSANDO"].includes(String(command?.status || "").toUpperCase())
+      && String(command?.command || "").toUpperCase() !== "PAUSAR_CARREGAMENTO",
+  ) || (state?.commandInFlight === true && !pauseCommandInFlight);
+  if (pendingNonPauseCommand) {
+    return "Aguarde o CLP concluir o outro comando da máquina antes de finalizar.";
+  }
+  const stopRequested = loading.parada_automatica_solicitada === true
+    || Number(loading.parada_automatica_solicitada) === 1
     || [state?.plcCommand, state?.commandIntent].some((command) =>
-      ["PENDENTE", "PROCESSANDO"].includes(String(command?.status || "").toUpperCase()),
+      String(command?.command || "").toUpperCase() === "PAUSAR_CARREGAMENTO"
+        && ["PENDENTE", "PROCESSANDO", "APLICADO"].includes(String(command?.status || "").toUpperCase()),
     );
-  if (hasPendingMachineCommand) {
-    return "Aguarde o CLP confirmar o comando da máquina antes de finalizar.";
-  }
-  const stopConfirmed = loading.parada_automatica_confirmada === true
-    || Number(loading.parada_automatica_confirmada) === 1
-    || (String(state?.plcCommand?.command || "").toUpperCase() === "PAUSAR_CARREGAMENTO"
-      && String(state?.plcCommand?.status || "").toUpperCase() === "APLICADO");
-  if (state?.stopReason && !stopConfirmed) {
-    return "Confirme a parada física solicitada antes de finalizar.";
+  if (state?.stopReason && !stopRequested) {
+    return "A solicitação de pausa da esteira não foi registrada. Solicite a pausa antes de finalizar.";
   }
   if (Number(loading.id) <= 0 || Number(loading.id) !== Number(state?.loadingId)) {
     return "Atualizando os dados do carregamento. Aguarde e tente novamente.";
@@ -42,7 +48,7 @@ export function motivoBloqueioFinalizacao(state) {
   return "";
 }
 
-/** Libera o fechamento na meta física com parada confirmada; divergências seguem para o relatório. */
+/** Libera o fechamento na meta física após classificar as passagens e registrar a solicitação de pausa. */
 export function podeFinalizarCarregamento(state) {
   return motivoBloqueioFinalizacao(state) === "";
 }
@@ -74,6 +80,7 @@ export function assinaturaProntidaoFinalizacao(state) {
   const loading = state?.summaryMonitoring?.carregamento || {};
   return [
     Number(loading.id) || null,
+    loading.parada_automatica_solicitada ?? null,
     loading.leituras_pendentes_sensor ?? null,
     loading.imagens_pendentes ?? null,
     loading.imagens_com_falha ?? null,

@@ -405,6 +405,7 @@ $occurrences = [];
 $incidentImages = [];
 $noReadRows = [];
 $wrongProductRows = [];
+$unregisteredCodeEvents = [];
 $sackReferencesByEvent = [];
 $loadOrderById = [];
 $operationSummary = [
@@ -430,6 +431,9 @@ if ($loadIds !== []) {
                           AND l.result = 'PRODUTO_INCORRETO') AS produto_incorreto,
                 EXISTS (SELECT 1 FROM leituras l
                         WHERE l.sensor_event_id = eventos_sensor.id
+                          AND l.result = 'PRODUTO_INCORRETO' AND l.product_id IS NULL) AS codigo_nao_cadastrado,
+                EXISTS (SELECT 1 FROM leituras l
+                        WHERE l.sensor_event_id = eventos_sensor.id
                           AND l.result = 'EXCESSO') AS produto_excedente,
                 CAST(ROUND(UNIX_TIMESTAMP(detected_at) * 1000) AS UNSIGNED) AS server_detected_at_epoch_ms
          FROM eventos_sensor WHERE carregamento_id IN ({$placeholders})",
@@ -452,11 +456,13 @@ if ($loadIds !== []) {
     foreach ($passages as $passage) {
         $loadingId = (int) $passage["carregamento_id"];
         if ((int) $passage["conta_na_meta"] !== 1) {
-            $reason = (int) $passage["produto_incorreto"] === 1
+            $reason = (int) $passage["codigo_nao_cadastrado"] === 1
+                ? "Código válido não cadastrado"
+                : ((int) $passage["produto_incorreto"] === 1
                 ? "Produto fora do romaneio"
                 : ((int) $passage["produto_excedente"] === 1
                     ? "Saco excedente"
-                    : "Passagem durante pausa");
+                    : "Passagem durante pausa"));
             $sackReferencesByEvent[(int) $passage["id"]] = "$reason · não contabilizada";
             continue;
         }
@@ -494,7 +500,7 @@ if ($loadIds !== []) {
     $operationSummary["returned_bags"] = (int) $returnCount->fetchColumn();
 
     $noReadQuery = $pdo->prepare(
-        "SELECT l.id, l.sensor_event_id, l.carregamento_id, l.read_at,
+        "SELECT l.id, l.sensor_event_id, l.carregamento_id, l.read_at, l.barcode,
                 l.product_id, l.conta_na_meta,
                 p.name AS product_name,
                 r.status AS evidence_status,
@@ -557,6 +563,11 @@ if ($loadIds !== []) {
         $wrongProduct["sack_reference"] = $sackReferencesByEvent[$sensorEventId] ?? "Passagem não contabilizada";
     }
     unset($wrongProduct);
+    foreach ($wrongProductRows as $wrongProduct) {
+        if ($wrongProduct["product_name"] === null && (int) ($wrongProduct["sensor_event_id"] ?? 0) > 0) {
+            $unregisteredCodeEvents[(int) $wrongProduct["sensor_event_id"]] = true;
+        }
+    }
     $occurrenceQuery = $pdo->prepare("SELECT o.type, o.quantity, o.description, o.created_at, p.name AS product_name
         FROM ocorrencias o LEFT JOIN produtos p ON p.id = o.product_id WHERE o.carregamento_id IN ({$placeholders}) ORDER BY o.created_at");
     $occurrenceQuery->execute($loadIds);
@@ -751,7 +762,10 @@ if ($incidentImages !== []) {
                 $caption = "Falha de leitura · {$sackReference} · {$capturedAt}";
             } elseif ($image["reason"] === "PRODUTO_INCORRETO" && $sensorEventId > 0) {
                 $sackReference = $sackReferencesByEvent[$sensorEventId] ?? "passagem não contabilizada";
-                $caption = "Produto fora do romaneio · {$sackReference} · {$capturedAt}";
+                $captionType = isset($unregisteredCodeEvents[$sensorEventId])
+                    ? "Código válido não cadastrado"
+                    : "Produto fora do romaneio";
+                $caption = "{$captionType} · {$sackReference} · {$capturedAt}";
             } elseif ($image["reason"] === "EXCESSO" && $sensorEventId > 0) {
                 $sackReference = $sackReferencesByEvent[$sensorEventId] ?? "passagem sem número";
                 $caption = "Saca em excesso · {$sackReference} · {$capturedAt}";
@@ -838,7 +852,7 @@ $resumoOp = [
     "Leituras válidas" => $operationSummary["valid_readings"],
     "Sacas retornadas" => $operationSummary["returned_bags"],
     "Falhas sem leitura" => $operationSummary["no_reads"],
-    "Produtos fora do romaneio" => $operationSummary["wrong_products"],
+    "Divergências de produto/código" => $operationSummary["wrong_products"],
 ];
 // Exibe "Sacas não identificadas" somente quando há SEM_LEITURA com product_id
 // NULL — situação exclusiva de romaneios com múltiplos produtos. Em romaneios
@@ -847,33 +861,43 @@ if (($operationSummary["no_reads_sem_produto"] ?? 0) > 0) {
     $resumoOp["Sacas não identificadas"] = $operationSummary["no_reads_sem_produto"];
 }
 $report->escreverCartoesResumo($resumoOp);
+$sensorPassages = (int) ($operationSummary["passages"] ?? 0);
+$scannerReadings = (int) ($operationSummary["scanner_readings"] ?? 0);
+$excessImages = (int) ($operationSummary["excess_images"] ?? 0);
+$excesses = (int) ($operationSummary["excesses"] ?? 0);
+$report->escreverParagrafo(
+    "Sensor: {$sensorPassages} passagem(ns) detectada(s) · " .
+    "Scanner: {$scannerReadings} leitura(s) com código · " .
+    "Excesso com foto: {$excessImages} de {$excesses} passagem(ns).",
+);
 $report->escreverTitulo("Falhas de leitura do código de barras");
 if ($noReadRows === []) {
     $report->escreverParagrafo("Nenhuma falha sem leitura foi registrada nesta operação.");
 } else {
     $report->escreverParagrafo("Cada falha corresponde a uma passagem de saco registrada pelo sensor. Passagens ocorridas durante a pausa aparecem como não contabilizadas. Em romaneios com vários produtos, a identidade de uma saca sem código é registrada como \"Não identificado\".");
     $report->escreverTabela(
-        ["Data/hora", "Produto", "Passagem e tratamento"],
+        ["Data/hora", "Produto", "Código recebido", "Passagem e tratamento"],
         array_map(
             static fn(array $row): array => [
                 $formatDateTime($row["read_at"]),
                 $row["product_name"] ?? "Não identificado",
+                $row["barcode"] ?? "—",
                 $row["sack_reference"] . (!empty($row["return_reason"]) ? " · Retirada: " . $row["return_reason"] : ""),
             ],
             $noReadRows,
         ),
-        [110, 175, 230],
+        [90, 140, 110, 175],
     );
 }
 if ($wrongProductRows !== []) {
-    $report->escreverTitulo("Produtos fora do romaneio");
-    $report->escreverParagrafo("Cada linha representa um código reconhecido de um produto que não pertence ao romaneio. Essas passagens não entram na quantidade prevista; as evidências disponíveis são apresentadas ao final.");
+    $report->escreverTitulo("Divergências de produto ou código");
+    $report->escreverParagrafo("Cada linha representa um produto reconhecido fora do romaneio ou um código válido sem cadastro no catálogo. Essas passagens não entram na quantidade prevista; as evidências disponíveis são apresentadas ao final.");
     $report->escreverTabela(
         ["Data/hora", "Produto reconhecido", "Código lido", "Passagem"],
         array_map(
             static fn(array $row): array => [
                 $formatDateTime($row["read_at"]),
-                $row["product_name"] ?? "Produto não identificado",
+                $row["product_name"] ?? "Código válido não cadastrado",
                 $row["barcode"] ?? "—",
                 $row["sack_reference"],
             ],
@@ -905,15 +929,6 @@ $report->escreverTabela(
         ];
     }, $itemRows),
     [185, 95, 60, 60, 65, 50],
-);
-$sensorPassages = (int) ($operationSummary["passages"] ?? 0);
-$scannerReadings = (int) ($operationSummary["scanner_readings"] ?? 0);
-$excessImages = (int) ($operationSummary["excess_images"] ?? 0);
-$excesses = (int) ($operationSummary["excesses"] ?? 0);
-$report->escreverParagrafo(
-    "Sensor: {$sensorPassages} passagem(ns) detectada(s) · " .
-    "Scanner: {$scannerReadings} leitura(s) com código · " .
-    "Excesso com foto: {$excessImages} de {$excesses} passagem(ns).",
 );
 // Nota sobre sacas sem identificação: só aparece quando há SEM_LEITURA com
 // product_id NULL, o que ocorre quando o romaneio tem múltiplos produtos e o

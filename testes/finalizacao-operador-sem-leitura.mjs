@@ -44,16 +44,21 @@ test("operador pode finalizar na meta física mesmo com pendências de leitura o
   const current = state();
   assert.equal(divergenciaCobertaPorEvidencia(current), true);
   assert.equal(podeFinalizarCarregamento(current), true);
-  assert.equal(podeFinalizarCarregamento({ ...current, stopReason: "COTA_ROMANEIO_ATINGIDA" }), false);
+  assert.equal(podeFinalizarCarregamento({
+    ...current,
+    stopReason: "COTA_ROMANEIO_ATINGIDA",
+    summaryMonitoring: { carregamento: { ...current.summaryMonitoring.carregamento, parada_automatica_solicitada: true } },
+  }), true);
   const stoppedAtQuota = {
     ...current,
     stopReason: "COTA_ROMANEIO_ATINGIDA",
-    plcCommand: { command: "PAUSAR_CARREGAMENTO", status: "APLICADO" },
+    summaryMonitoring: { carregamento: { ...current.summaryMonitoring.carregamento, parada_automatica_solicitada: true } },
+    plcCommand: { command: "PAUSAR_CARREGAMENTO", status: "PENDENTE" },
   };
   assert.equal(podeFinalizarCarregamento(stoppedAtQuota), true);
   assert.equal(podeFinalizarCarregamento({
     ...stoppedAtQuota,
-    plcCommand: { command: "PAUSAR_CARREGAMENTO", status: "PENDENTE" },
+    plcCommand: { command: "REVERSAO_ATIVAR", status: "PENDENTE" },
   }), false);
 });
 

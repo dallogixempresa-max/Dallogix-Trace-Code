@@ -9,6 +9,27 @@ use PDO;
 /** Reconcilia a confirmação do gateway com eventos locais e sincronizados. */
 final class ValidadorParadaCarregamento
 {
+    public static function solicitada(
+        PDO $pdo,
+        int $companyId,
+        int $loadingId,
+    ): bool {
+        $statement = $pdo->prepare(
+            "SELECT EXISTS (
+               SELECT 1 FROM solicitacoes_comandos_clp
+               WHERE company_id = :company_id AND carregamento_id = :loading_id
+                 AND command = 'PAUSAR_CARREGAMENTO'
+                 AND status IN ('PENDENTE', 'PROCESSANDO', 'APLICADO')
+             )",
+        );
+        $statement->execute([
+            "company_id" => $companyId,
+            "loading_id" => $loadingId,
+        ]);
+
+        return (bool) $statement->fetchColumn();
+    }
+
     public static function confirmada(
         PDO $pdo,
         int $companyId,

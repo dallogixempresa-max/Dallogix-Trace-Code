@@ -34,21 +34,24 @@ foreach ($cases as [$name, $barcodePresent, $productId, $productPlanned, $produc
     }
 }
 
-$unmatchedBarcode = $classifier->classificar(true, null, 0, 0, 10, 4, false);
-if ($unmatchedBarcode["result"] !== "SEM_LEITURA"
+$unmatchedBarcode = $classifier->classificar(true, null, 0, 0, 10, 4, false, 0, 0, true);
+if ($unmatchedBarcode["result"] !== "PRODUTO_INCORRETO"
     || $unmatchedBarcode["product_id"] !== null
-    || !$unmatchedBarcode["no_read_evidence_required"]
+    || $unmatchedBarcode["no_read_evidence_required"]
+    || !$unmatchedBarcode["unregistered_product_detected"]
+    || !$unmatchedBarcode["wrong_product_detected"]
     || !$unmatchedBarcode["stop_required"]
 ) {
-    throw new RuntimeException("Código sem cadastro deve preservar evidência e solicitar pausa para conferência.");
+    throw new RuntimeException("Código confiável sem cadastro deve ser divergência, preservar evidência e solicitar pausa sem consumir meta.");
 }
 
-$unmatchedBarcodeAtQuota = $classifier->classificar(true, null, 0, 0, 10, 10, true);
-if ($unmatchedBarcodeAtQuota["result"] !== "SEM_LEITURA"
-    || !$unmatchedBarcodeAtQuota["no_read_evidence_required"]
+$unmatchedBarcodeAtQuota = $classifier->classificar(true, null, 0, 0, 10, 10, true, 0, 0, true);
+if ($unmatchedBarcodeAtQuota["result"] !== "PRODUTO_INCORRETO"
+    || $unmatchedBarcodeAtQuota["no_read_evidence_required"]
+    || !$unmatchedBarcodeAtQuota["unregistered_product_detected"]
     || !$unmatchedBarcodeAtQuota["stop_required"]
 ) {
-    throw new RuntimeException("Código sem correspondência deve continuar como sem leitura e exigir evidência, mesmo após a meta.");
+    throw new RuntimeException("Código confiável sem correspondência não pode consumir a meta, mesmo após a quantidade prevista.");
 }
 
 $knownProductOutsideManifest = $classifier->classificar(true, 30, 0, 0, 10, 4, false);

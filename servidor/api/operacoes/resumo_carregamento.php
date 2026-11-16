@@ -88,6 +88,12 @@ $data["parada_automatica_confirmada"] = $stopReason !== ""
         (int) $data["equipment_id"],
         $stopReason,
     );
+$data["parada_automatica_solicitada"] = $stopReason !== ""
+    && \App\Aplicacao\ValidadorParadaCarregamento::solicitada(
+        $pdo,
+        (int) $user["company_id"],
+        (int) $loadingId,
+    );
 $data["excessos_detectados"] = $count(
     $pdo,
     "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia i

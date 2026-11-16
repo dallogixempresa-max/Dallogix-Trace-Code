@@ -18,6 +18,7 @@ final class FinishStatement extends PDOStatement {
     public function fetchColumn(int $column=0): mixed {
         global $scenario;
         if(str_contains($this->sql,'FROM logs_auditoria')) return $scenario['stopApplied']??1;
+        if(str_contains($this->sql,"command = 'PAUSAR_CARREGAMENTO'")) return $scenario['stopRequested']??1;
         if(str_contains($this->sql,'FROM solicitacoes_comandos_clp')) return $scenario['pendingCommands']??0;
         if(str_contains($this->sql,'SELECT COUNT(*) FROM carregamentos c')) return 0;
         if(str_contains($this->sql,'SUM(ri.planned_quantity)')) return $scenario['planned']??2;
