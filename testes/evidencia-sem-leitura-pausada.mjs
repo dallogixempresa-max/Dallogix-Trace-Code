@@ -36,8 +36,9 @@ test("o leitor associa a passagem pausada e registra o resultado sem consumir a 
 test("a conclusão operacional não espera leitura ou foto, mas mantém meta e parada", () => {
   assert.doesNotMatch(finish, /contarLeiturasSemImagemValida/);
   assert.doesNotMatch(finish, /\$pendingSensorEvents =/);
-  assert.match(finish, /\$loadingDetectedQuantity !== \$loadingPlannedQuantity/);
+  assert.match(finish, /\$loadingDetectedQuantity < \$loadingPlannedQuantity/);
   assert.match(finish, /\$automaticQuotaStopAcknowledged/);
+  assert.match(finish, /ValidadorParadaCarregamento::confirmada/);
   assert.match(summary, /sem_leitura_evidencias_obrigatorias/);
   assert.match(validator, /trace_evidence_image_path/);
   assert.match(validator, /image_sha256/);

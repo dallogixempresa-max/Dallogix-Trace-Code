@@ -343,6 +343,7 @@ $productValidCount = $classification["product_valid_count"];
 $productQuotaReached = $classification["product_quota_reached"];
 $noReadEvidenceRequired = $classification["no_read_evidence_required"];
 $wrongProductDetected = $classification["wrong_product_detected"];
+$stopRequired = $classification["stop_required"];
 $barcodeUnmatched = $barcode !== "" && $matchedProductId === null;
 $countsTowardPlan = in_array($result, ["VALIDO", "SEM_LEITURA"], true)
     && !$physicalExcess
@@ -491,26 +492,27 @@ if ($wrongProductDetected) {
         ["carregamento_id" => (int) $loadingId, "leitura_id" => $readingId],
     );
     $evidenceStatus = "NAO_SOLICITADA";
-    if ($result === "PRODUTO_INCORRETO" && $loading["state"] !== "FINALIZADO") {
-        $wrongProductStop = (new ServicoComandoClp($pdo))->solicitarParadaPorProdutoIncorreto(
-            $usuarioAtor,
-            (int) $loadingId,
-        );
-        record_operational_event(
-            $pdo,
-            $usuarioAtor,
-            "PARADA_PRODUTO_INCORRETO",
-            "leitura",
-            $readingId,
-            [
-                "carregamento_id" => (int) $loadingId,
-                "stop_reason" => $wrongProductStop["stop_reason"],
-                "operator_alert" => $wrongProductStop["operator_alert"],
-                "physical_stop_request_status" => $wrongProductStop["physical_stop_request_status"],
-                "command_request_id" => $wrongProductStop["command_request_id"],
-            ],
-        );
-    }
+}
+if ($stopRequired && $loading["state"] !== "FINALIZADO") {
+    $wrongProductStop = (new ServicoComandoClp($pdo))->solicitarParadaPorProdutoIncorreto(
+        $usuarioAtor,
+        (int) $loadingId,
+    );
+    record_operational_event(
+        $pdo,
+        $usuarioAtor,
+        "PARADA_PRODUTO_INCORRETO",
+        "leitura",
+        $readingId,
+        [
+            "carregamento_id" => (int) $loadingId,
+            "barcode_unmatched" => $barcodeUnmatched,
+            "stop_reason" => $wrongProductStop["stop_reason"],
+            "operator_alert" => $wrongProductStop["operator_alert"],
+            "physical_stop_request_status" => $wrongProductStop["physical_stop_request_status"],
+            "command_request_id" => $wrongProductStop["command_request_id"],
+        ],
+    );
 }
 if ($sensorEventId && ($noReadEvidenceRequired || $result === "PRODUTO_INCORRETO")) {
     $evidenceReason = $result === "PRODUTO_INCORRETO" ? "PRODUTO_INCORRETO" : "SEM_LEITURA";
@@ -581,9 +583,9 @@ responder_json(
             "stop_reason" => $stopDetails["stop_reason"] ?? $loading["stop_reason"] ?? null,
             "physical_stop_request_status" => $stopDetails["physical_stop_request_status"] ?? null,
             "command_request_id" => $stopDetails["command_request_id"] ?? null,
-            "operator_alert" => $result === "PRODUTO_INCORRETO"
-                ? ($wrongProductStop["operator_alert"] ?? "Produto fora do romaneio ou da quantidade prevista. Remova a unidade e confirme a parada física antes de continuar.")
-                : ($loading["operator_alert"] ?? null),
+            "operator_alert" => $barcodeUnmatched
+                ? "Código não cadastrado. A esteira foi pausada para conferência; trate a divergência no relatório."
+                : ($wrongProductStop["operator_alert"] ?? ($loading["operator_alert"] ?? null)),
         ],
     ],
     201,

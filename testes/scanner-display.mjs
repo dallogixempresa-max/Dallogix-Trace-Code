@@ -40,7 +40,9 @@ test("última leitura do serviço Keyence alimenta o visor em atualizações ao 
   assert.match(monitoringRepository, /lr\.barcode AS last_scanner_barcode/);
   assert.match(monitoringRepository, /lr\.result AS last_scanner_result/);
   assert.match(activeLoading, /latestScannerReading = loading\.last_scanner_read_at/);
+  assert.match(activeLoading, /Código não cadastrado: \$\{barcode\}/);
   assert.match(activeLoading, /Falha na leitura \(sem código\)/);
+  assert.match(activeLoading, /Produto fora do romaneio: \$\{barcode/);
   assert.match(liveView, /leitorPodeConcluirPassagens = Boolean\(store\.state\.loadingId\)\s*&& \["CARREGANDO", "FINALIZANDO", "PAUSADO"\]\.includes\(operationalState\)/);
   assert.match(liveView, /values\["scanner-value"\] = leitorPodeConcluirPassagens/);
 });
@@ -84,7 +86,7 @@ test("fila durável do M2052 é reprocessada após reinício e fechamento aguard
   assert.match(heartbeat, /sensor_event_outbox_pending = events\.length/);
   assert.match(heartbeat, /sensor_event_outbox_pending_by_loading = outbox\.countEventsByLoading\(events\)/);
   assert.doesNotMatch(finishLoadingApi, /\$pendingSensorEvents =/);
-  assert.match(finishLoadingApi, /\$loadingDetectedQuantity !== \$loadingPlannedQuantity/);
+  assert.match(finishLoadingApi, /\$loadingDetectedQuantity < \$loadingPlannedQuantity/);
   assert.match(loadingSummaryApi, /leituras_pendentes_sensor/);
   assert.match(loadingSummaryApi, /RepositorioFilaSensor/);
   assert.match(observabilityService, /resumo_carregamento\.php\?carregamento_id=/);

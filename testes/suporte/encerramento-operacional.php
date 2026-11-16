@@ -2,6 +2,7 @@
 declare(strict_types=1);
 // Executa o endpoint real com transporte e PDO controlados, sem servidor ou CLP.
 $scenario=json_decode($argv[1]??'{}',true);
+require_once __DIR__.'/../../servidor/src/Aplicacao/ValidadorParadaCarregamento.php';
 $events=[];
 final class FinishStatement extends PDOStatement {
     public function __construct(private string $sql) {}

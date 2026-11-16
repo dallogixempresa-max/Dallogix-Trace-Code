@@ -29,13 +29,16 @@ test("código sem correspondência fica auditado como não identificado e pede f
   );
   assert.match(endpoint, /\$evidenceReason = \$result === "PRODUTO_INCORRETO" \? "PRODUTO_INCORRETO" : "SEM_LEITURA"/);
   assert.match(endpoint, /\? "Saco detectado pelo sensor com código sem correspondência no catálogo\."/);
+  assert.match(endpoint, /\$stopRequired = \$classification\["stop_required"\]/);
+  assert.match(endpoint, /if \(\$stopRequired && \$loading\["state"\] !== "FINALIZADO"\)/);
+  assert.match(endpoint, /Código não cadastrado\. A esteira foi pausada para conferência/);
 });
 
 test("produto reconhecido fora do romaneio mantém ocorrência e parada apropriada", () => {
   assert.match(endpoint, /\$wrongProductDetected = \$classification\["wrong_product_detected"\]/);
   assert.match(
     endpoint,
-    /if \(\$wrongProductDetected\) \{[\s\S]*?if \(\$result === "PRODUTO_INCORRETO" && \$loading\["state"\] !== "FINALIZADO"\) \{/,
+    /if \(\$stopRequired && \$loading\["state"\] !== "FINALIZADO"\) \{/,
   );
   assert.match(endpoint, /solicitarParadaPorProdutoIncorreto/);
   assert.doesNotMatch(endpoint, /solicitarParadaPorExcesso/);

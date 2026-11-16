@@ -12,12 +12,11 @@ export function motivoBloqueioFinalizacao(state) {
   if (hasPendingMachineCommand) {
     return "Aguarde o CLP confirmar o comando da máquina antes de finalizar.";
   }
-  const automaticQuotaStop = ["COTA_ROMANEIO_ATINGIDA", "EXCESSO"].includes(state?.stopReason)
-    && (loading.parada_automatica_confirmada === true
-      || Number(loading.parada_automatica_confirmada) === 1
-      || (String(state?.plcCommand?.command || "").toUpperCase() === "PAUSAR_CARREGAMENTO"
-        && String(state?.plcCommand?.status || "").toUpperCase() === "APLICADO"));
-  if (state?.stopReason && !automaticQuotaStop) {
+  const stopConfirmed = loading.parada_automatica_confirmada === true
+    || Number(loading.parada_automatica_confirmada) === 1
+    || (String(state?.plcCommand?.command || "").toUpperCase() === "PAUSAR_CARREGAMENTO"
+      && String(state?.plcCommand?.status || "").toUpperCase() === "APLICADO");
+  if (state?.stopReason && !stopConfirmed) {
     return "Confirme a parada física solicitada antes de finalizar.";
   }
   if (Number(loading.id) <= 0 || Number(loading.id) !== Number(state?.loadingId)) {
@@ -28,22 +27,13 @@ export function motivoBloqueioFinalizacao(state) {
   if (planned <= 0) {
     return "A quantidade prevista do romaneio não está informada.";
   }
-  const excessDetected = detected > planned
-    || Number(loading.leituras_excesso) > 0
-    || Number(loading.excessos_detectados ?? loading.excess_evidence_requests ?? state?.excessEvidenceRequests ?? 0) > 0
-    || (state?.loadingItems || []).some((item) =>
-      Number(item.loaded_quantity || 0) > Number(item.planned_quantity || 0),
-    );
-  if (excessDetected) {
-    return "O sensor registrou passagem acima da quantidade prevista. Não é possível finalizar este carregamento.";
-  }
   if (detected < planned) {
     return "Aguarde o sensor atingir a quantidade prevista do romaneio.";
   }
   return "";
 }
 
-/** Só libera o fechamento com meta física atingida, parada confirmada; evidências são processadas depois. */
+/** Libera o fechamento na meta física com parada confirmada; divergências seguem para o relatório. */
 export function podeFinalizarCarregamento(state) {
   return motivoBloqueioFinalizacao(state) === "";
 }

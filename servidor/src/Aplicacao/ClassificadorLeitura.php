@@ -8,7 +8,7 @@ namespace App\Aplicacao;
 final class ClassificadorLeitura
 {
     /**
-     * @return array{result: string, product_id: ?int, product_planned_quantity: int, product_valid_count: int, product_quota_reached: bool, no_read_evidence_required: bool, wrong_product_detected: bool}
+     * @return array{result: string, product_id: ?int, product_planned_quantity: int, product_valid_count: int, product_quota_reached: bool, no_read_evidence_required: bool, wrong_product_detected: bool, stop_required: bool}
      */
     public function classificar(
         bool $barcodePresent,
@@ -41,6 +41,10 @@ final class ClassificadorLeitura
             || $productQuotaAlreadyReached
             || (!$physicalExcess && $loadingQuotaAlreadyReached)
         );
+        // Um código presente mas sem vínculo no catálogo não pode ser tratado
+        // como uma passagem sem código: pare para conferência e preserve o
+        // valor lido como divergência auditável.
+        $stopRequired = $wrongProductDetected || ($barcodePresent && !$catalogProductIdentified);
 
         if ($catalogProductIdentified && $productPlannedQuantity > 0) {
             $productId = $matchedProductId;
@@ -62,6 +66,7 @@ final class ClassificadorLeitura
             "product_quota_reached" => $productQuotaReached,
             "no_read_evidence_required" => !$catalogProductIdentified,
             "wrong_product_detected" => $wrongProductDetected,
+            "stop_required" => $stopRequired,
         ];
     }
 }

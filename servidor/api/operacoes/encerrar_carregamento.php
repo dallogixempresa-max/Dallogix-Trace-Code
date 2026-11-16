@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . "/../../configuracao/bootstrap.php";
+require_once __DIR__ . "/../../src/Aplicacao/ValidadorParadaCarregamento.php";
 
 $user = require_role(["ADMIN_EMPRESA", "SUPERVISOR", "USUARIO"]);
 if ($_SERVER["REQUEST_METHOD"] !== "POST") {
@@ -41,8 +42,8 @@ if (!$loading) {
     json_response(["error" => "Carregamento não encontrado."], 404);
 }
 $stopReason = strtoupper(trim((string) ($loading["stop_reason"] ?? "")));
-$automaticQuotaStopReason = in_array($stopReason, ["COTA_ROMANEIO_ATINGIDA", "EXCESSO"], true);
-if ($loading["state"] !== "PAUSADO" || ($stopReason !== "" && !$automaticQuotaStopReason)) {
+$requiresConfirmedStop = $stopReason !== "";
+if ($loading["state"] !== "PAUSADO") {
     $pdo->rollBack();
     json_response(
         [
@@ -61,86 +62,23 @@ if ((int) $pendingCommand->fetchColumn() > 0) {
     $pdo->rollBack();
     json_response(["error" => "Aguarde o CLP confirmar o último comando antes de encerrar."], 409);
 }
-$automaticQuotaStopAcknowledged = false;
-if ($automaticQuotaStopReason) {
-    $stopAction = $stopReason === "EXCESSO"
-        ? "EXCESSO_DETECTADO"
-        : "QUANTIDADE_PLANEJADA_ATINGIDA";
-    $confirmedStop = $pdo->prepare(
-        "SELECT 1 FROM logs_auditoria a
-         WHERE a.company_id = :company_id AND a.action = :action
-           AND a.entity_type = 'carregamento' AND a.entity_id = :loading_id
-           AND JSON_UNQUOTE(JSON_EXTRACT(a.metadata, '$.stop_reason')) = :stop_reason
-           AND (
-             EXISTS (
-               SELECT 1 FROM solicitacoes_comandos_clp q
-               WHERE q.id = CAST(JSON_UNQUOTE(JSON_EXTRACT(a.metadata, '$.command_request_id')) AS UNSIGNED)
-                 AND q.carregamento_id = :command_loading_id AND q.company_id = :command_company_id
-                 AND q.command = 'PAUSAR_CARREGAMENTO' AND q.status = 'APLICADO'
-             )
-             OR EXISTS (
-               SELECT 1 FROM logs_auditoria ack
-               WHERE ack.company_id = a.company_id
-                 AND ack.action = 'COMANDO_CLP_CONCLUIDO'
-                 AND ack.entity_type = 'solicitacao_comando_clp'
-                 AND (
-                   ack.entity_id = CAST(JSON_UNQUOTE(JSON_EXTRACT(a.metadata, '$.command_request_id')) AS UNSIGNED)
-                   OR CAST(JSON_UNQUOTE(JSON_EXTRACT(ack.metadata, '$.aggregate_id')) AS UNSIGNED)
-                     = CAST(JSON_UNQUOTE(JSON_EXTRACT(a.metadata, '$.command_request_id')) AS UNSIGNED)
-                 )
-                 AND JSON_UNQUOTE(JSON_EXTRACT(ack.metadata, '$.payload.data.command')) = 'PAUSAR_CARREGAMENTO'
-                 AND JSON_UNQUOTE(JSON_EXTRACT(ack.metadata, '$.payload.data.status')) = 'APLICADO'
-                 AND CAST(JSON_UNQUOTE(JSON_EXTRACT(ack.metadata, '$.payload.data.remote_carregamento_id')) AS UNSIGNED) = :ack_remote_loading_id
-                 AND CAST(JSON_UNQUOTE(JSON_EXTRACT(ack.metadata, '$.payload.data.remote_equipment_id')) AS UNSIGNED) = :ack_remote_equipment_id
-             )
-           )
-         ORDER BY a.id DESC LIMIT 1",
+$automaticQuotaStopAcknowledged = !$requiresConfirmedStop
+    || \App\Aplicacao\ValidadorParadaCarregamento::confirmada(
+        $pdo,
+        (int) $user["company_id"],
+        (int) $loadingId,
+        (int) $loading["equipment_id"],
+        $stopReason,
     );
-    $confirmedStop->execute([
-        "company_id" => $user["company_id"],
-        "action" => $stopAction,
-        "loading_id" => $loadingId,
-        "stop_reason" => $stopReason,
-        "command_loading_id" => $loadingId,
-        "command_company_id" => $user["company_id"],
-        "ack_remote_loading_id" => $loadingId,
-        "ack_remote_equipment_id" => (int) $loading["equipment_id"],
-    ]);
-    $automaticQuotaStopAcknowledged = (bool) $confirmedStop->fetchColumn();
-    if (!$automaticQuotaStopAcknowledged) {
+if (!$automaticQuotaStopAcknowledged) {
         $pdo->rollBack();
         json_response(
             ["error" => "Aguarde o PC industrial confirmar a parada da esteira antes de finalizar."],
             409,
         );
-    }
 }
 
-// A conferência de leituras e imagens pertence ao relatório posterior.
-// A conclusão operacional exige a meta física exata e o comando de parada confirmado.
-// Só códigos VALIDO satisfazem a quantidade do item; SEM_LEITURA permanece divergência auditável.
-$divergences = $pdo->prepare("SELECT ri.product_id, SUM(ri.planned_quantity) AS planned_quantity,
-    GREATEST(0,
-      COALESCE((SELECT COUNT(*) FROM leituras l WHERE l.carregamento_id = :loading_id AND l.product_id = ri.product_id AND l.result = 'VALIDO' AND l.conta_na_meta = 1), 0)
-      - COALESCE((SELECT SUM(ret.quantity) FROM retornos ret JOIN leituras lr ON lr.id = ret.leitura_id
-                  WHERE ret.carregamento_id = :return_loading_id
-                    AND lr.conta_na_meta = 1 AND lr.product_id = ri.product_id), 0)
-    ) AS moved_quantity,
-    p.name FROM romaneio_itens ri JOIN produtos p ON p.id = ri.product_id
-    WHERE ri.romaneio_id = :romaneio_id AND (ri.truck_id = :truck_id OR ri.truck_id IS NULL)
-    GROUP BY ri.product_id, p.name");
-$divergences->execute([
-    "loading_id" => $loadingId,
-    "return_loading_id" => $loadingId,
-    "romaneio_id" => $loading["romaneio_id"],
-    "truck_id" => $loading["truck_id"],
-]);
-$divergenceRows = $divergences->fetchAll();
-$overfill = 0;
-foreach ($divergenceRows as $divergence) {
-    $difference = (int) $divergence["planned_quantity"] - (int) $divergence["moved_quantity"];
-    $overfill += max(0, -$difference);
-}
+// Leitura, produto incorreto, excesso e evidência ficam auditados no relatório.
 $loadingPlannedQuantityStatement = $pdo->prepare(
     "SELECT COALESCE(SUM(ri.planned_quantity), 0)
      FROM romaneio_itens ri
@@ -161,35 +99,10 @@ $loadingDetectedQuantityStatement->execute([
     "equipment_id" => $loading["equipment_id"],
 ]);
 $loadingDetectedQuantity = (int) $loadingDetectedQuantityStatement->fetchColumn();
-$excessReadingsStatement = $pdo->prepare(
-    "SELECT COUNT(*) FROM leituras WHERE carregamento_id = :loading_id AND result = 'EXCESSO' AND conta_na_meta = 1",
-);
-$excessReadingsStatement->execute(["loading_id" => $loadingId]);
-$excessReadingCount = (int) $excessReadingsStatement->fetchColumn();
-$excessEvidenceStatement = $pdo->prepare(
-    "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia i
-     WHERE i.carregamento_id = :loading_id AND i.reason = 'EXCESSO'
-       AND (i.sensor_event_id IS NULL OR EXISTS (
-         SELECT 1 FROM eventos_sensor s WHERE s.id = i.sensor_event_id AND s.conta_na_meta = 1
-       ))",
-);
-$excessEvidenceStatement->execute(["loading_id" => $loadingId]);
-$excessEvidenceCount = (int) $excessEvidenceStatement->fetchColumn();
-$hasExcess = $loadingDetectedQuantity > $loadingPlannedQuantity
-    || $excessReadingCount > 0
-    || $excessEvidenceCount > 0
-    || $overfill > 0;
-if ($hasExcess) {
+if ($loadingPlannedQuantity < 1 || $loadingDetectedQuantity < $loadingPlannedQuantity) {
     $pdo->rollBack();
     json_response(
-        ["error" => "A quantidade detectada excedeu o previsto. O carregamento não pode ser finalizado; mantenha a esteira parada e trate a ocorrência."],
-        409,
-    );
-}
-if ($loadingPlannedQuantity < 1 || $loadingDetectedQuantity !== $loadingPlannedQuantity) {
-    $pdo->rollBack();
-    json_response(
-        ["error" => "O carregamento só pode ser finalizado quando a quantidade prevista de sacas válidas ou sem leitura for atingida."],
+        ["error" => "O carregamento só pode ser finalizado depois de atingir a quantidade física prevista."],
         409,
     );
 }
@@ -219,18 +132,7 @@ try {
     ]);
     $romaneioProntoParaEncerrar = (int) $remaining->fetchColumn() === 0;
     $romaneioFinalizado = false;
-    $quantityMismatch = $pdo->prepare(
-        "SELECT COUNT(*) FROM carregamentos c
-         WHERE c.romaneio_id = :romaneio_id AND c.company_id = :company_id
-           AND (SELECT COUNT(*) FROM eventos_sensor s
-                WHERE s.carregamento_id = c.id AND s.equipment_id = c.equipment_id AND s.conta_na_meta = 1)
-             <> (SELECT COALESCE(SUM(ri.planned_quantity), 0) FROM romaneio_itens ri
-                 WHERE ri.romaneio_id = c.romaneio_id
-                   AND (ri.truck_id = c.truck_id OR ri.truck_id IS NULL))",
-    );
-    $quantityMismatch->execute(["romaneio_id" => $loading["romaneio_id"], "company_id" => $user["company_id"]]);
-    $allLoadingsHaveExactQuota = (int) $quantityMismatch->fetchColumn() === 0;
-    if ($romaneioProntoParaEncerrar && $allLoadingsHaveExactQuota && $loading["romaneio_status"] === "EM_ANDAMENTO") {
+    if ($romaneioProntoParaEncerrar && $loading["romaneio_status"] === "EM_ANDAMENTO") {
         // Os demais carregamentos já foram concluídos operacionalmente.
         // Fotos e leituras pendentes permanecem vinculadas para o relatório.
         $finishManifest = $pdo->prepare(

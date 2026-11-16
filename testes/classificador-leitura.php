@@ -38,13 +38,15 @@ $unmatchedBarcode = $classifier->classificar(true, null, 0, 0, 10, 4, false);
 if ($unmatchedBarcode["result"] !== "SEM_LEITURA"
     || $unmatchedBarcode["product_id"] !== null
     || !$unmatchedBarcode["no_read_evidence_required"]
+    || !$unmatchedBarcode["stop_required"]
 ) {
-    throw new RuntimeException("Código sem correspondência no catálogo deve exigir evidência como leitura não identificada.");
+    throw new RuntimeException("Código sem cadastro deve preservar evidência e solicitar pausa para conferência.");
 }
 
 $unmatchedBarcodeAtQuota = $classifier->classificar(true, null, 0, 0, 10, 10, true);
 if ($unmatchedBarcodeAtQuota["result"] !== "SEM_LEITURA"
     || !$unmatchedBarcodeAtQuota["no_read_evidence_required"]
+    || !$unmatchedBarcodeAtQuota["stop_required"]
 ) {
     throw new RuntimeException("Código sem correspondência deve continuar como sem leitura e exigir evidência, mesmo após a meta.");
 }
@@ -53,6 +55,7 @@ $knownProductOutsideManifest = $classifier->classificar(true, 30, 0, 0, 10, 4, f
 if ($knownProductOutsideManifest["result"] !== "PRODUTO_INCORRETO"
     || $knownProductOutsideManifest["no_read_evidence_required"]
     || !$knownProductOutsideManifest["wrong_product_detected"]
+    || !$knownProductOutsideManifest["stop_required"]
 ) {
     throw new RuntimeException("Produto reconhecido fora do romaneio deve continuar sendo tratado como incorreto.");
 }

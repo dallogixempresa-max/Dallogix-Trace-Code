@@ -5,6 +5,7 @@ require_once __DIR__ . "/../../configuracao/bootstrap.php";
 require_once __DIR__ . "/../../src/Aplicacao/ValidadorFilaSensor.php";
 require_once __DIR__ . "/../../src/Persistencia/RepositorioFilaSensor.php";
 require_once __DIR__ . "/../../src/Aplicacao/ValidadorEvidenciasOperacionais.php";
+require_once __DIR__ . "/../../src/Aplicacao/ValidadorParadaCarregamento.php";
 
 $user = require_session_user();
 if ($_SERVER["REQUEST_METHOD"] !== "GET") {
@@ -79,50 +80,14 @@ $data["leituras_excesso"] = $count(
     ["id" => $loadingId],
 );
 $stopReason = strtoupper(trim((string) ($data["stop_reason"] ?? "")));
-$data["parada_automatica_confirmada"] = false;
-if (in_array($stopReason, ["COTA_ROMANEIO_ATINGIDA", "EXCESSO"], true)) {
-    $stopAction = $stopReason === "EXCESSO" ? "EXCESSO_DETECTADO" : "QUANTIDADE_PLANEJADA_ATINGIDA";
-    $data["parada_automatica_confirmada"] = $count(
+$data["parada_automatica_confirmada"] = $stopReason !== ""
+    && \App\Aplicacao\ValidadorParadaCarregamento::confirmada(
         $pdo,
-        "SELECT COUNT(*) FROM logs_auditoria a
-         WHERE a.company_id = :company_id AND a.action = :action
-           AND a.entity_type = 'carregamento' AND a.entity_id = :loading_id
-           AND JSON_UNQUOTE(JSON_EXTRACT(a.metadata, '$.stop_reason')) = :stop_reason
-           AND (
-             EXISTS (
-               SELECT 1 FROM solicitacoes_comandos_clp q
-               WHERE q.id = CAST(JSON_UNQUOTE(JSON_EXTRACT(a.metadata, '$.command_request_id')) AS UNSIGNED)
-                 AND q.carregamento_id = :command_loading_id AND q.company_id = :command_company_id
-                 AND q.command = 'PAUSAR_CARREGAMENTO' AND q.status = 'APLICADO'
-             )
-             OR EXISTS (
-               SELECT 1 FROM logs_auditoria ack
-               WHERE ack.company_id = a.company_id
-                 AND ack.action = 'COMANDO_CLP_CONCLUIDO'
-                 AND ack.entity_type = 'solicitacao_comando_clp'
-                 AND (
-                   ack.entity_id = CAST(JSON_UNQUOTE(JSON_EXTRACT(a.metadata, '$.command_request_id')) AS UNSIGNED)
-                   OR CAST(JSON_UNQUOTE(JSON_EXTRACT(ack.metadata, '$.aggregate_id')) AS UNSIGNED)
-                     = CAST(JSON_UNQUOTE(JSON_EXTRACT(a.metadata, '$.command_request_id')) AS UNSIGNED)
-                 )
-                 AND JSON_UNQUOTE(JSON_EXTRACT(ack.metadata, '$.payload.data.command')) = 'PAUSAR_CARREGAMENTO'
-                 AND JSON_UNQUOTE(JSON_EXTRACT(ack.metadata, '$.payload.data.status')) = 'APLICADO'
-                 AND CAST(JSON_UNQUOTE(JSON_EXTRACT(ack.metadata, '$.payload.data.remote_carregamento_id')) AS UNSIGNED) = :ack_remote_loading_id
-                 AND CAST(JSON_UNQUOTE(JSON_EXTRACT(ack.metadata, '$.payload.data.remote_equipment_id')) AS UNSIGNED) = :ack_remote_equipment_id
-             )
-           )",
-        [
-            "company_id" => $user["company_id"],
-            "action" => $stopAction,
-            "loading_id" => $loadingId,
-            "stop_reason" => $stopReason,
-            "command_loading_id" => $loadingId,
-            "command_company_id" => $user["company_id"],
-            "ack_remote_loading_id" => $loadingId,
-            "ack_remote_equipment_id" => (int) $data["equipment_id"],
-        ],
-    ) > 0;
-}
+        (int) $user["company_id"],
+        (int) $loadingId,
+        (int) $data["equipment_id"],
+        $stopReason,
+    );
 $data["excessos_detectados"] = $count(
     $pdo,
     "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia i

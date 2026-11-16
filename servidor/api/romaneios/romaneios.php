@@ -240,71 +240,8 @@ if ($_SERVER["REQUEST_METHOD"] === "PATCH") {
                     responder_json(["error" => "Finalize todos os carregamentos antes de encerrar o romaneio."], 409);
                 }
             }
-            // Evidências e leituras continuam em processamento após a conclusão operacional.
-            $quantityMismatch = $pdo->prepare(
-                "SELECT COUNT(*) FROM carregamentos c
-                 WHERE c.romaneio_id = :romaneio_id AND c.company_id = :company_id
-                   AND (SELECT COUNT(*) FROM eventos_sensor s
-                        WHERE s.carregamento_id = c.id AND s.equipment_id = c.equipment_id AND s.conta_na_meta = 1)
-                     <> (SELECT COALESCE(SUM(ri.planned_quantity), 0) FROM romaneio_itens ri
-                         WHERE ri.romaneio_id = c.romaneio_id
-                           AND (ri.truck_id = c.truck_id OR ri.truck_id IS NULL))",
-            );
-            $quantityMismatch->execute([
-                "romaneio_id" => $romaneioId,
-                "company_id" => $companyId,
-            ]);
-            if ((int) $quantityMismatch->fetchColumn() > 0) {
-                $pdo->rollBack();
-                responder_json(["error" => "A quantidade detectada não corresponde ao previsto em todos os carregamentos."], 409);
-            }
-
-            $manifestExcess = $pdo->prepare(
-                "SELECT COUNT(*) FROM carregamentos c
-                 WHERE c.romaneio_id = :romaneio_id AND c.company_id = :company_id
-                   AND (
-                     c.stop_reason = 'EXCESSO'
-                     OR
-                     EXISTS (SELECT 1 FROM leituras l
-                             WHERE l.carregamento_id = c.id AND l.conta_na_meta = 1 AND l.result = 'EXCESSO')
-                     OR EXISTS (SELECT 1 FROM solicitacoes_imagens_evidencia i
-                                WHERE i.carregamento_id = c.id AND i.reason = 'EXCESSO'
-                                  AND EXISTS (SELECT 1 FROM eventos_sensor s WHERE s.id = i.sensor_event_id AND s.conta_na_meta = 1))
-                     OR (SELECT COUNT(*) FROM eventos_sensor s
-                         WHERE s.carregamento_id = c.id AND s.equipment_id = c.equipment_id AND s.conta_na_meta = 1)
-                        > (SELECT COALESCE(SUM(ri.planned_quantity), 0) FROM romaneio_itens ri
-                           WHERE ri.romaneio_id = c.romaneio_id
-                             AND (ri.truck_id = c.truck_id OR ri.truck_id IS NULL))
-                     OR EXISTS (
-                       SELECT ri.product_id
-                       FROM romaneio_itens ri
-                       WHERE ri.romaneio_id = c.romaneio_id
-                         AND (ri.truck_id = c.truck_id OR ri.truck_id IS NULL)
-                       GROUP BY ri.product_id
-                       HAVING GREATEST(
-                         0,
-                         COALESCE((SELECT COUNT(*) FROM leituras l
-                                   WHERE l.carregamento_id = c.id
-                                     AND l.product_id = ri.product_id AND l.result = 'VALIDO' AND l.conta_na_meta = 1), 0)
-                         - COALESCE((SELECT SUM(ret.quantity) FROM retornos ret
-                                     JOIN leituras lr ON lr.id = ret.leitura_id
-                                       WHERE ret.carregamento_id = c.id
-                                         AND lr.product_id = ri.product_id AND lr.conta_na_meta = 1), 0)
-                       ) > SUM(ri.planned_quantity)
-                     )
-                   )",
-            );
-            $manifestExcess->execute([
-                "romaneio_id" => $romaneioId,
-                "company_id" => $companyId,
-            ]);
-            if ((int) $manifestExcess->fetchColumn() > 0) {
-                $pdo->rollBack();
-                responder_json([
-                    "error" => "O romaneio tem passagem ou quantidade de produto acima do previsto e não pode ser finalizado.",
-                ], 409);
-            }
-
+            // Divergências de produto, quantidade e evidência são preservadas
+            // para o relatório; não impedem o encerramento operacional.
             $finish = $pdo->prepare(
                 "UPDATE romaneios SET status = 'FINALIZADO'
                  WHERE id = :id AND company_id = :company_id AND status = 'EM_ANDAMENTO'",

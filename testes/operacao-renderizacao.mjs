@@ -66,7 +66,7 @@ test("renderiza a finalização após a pausa confirmada na cota sem erro de ini
   assert.doesNotMatch(html.match(/<button[^>]*data-action="finish"[^>]*>/)?.[0] || "", /disabled/);
 });
 
-test("mantém a finalização bloqueada quando há passagem acima da meta", () => {
+test("libera a finalização após a meta mesmo quando há excesso registrado para o relatório", () => {
   const html = work({
     state: {
       selectedLoadingId: 1,
@@ -97,8 +97,8 @@ test("mantém a finalização bloqueada quando há passagem acima da meta", () =
   });
 
   const finishButton = html.match(/<button[^>]*data-action="finish"[^>]*>/)?.[0] || "";
-  assert.match(finishButton, /disabled/);
-  assert.match(html, /A finalização permanece bloqueada/);
+  assert.doesNotMatch(finishButton, /disabled/);
+  assert.match(html, /Finalize o romaneio; as divergências seguem para o relatório/);
 });
 
 test("mostra falha de leitura somente no campo do código de barras", () => {

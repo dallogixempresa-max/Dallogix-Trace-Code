@@ -40,7 +40,7 @@ function state({
   };
 }
 
-test("Operador pode finalizar 15 passagens de três produtos com uma sem leitura após conferência", () => {
+test("operador pode finalizar na meta física mesmo com pendências de leitura ou relatório", () => {
   const current = state();
   assert.equal(divergenciaCobertaPorEvidencia(current), true);
   assert.equal(podeFinalizarCarregamento(current), true);
@@ -81,7 +81,7 @@ test("produto fora do romaneio não consome a meta; sua foto é conferida depois
   assert.equal(podeFinalizarCarregamento(withoutPhoto), true);
 });
 
-test("nenhum excesso total, de item ou sinalizado libera a finalização", () => {
+test("divergências de quantidade ou produto não bloqueiam o relatório após a meta física", () => {
   const current = state({ noRead: 0, captured: true });
   current.loadingItems = [
     { planned_quantity: 5, loaded_quantity: 5 },
@@ -89,17 +89,18 @@ test("nenhum excesso total, de item ou sinalizado libera a finalização", () =>
     { planned_quantity: 5, loaded_quantity: 5 },
   ];
   assert.equal(podeFinalizarCarregamento(current), true);
-  assert.equal(podeFinalizarCarregamento(state({ detected: 16 })), false);
+  assert.equal(podeFinalizarCarregamento(state({ detected: 16 })), true);
   assert.equal(podeFinalizarCarregamento({
     ...current,
     stopReason: "EXCESSO",
-  }), false);
+    plcCommand: { command: "PAUSAR_CARREGAMENTO", status: "APLICADO" },
+  }), true);
   assert.equal(podeFinalizarCarregamento({
     ...current,
     excessEvidenceRequests: 1,
-  }), false);
+  }), true);
   assert.equal(podeFinalizarCarregamento({
     ...current,
     loadingItems: [{ planned_quantity: 5, loaded_quantity: 6 }],
-  }), false);
+  }), true);
 });

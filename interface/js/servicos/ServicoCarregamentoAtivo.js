@@ -232,14 +232,21 @@ export class ServicoCarregamentoAtivo {
     this.state.excessEvidencePending = Number(loading.excess_evidence_pending) || 0;
     this.state.excessEvidenceFailed = Number(loading.excess_evidence_failed) || 0;
     this.state.latestScannerReading = loading.last_scanner_read_at
-      ? {
-          barcode: String(loading.last_scanner_barcode || ""),
-          result: String(loading.last_scanner_result || ""),
-          readAt: String(loading.last_scanner_read_at),
-          value: String(loading.last_scanner_result || "") === "SEM_LEITURA"
-            ? "Falha na leitura (sem código)"
-            : String(loading.last_scanner_barcode || "Leitura sem código"),
-        }
+      ? (() => {
+          const barcode = String(loading.last_scanner_barcode || "");
+          const result = String(loading.last_scanner_result || "");
+          const value = result === "SEM_LEITURA"
+            ? barcode ? `Código não cadastrado: ${barcode}` : "Falha na leitura (sem código)"
+            : result === "PRODUTO_INCORRETO"
+              ? `Produto fora do romaneio: ${barcode || "código sem identificação"}`
+              : barcode || "Leitura sem código";
+          return {
+            barcode,
+            result,
+            readAt: String(loading.last_scanner_read_at),
+            value,
+          };
+        })()
       : null;
     this.state.truck = loading.plate || "—";
     this.state.romaneio = loading.romaneio_number || "—";
