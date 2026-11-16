@@ -6,7 +6,7 @@ import { confirmarAcao, limparNotificacao, notificar, solicitarTexto } from "./c
 import { setFormFeedback } from "./componentes/form-feedback.js?v=202611120004";
 import { ServicoEmergencia } from "./servicos/ServicoEmergencia.js?v=202611120004";
 import { ServicoOperacao } from "./servicos/ServicoOperacao.js?v=202611120004";
-import { ArmazenamentoTrace } from "./classes/ArmazenamentoTrace.js?v=202611160001";
+import { ArmazenamentoTrace } from "./classes/ArmazenamentoTrace.js?v=202611160003";
 import { FORM_ACTIONS } from "./constantes/acoes.js?v=202611120004";
 import { changeOperationLoading, linhaItemRomaneio } from "./controladores/operacao.js?v=202611120004";
 import { createOperationalRealtimeController } from "./controladores/tempo-real.js?v=202611120004";
@@ -16,7 +16,7 @@ import { createMachineCommandQueue } from "./controladores/comandos-maquina.js?v
 import { criarRegistroTelas } from "./controladores/registro-telas.js?v=202611120004";
 import { criarTratadorAcoesNavegacao } from "./controladores/acoes-navegacao.js?v=202611120004";
 import { criarTratadorAcoesAdministracao } from "./controladores/acoes-administracao.js?v=202611120004";
-import { criarTratadorAcoesOperacionais } from "./controladores/acoes-operacionais.js?v=202611160001";
+import { criarTratadorAcoesOperacionais } from "./controladores/acoes-operacionais.js?v=202611160003";
 import { criarTratadorAcoesDiagnostico } from "./controladores/acoes-diagnostico.js?v=202611120004";
 import { criarTratadorAcoesCadastros } from "./controladores/acoes-cadastros.js?v=202611120004";
 import { criarTratadorAcoesInterface, instalarInteracoesGlobaisInterface } from "./controladores/acoes-interface.js?v=202611120004";
@@ -24,7 +24,7 @@ import { criarTratadorAcoesRelatorios } from "./controladores/acoes-relatorios.j
 import { criarDelegacaoAcoes, criarDespachanteAcoes } from "./controladores/despachante-acoes.js?v=202611120004";
 import { criarCarregadorPaginas } from "./controladores/carregador-paginas.js?v=202611120004";
 import { createLiveViewController } from "./controladores/estado-visualizacao.js?v=202611120004";
-import { createHidScannerCapture, isScannerNoReadMarker } from "./controladores/captura-leitor-hid.js?v=202611160001";
+import { createHidScannerCapture, isScannerNoReadMarker } from "./controladores/captura-leitor-hid.js?v=202611160003";
 import { createLocalConnectivityController } from "./controladores/conectividade-local.js?v=202611120004";
 import { bindManifestCreationForm, bindManifestEditForm } from "./controladores/formulario-romaneio.js?v=202611120004";
 import { bindProductForm } from "./controladores/formulario-produto.js?v=202611120004";
@@ -79,7 +79,7 @@ const registroTelas = criarRegistroTelas({
   division: () =>
     import("../telas/divisao-carga/divisao-carga.js?v=202611120004").then(({ division }) => division),
   work: () =>
-    import("../telas/operacao/operacao.js?v=202611160001").then(({ work }) => work),
+    import("../telas/operacao/operacao.js?v=202611160003").then(({ work }) => work),
   occurrences: () =>
     import("../telas/ocorrencias/ocorrencias.js?v=202611120004").then(({ occurrences }) => occurrences),
   products: () =>

@@ -3,7 +3,7 @@ import { operationStructureSignature, renderDalaStatuses } from "./operacao.js?v
 import { numero, relativo, dataHora } from "../funcoes/formato.js?v=202611120004";
 import { el } from "../funcoes/html.js";
 import { refreshCompanyStatusCards } from "../funcoes/view.js?v=202611120004";
-import { motivoBloqueioFinalizacao, podeFinalizarCarregamento } from "../funcoes/regras-carregamento.js?v=202611160001";
+import { motivoBloqueioFinalizacao, podeFinalizarCarregamento } from "../funcoes/regras-carregamento.js?v=202611160003";
 
 /** Mantém as regiões de estado sincronizadas sem recriar formulários ou a tela toda. */
 export function createLiveViewController({

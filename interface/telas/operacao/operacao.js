@@ -3,7 +3,7 @@ import { numero } from "../../js/funcoes/formato.js?v=202611120004";
 import { rotuloComando, rotuloEstado } from "../../js/funcoes/rotulos.js?v=202611120004";
 import { resolverComandoAtual } from "../../js/funcoes/estado-comando.js?v=202611120004";
 import { emergencyPanel, pageHeader } from "../../js/funcoes/view.js?v=202611120004";
-import { motivoBloqueioFinalizacao, podeFinalizarCarregamento } from "../../js/funcoes/regras-carregamento.js?v=202611160001";
+import { motivoBloqueioFinalizacao, podeFinalizarCarregamento } from "../../js/funcoes/regras-carregamento.js?v=202611160003";
 
 function equipmentLabel(store) {
   if (store.state.equipmentCode && store.state.equipmentCode !== "—") {
