@@ -93,10 +93,20 @@ compose() {
   docker compose "${compose_args[@]}" "$@"
 }
 
+active_loads_query="SELECT COUNT(*) FROM carregamentos WHERE state IN ('PREPARANDO', 'CARREGANDO', 'PAUSADO', 'FINALIZANDO', 'EMERGENCIA');"
+maintenance_loading_id="${TRACE_PAUSED_MAINTENANCE_LOADING_ID:-0}"
+[[ "$maintenance_loading_id" =~ ^[0-9]+$ && ${#maintenance_loading_id} -le 9 ]] || {
+  echo "Identificador de manutenção inválido." >&2
+  exit 2
+}
+if [[ "$maintenance_loading_id" != "0" ]]; then
+  active_loads_query="SELECT IF((SELECT COUNT(*) FROM carregamentos WHERE id = $maintenance_loading_id AND state = 'PAUSADO') = 1, (SELECT COUNT(*) FROM carregamentos WHERE id <> $maintenance_loading_id AND state IN ('PREPARANDO','CARREGANDO','PAUSADO','FINALIZANDO','EMERGENCIA')) + (SELECT COUNT(*) FROM solicitacoes_comandos_clp WHERE status IN ('PENDENTE','PROCESSANDO')), 1);"
+  echo "Manutenção solicitada para a carga pausada $maintenance_loading_id; estado e histórico serão preservados."
+fi
 active_loads="$(compose exec -T mysql sh -lc \
   'export MYSQL_PWD="$MYSQL_PASSWORD"; mysql --connect-timeout=5 --batch --skip-column-names -u"$MYSQL_USER" "$MYSQL_DATABASE" -e "$1"' \
   trace-git-deploy \
-  "SELECT COUNT(*) FROM carregamentos WHERE state IN ('PREPARANDO', 'CARREGANDO', 'PAUSADO', 'FINALIZANDO', 'EMERGENCIA');" \
+  "$active_loads_query" \
   | tr -d '[:space:]')"
 [[ "$active_loads" =~ ^[0-9]+$ ]] || {
   echo "Não foi possível confirmar que não há carregamento ativo; deploy cancelado." >&2
