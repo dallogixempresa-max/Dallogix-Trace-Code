@@ -413,7 +413,7 @@ const conectividadeLocal = createLocalConnectivityController({
   refreshSettingsView: () => refreshSettingsStatusView(),
   render: () => render(),
   logWarning: (...args) => logFrontend.aviso(...args),
-  serviceWorkerUrl: "/service-worker.js?v=202611160001",
+  serviceWorkerUrl: "/service-worker.js?v=202611160003",
 });
 
 function waitForDocumentStyles() {
