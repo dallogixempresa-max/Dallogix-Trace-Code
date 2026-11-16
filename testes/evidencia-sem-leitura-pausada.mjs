@@ -43,8 +43,10 @@ test("a conclusão operacional não espera leitura ou foto, mas mantém meta e p
   assert.match(validator, /image_sha256/);
 });
 
-test("cancelamento mantém sua trava e relatório explicita evidência ausente", () => {
-  assert.match(romaneios, /contarLeiturasSemImagemValida\([\s\S]*?"SEM_LEITURA"/);
+test("cancelamento não depende de foto e relatório preserva a análise de evidência ausente", () => {
+  const cancel = romaneios.slice(romaneios.indexOf('if ($action === "cancel")'), romaneios.indexOf('// O ramo cancel'));
+  assert.doesNotMatch(cancel, /contarLeiturasSemImagemValida|solicitacoes_imagens_evidencia/);
+  assert.match(cancel, /ValidadorFilaSensor::pendentes/);
   assert.match(report, /relatorio_pendencia_evidencia/);
   assert.match(report, /\$unresolvedPassages = \$pdo->prepare/);
   const noReadRows = report.slice(report.indexOf("$noReadQuery ="), report.indexOf("$noReadQuery->execute"));

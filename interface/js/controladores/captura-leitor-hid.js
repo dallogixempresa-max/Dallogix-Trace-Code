@@ -31,6 +31,7 @@ export function createHidScannerCapture({
   let timer = null;
   let suppressTrailingEnterUntil = 0;
   let disposed = false;
+  let awaitingUnicodeKeypress = false;
 
   function clearTimerIfSet() {
     if (timer !== null) clearTimer(timer);
@@ -52,6 +53,7 @@ export function createHidScannerCapture({
     buffer = "";
     startedAt = 0;
     lastKeyAt = 0;
+    awaitingUnicodeKeypress = false;
     if (clearDisplay && previousBuffer) publishBuffer("", previousStartedAt);
   }
 
@@ -101,8 +103,13 @@ export function createHidScannerCapture({
       return false;
     }
     if (event.defaultPrevented || event.ctrlKey || event.altKey || event.metaKey || isEditableTarget(event.target)) {
+      awaitingUnicodeKeypress = false;
       return false;
     }
+
+    // Injeção Unicode do Windows pode entregar Unidentified no keydown e
+    // somente informar o caractere no keypress. O fallback vale só nesse caso.
+    awaitingUnicodeKeypress = event.key === "Unidentified" || event.key === "Process";
 
     const timestamp = now();
     if (event.key === "Enter") {
@@ -143,6 +150,24 @@ export function createHidScannerCapture({
 
   return {
     handleKeyDown,
+    handleKeyPress(event) {
+      if (!awaitingUnicodeKeypress) return false;
+      awaitingUnicodeKeypress = false;
+      const key = typeof event.key === "string" && event.key.length === 1
+        ? event.key
+        : event.charCode > 0 ? String.fromCharCode(event.charCode) : "";
+      if (!key) return false;
+      return handleKeyDown({
+        key,
+        target: event.target,
+        defaultPrevented: event.defaultPrevented,
+        ctrlKey: event.ctrlKey,
+        altKey: event.altKey,
+        metaKey: event.metaKey,
+        preventDefault: () => event.preventDefault?.(),
+        stopImmediatePropagation: () => event.stopImmediatePropagation?.(),
+      });
+    },
     reset,
     dispose() {
       disposed = true;

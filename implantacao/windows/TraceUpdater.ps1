@@ -1,4 +1,4 @@
-param([switch]$Preflight)
+param([switch]$Preflight, [ValidateRange(0, 2147483647)][int]$PausedMaintenanceLoadingId = 0)
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
@@ -551,6 +551,12 @@ try {
     New-Item -ItemType File -Force -Path $MaintenanceFile | Out-Null
     $createdMaintenance = $true
     $sql = "SELECT COUNT(*) FROM carregamentos WHERE state IN ('PREPARANDO','CARREGANDO','PAUSADO','FINALIZANDO','EMERGENCIA');"
+    if ($PausedMaintenanceLoadingId -gt 0) {
+        # Exceção explícita de manutenção: preserva a carga pausada e os dados.
+        # Nunca permite outra carga ativa nem comandos ainda em trânsito.
+        $sql = "SELECT IF((SELECT COUNT(*) FROM carregamentos WHERE id = $PausedMaintenanceLoadingId AND state = 'PAUSADO') = 1, (SELECT COUNT(*) FROM carregamentos WHERE id <> $PausedMaintenanceLoadingId AND state IN ('PREPARANDO','CARREGANDO','PAUSADO','FINALIZANDO','EMERGENCIA')) + (SELECT COUNT(*) FROM solicitacoes_comandos_clp WHERE status IN ('PENDENTE','PROCESSANDO')), 1);"
+        Append-UpdateLog $ComposeLogPath "Manutencao solicitada para a carga pausada $PausedMaintenanceLoadingId; estado e historico serao preservados."
+    }
     # Pass the query through stdin. Windows PowerShell can strip the nested
     # quotes when a SQL string is assembled into `sh -lc ...`, leaving mysql
     # with an empty or malformed `-e` argument (ERROR 1064). The container
