@@ -94,6 +94,22 @@ final class DetalhesHeartbeatInstalacao
             if ($pendingEvents !== false && $pendingEvents !== null) {
                 $normalized["sensor_event_outbox_pending"] = (int) $pendingEvents;
             }
+            // Este mapa já deve vir traduzido para os IDs de carregamento do
+            // Central. IDs locais não são comparáveis entre instalações.
+            $pendingByLoading = $details["sensor_event_outbox_pending_by_loading"] ?? null;
+            if (is_array($pendingByLoading) && count($pendingByLoading) <= 1000) {
+                $normalizedMap = [];
+                foreach ($pendingByLoading as $loadingId => $count) {
+                    if (!preg_match('/\A[1-9][0-9]*\z/', (string) $loadingId)) {
+                        continue;
+                    }
+                    $validCount = filter_var($count, FILTER_VALIDATE_INT, ["options" => ["min_range" => 0]]);
+                    if ($validCount !== false) {
+                        $normalizedMap[(string) $loadingId] = (int) $validCount;
+                    }
+                }
+                $normalized["sensor_event_outbox_pending_by_loading"] = $normalizedMap;
+            }
             return $normalized;
         }
         if ($deviceType !== "CLP") {
