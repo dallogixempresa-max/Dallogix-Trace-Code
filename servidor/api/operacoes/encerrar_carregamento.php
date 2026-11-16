@@ -78,6 +78,22 @@ if (!$automaticQuotaStopAcknowledged) {
         );
 }
 
+// A passagem física ainda sem classificação é provisória: o leitor pode
+// identificá-la como produto incorreto, que não consome a meta do romaneio.
+$pendingReadings = $pdo->prepare(
+    "SELECT COUNT(*) FROM eventos_sensor s
+     WHERE s.carregamento_id = :loading_id
+       AND NOT EXISTS (SELECT 1 FROM leituras l WHERE l.sensor_event_id = s.id)",
+);
+$pendingReadings->execute(["loading_id" => $loadingId]);
+if ((int) $pendingReadings->fetchColumn() > 0) {
+    $pdo->rollBack();
+    json_response(
+        ["error" => "Aguarde o leitor classificar as passagens detectadas antes de finalizar."],
+        409,
+    );
+}
+
 // Leitura, produto incorreto, excesso e evidência ficam auditados no relatório.
 $loadingPlannedQuantityStatement = $pdo->prepare(
     "SELECT COALESCE(SUM(ri.planned_quantity), 0)

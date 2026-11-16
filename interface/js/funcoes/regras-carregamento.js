@@ -22,6 +22,15 @@ export function motivoBloqueioFinalizacao(state) {
   if (Number(loading.id) <= 0 || Number(loading.id) !== Number(state?.loadingId)) {
     return "Atualizando os dados do carregamento. Aguarde e tente novamente.";
   }
+  const pendingSensorReadingsValue = loading.leituras_pendentes_sensor;
+  const pendingSensorReadings = Number(pendingSensorReadingsValue);
+  if (pendingSensorReadingsValue === null || pendingSensorReadingsValue === undefined
+    || pendingSensorReadingsValue === "" || !Number.isFinite(pendingSensorReadings)) {
+    return "Aguardando confirmar a classificação das passagens pelo leitor.";
+  }
+  if (pendingSensorReadings > 0) {
+    return "Aguarde o leitor classificar as passagens detectadas antes de finalizar.";
+  }
   const planned = Number(state?.planned) || 0;
   const detected = Number(state?.detectedBags) || 0;
   if (planned <= 0) {
