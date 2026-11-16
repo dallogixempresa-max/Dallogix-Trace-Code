@@ -855,6 +855,7 @@ function bindForms() {
 }
 async function renderPage() {
   const root = el("#screen-root");
+  store.state.manifestActionFeedback = null;
   limparNotificacao();
   const requestId = ++renderRequestId;
   const page = currentPage;
