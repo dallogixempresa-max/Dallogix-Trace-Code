@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . "/../../configuracao/bootstrap.php";
+require_once __DIR__ . "/../../src/Aplicacao/ValidadorFilaSensor.php";
 require_once __DIR__ . "/../../src/Aplicacao/ValidadorEvidenciasOperacionais.php";
 
 $user = require_session_user();
@@ -250,15 +251,10 @@ $sensorOutbox = $pdo->prepare(
 );
 $sensorOutbox->execute(["equipment_id" => (int) $data["equipment_id"]]);
 $sensorOutboxState = $sensorOutbox->fetch(PDO::FETCH_ASSOC) ?: [];
-$pendingEventsByLoading = is_string($sensorOutboxState["pending_events_by_loading"] ?? null)
-    ? json_decode($sensorOutboxState["pending_events_by_loading"], true)
-    : null;
-$sensorOutboxPending = is_array($pendingEventsByLoading)
-    ? (int) ($pendingEventsByLoading[(string) $loadingId] ?? 0)
-    : ($sensorOutboxState["pending_events"] ?? null);
-$data["sensor_outbox_pendentes"] = $sensorOutboxPending === false || $sensorOutboxPending === null
-    ? null
-    : max(0, (int) $sensorOutboxPending);
+$data["sensor_outbox_pendentes"] = \App\Aplicacao\ValidadorFilaSensor::pendentes(
+    $sensorOutboxState ?: [],
+    (int) $loadingId,
+);
 $data["imagens_incidentes"] = $count(
     $pdo,
     "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia WHERE carregamento_id = :id AND status = 'CAPTURADA' AND reason <> 'NORMAL'",

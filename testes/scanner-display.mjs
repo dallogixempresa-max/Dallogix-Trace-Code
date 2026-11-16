@@ -101,7 +101,7 @@ test("heartbeat SENSOR preserva a fila agregada para liberar a finalização no 
   assert.match(sensorBranch, /FILTER_VALIDATE_INT/);
   assert.match(sensorBranch, /min_range[^\n]*0/);
   assert.doesNotMatch(sensorBranch, /sensor_event_outbox_pending_by_loading/);
-  assert.match(loadingSummaryApi, /\$pendingEventsByLoading\)\s*\?\s*\(int\)\s*\(\$pendingEventsByLoading\[\(string\) \$loadingId\][\s\S]*?:\s*\(\$sensorOutboxState\["pending_events"\]/);
+  assert.match(loadingSummaryApi, /ValidadorFilaSensor::pendentes/);
 });
 
 test("a meta do romaneio solicita parada sem criar uma ocorrência de excesso", () => {

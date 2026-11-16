@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . "/../../configuracao/bootstrap.php";
+require_once __DIR__ . "/../../src/Aplicacao/ValidadorFilaSensor.php";
 require_once __DIR__ . "/../../src/Aplicacao/ValidadorEvidenciasOperacionais.php";
 
 $user = require_session_user();
@@ -146,20 +147,9 @@ $sensorOutboxState = $sensorOutbox->fetch(PDO::FETCH_ASSOC);
 $sensorOutboxFresh = $sensorOutboxState
     && $sensorOutboxState["status"] === "ONLINE"
     && (int) $sensorOutboxState["heartbeat_fresh"] === 1;
-$pendingEventsByLoading = is_string($sensorOutboxState["pending_events_by_loading"] ?? null)
-    ? json_decode($sensorOutboxState["pending_events_by_loading"], true)
-    : null;
-if (is_array($pendingEventsByLoading)) {
-    $pendingEvents = array_key_exists((string) $loadingId, $pendingEventsByLoading)
-        ? $pendingEventsByLoading[(string) $loadingId]
-        : 0;
-} else {
-    $pendingEvents = $sensorOutboxState["pending_events"] ?? null;
-}
-$pendingEventsCount = filter_var(
-    $pendingEvents,
-    FILTER_VALIDATE_INT,
-    ["options" => ["min_range" => 0]],
+$pendingEventsCount = \App\Aplicacao\ValidadorFilaSensor::pendentes(
+    $sensorOutboxState ?: [],
+    (int) $loadingId,
 );
 // A contagem de eventos sem leitura cobre apenas o que já chegou ao servidor.
 // Exija confirmação recente do outbox local para garantir que não há passagens
