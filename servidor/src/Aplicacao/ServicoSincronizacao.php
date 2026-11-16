@@ -601,11 +601,11 @@ final class ServicoSincronizacao
             || $expectedSize === false || (int) $expectedSize < 5
             || (int) $expectedSize > self::TAMANHO_MAXIMO_RELATORIO
             || $evidenceNoReadCount === false || (int) $evidenceNoReadCount < 0
-            || $evidenceCount === false || (int) $evidenceCount < (int) $evidenceNoReadCount
+            || $evidenceCount === false || (int) $evidenceCount < 0 || (int) $evidenceCount > (int) $evidenceNoReadCount
             || $evidenceExcessCount === false || (int) $evidenceExcessCount < 0
-            || $evidenceExcessEvidenceCount === false || (int) $evidenceExcessEvidenceCount < (int) $evidenceExcessCount
+            || $evidenceExcessEvidenceCount === false || (int) $evidenceExcessEvidenceCount < 0 || (int) $evidenceExcessEvidenceCount > (int) $evidenceExcessCount
             || $evidenceWrongProductCount === false || (int) $evidenceWrongProductCount < 0
-            || $evidenceWrongProductEvidenceCount === false || (int) $evidenceWrongProductEvidenceCount < (int) $evidenceWrongProductCount) {
+            || $evidenceWrongProductEvidenceCount === false || (int) $evidenceWrongProductEvidenceCount < 0 || (int) $evidenceWrongProductEvidenceCount > (int) $evidenceWrongProductCount) {
             return ["ok" => false, "error" => "Metadados do PDF do romaneio inválidos.", "http_code" => 422];
         }
         if ($remoteManifestId === false || (int) $remoteManifestId <= 0) {

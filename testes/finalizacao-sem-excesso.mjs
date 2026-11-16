@@ -65,11 +65,12 @@ test("o clique em Finalizar conclui pela meta física sem exigir fotos ou revis�
   assert.doesNotMatch(operationController, /requiresSupervisorReview/);
 });
 
-test("leituras e evidências bloqueiam o relatório posterior, não a conclusão operacional", async () => {
+test("leituras e evidências pendentes ficam explícitas sem bloquear relatório ou conclusão operacional", async () => {
   const report = await readFile(new URL("../servidor/api/relatorios/relatorio_auditoria.php", import.meta.url), "utf8");
   assert.match(report, /\$unresolvedPassages = \$pdo->prepare/);
-  assert.match(report, /\$pendingCaptures = \$pdo->prepare/);
-  assert.match(report, /missing_evidence_count/);
+  assert.match(report, /\$unavailableCaptures = \$pdo->prepare/);
+  assert.match(report, /Pendências de evidência nesta emissão/);
+  assert.doesNotMatch(report, /O relatório aguarda|Aguarde o envio das imagens/);
   assert.match(report, /PRODUTO_INCORRETO/);
   assert.doesNotMatch(finishEndpoint, /contarLeiturasSemImagemValida/);
   assert.doesNotMatch(finishEndpoint, /imagens de falha.*antes do encerramento/);

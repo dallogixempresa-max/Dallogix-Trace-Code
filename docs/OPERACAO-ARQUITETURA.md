@@ -161,3 +161,39 @@ mesmo com totais iguais. PDF sintético gerado pelo renderizador de produção,
 inspecionado visualmente e com os três originais extraídos byte a byte.
 Isso não homologa captura física Keyence, transporte HTTP real ou concorrência
 MySQL. Nenhuma publicação ou ação sobre hardware realizada nesta revisão.
+
+## Regra vigente: foto ausente não bloqueia relatório — 16/11/2026
+
+Orientação posterior e explícita do usuário substitui as travas de foto citadas
+nas seções anteriores: o relatório de romaneio finalizado/cancelado pode ser
+emitido com os dados disponíveis. Evidência ausente não impede emissão, download
+ou envio ao Central. O encerramento operacional permanece independente.
+
+- Leituras em processamento, capturas pendentes/com erro, incidentes sem solicitação
+  e arquivos ausentes constam como pendências nesta emissão. Não são convertidos
+  em captura bem-sucedida e os incidentes continuam no relatório.
+- Vínculos ambíguos/incompatíveis, bytes corrompidos ou hash divergente excluem
+  somente a foto afetada, com registro do motivo. As demais fotos conferidas são
+  incorporadas; não se tenta atribuir outra foto ao incidente.
+- Os rótulos e totais de fotos refletem as imagens disponíveis e incorporadas,
+  não apenas o status CAPTURADA no banco. Originais, solicitações e histórico
+  são preservados. A recuperação pelo PDF anterior continua disponível.
+- Nova solicitação de relatório no PC reconstrói a emissão com os dados atuais,
+  permitindo incorporar uma foto tardia. Não há promessa de reprocessamento
+  automático de um arquivo já baixado pelo usuário.
+- Envio/recebimento permitem zero fotos e quantidade menor que a de incidentes;
+  mantêm autenticação, limites do arquivo e verificação do hash do PDF. Falha
+  ao enfileirar sincronização é registrada e sinalizada no cabeçalho da resposta,
+  sem impedir o download do PDF íntegro já gerado.
+- O gerador de PDF reserva o espaço de todas as linhas da legenda, evitando
+  corte de identificação ou sobreposição com o título seguinte. Isso é backend
+  do PDF; frontend, CSS, finalização, esteira e CLP não foram alterados.
+
+Validação: 150 testes Node passaram. O teste PHP executa os trechos reais do
+endpoint de processamento e renderização com ausência total/parcial de fotos,
+chegada tardia, hash divergente, vínculo incompatível e recuperação do PDF
+anterior. Também verifica preservação da indicação de retirada e espaço para
+legenda longa. Retenção, identidade, classificação e proteção de histórico
+passaram. PDF sintético com uma foto disponível e outra ausente inspecionado
+visualmente. Não é homologação HTTP/MySQL ou captura física Keyence.
+Alteração local; nenhuma publicação realizada nesta rodada.

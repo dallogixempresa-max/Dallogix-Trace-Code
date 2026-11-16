@@ -43,11 +43,11 @@ test("a conclusão operacional não espera leitura ou foto, mas mantém meta e p
   assert.match(validator, /image_sha256/);
 });
 
-test("cancelamento e relatório não contornam evidência nem passagem pendente", () => {
+test("cancelamento mantém sua trava e relatório explicita evidência ausente", () => {
   assert.match(romaneios, /contarLeiturasSemImagemValida\([\s\S]*?"SEM_LEITURA"/);
-  assert.match(report, /contarLeiturasSemImagemValida|missing_evidence_count/);
+  assert.match(report, /Pendências de evidência nesta emissão/);
   assert.match(report, /\$unresolvedPassages = \$pdo->prepare/);
   const noReadRows = report.slice(report.indexOf("$noReadQuery ="), report.indexOf("$noReadQuery->execute"));
   assert.doesNotMatch(noReadRows, /l\.conta_na_meta = 1/);
-  assert.match(report, /Cada falha corresponde a uma passagem de saco registrada pelo sensor e exige foto de evidência/);
+  assert.match(report, /Cada falha corresponde a uma passagem de saco registrada pelo sensor/);
 });

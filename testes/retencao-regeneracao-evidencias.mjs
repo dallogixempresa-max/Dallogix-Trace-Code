@@ -44,12 +44,12 @@ test("PDF anterior recupera a foto pelo identificador e pelo SHA-256", () => {
 test("evidência Keyence capturada continua válida para regenerar o relatório", () => {
   assert.match(report, /r\.status = 'CAPTURADA' AND r\.image_sha256 REGEXP/);
   assert.match(report, /r\.status = 'CAPTURADA'[\s\S]*?r\.reason IN \('SEM_LEITURA', 'PRODUTO_INCORRETO', 'EXCESSO'\)/);
-  assert.match(report, /O relatório aguarda foto do Keyence/);
+  assert.match(report, /Foto não disponível nesta emissão/);
   assert.match(report, /capturedRequestsQuery/);
 });
 
-test("cache do relatório invalida contagens desatualizadas de evidências", () => {
-  assert.match(report, /\$manifestData\["evidence_count"\][\s\S]*?=== \$noReadCount/);
-  assert.match(report, /\$manifestData\["excess_evidence_count"\][\s\S]*?=== \$excessEvidenceCount/);
-  assert.match(report, /\$manifestData\["wrong_product_evidence_count"\][\s\S]*?=== \$wrongProductCount/);
+test("cache do relatório valida totais sem exigir uma foto por incidente", () => {
+  assert.match(report, /\$manifestData\["evidence_count"\][\s\S]*?<= \$noReadCount/);
+  assert.match(report, /\$manifestData\["excess_evidence_count"\][\s\S]*?<= \$excessEvidenceCount/);
+  assert.match(report, /\$manifestData\["wrong_product_evidence_count"\][\s\S]*?<= \$wrongProductCount/);
 });

@@ -12,7 +12,7 @@ test('identidade por UUID e hash acompanha publicação, envio, recebimento e va
   assert.match(source,/evidence_identity_sha256|HTTP_X_TRACE_REPORT_EVIDENCE_IDENTITY/,path);
  }
  const report=await readFile(new URL('../servidor/api/relatorios/relatorio_auditoria.php',import.meta.url),'utf8');
- assert.match(report,/ConferidorEvidenciasRelatorio::vincular/);
+ assert.match(report,/ConferidorEvidenciasRelatorio::selecionarDisponiveis/);
  assert.match(report,/ConferidorEvidenciasRelatorio::manifestoCorresponde/);
  assert.match(report,/!\$isLocalReport/);
 });

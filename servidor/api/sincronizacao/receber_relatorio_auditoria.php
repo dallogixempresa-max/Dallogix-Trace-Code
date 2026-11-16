@@ -28,11 +28,11 @@ if ($contentType !== "application/pdf"
     || $remoteManifestId === false || (int) $remoteManifestId <= 0
     || preg_match('/\A[a-f0-9]{64}\z/', $expectedHash) !== 1
     || $evidenceNoReadCount === false || (int) $evidenceNoReadCount < 0
-    || $evidenceCount === false || (int) $evidenceCount < (int) $evidenceNoReadCount
+    || $evidenceCount === false || (int) $evidenceCount < 0 || (int) $evidenceCount > (int) $evidenceNoReadCount
     || $excessCount === false || (int) $excessCount < 0
-    || $excessEvidenceCount === false || (int) $excessEvidenceCount < (int) $excessCount
+    || $excessEvidenceCount === false || (int) $excessEvidenceCount < 0 || (int) $excessEvidenceCount > (int) $excessCount
     || $wrongProductCount === false || (int) $wrongProductCount < 0
-    || $wrongProductEvidenceCount === false || (int) $wrongProductEvidenceCount < (int) $wrongProductCount
+    || $wrongProductEvidenceCount === false || (int) $wrongProductEvidenceCount < 0 || (int) $wrongProductEvidenceCount > (int) $wrongProductCount
     || ($contentLength !== false && (int) $contentLength > $maximumBytes)) {
     responder_json(["error" => "Metadados do relatório de romaneio inválidos."], 422);
 }

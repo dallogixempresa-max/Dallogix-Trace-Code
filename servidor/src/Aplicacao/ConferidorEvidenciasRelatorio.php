@@ -7,6 +7,39 @@ use RuntimeException;
 /** Confere identidade antes de incorporar qualquer foto; não tenta adivinhar vínculos. */
 final class ConferidorEvidenciasRelatorio
 {
+    /** Seleciona somente fotos comprovadas e devolve as falhas para constarem no PDF. */
+    public static function selecionarDisponiveis(array $images, array $requests): array
+    {
+        $byId = [];
+        foreach ($requests as $request) {
+            $byId[(int) ($request['request_id'] ?? 0)][] = $request;
+        }
+        $selected = [];
+        $issues = [];
+        foreach ($images as $image) {
+            $id = (int) ($image['request_id'] ?? 0);
+            try {
+                $matches = $byId[$id] ?? [];
+                if (count($matches) !== 1) {
+                    throw new RuntimeException('Vínculo não confirmado: solicitação ausente ou ambígua.');
+                }
+                $valid = self::vincular([$image], $matches);
+                $selected[$id] = $valid[0];
+            } catch (RuntimeException $exception) {
+                $issues[] = ['request_id' => $id, 'sensor_event_id' => $image['sensor_event_id'] ?? null,
+                    'reason' => $image['reason'] ?? '', 'detail' => $exception->getMessage()];
+            }
+        }
+        foreach ($requests as $request) {
+            $id = (int) ($request['request_id'] ?? 0);
+            if (!isset($selected[$id])) {
+                $issues[] = ['request_id' => $id, 'sensor_event_id' => $request['sensor_event_id'] ?? null,
+                    'reason' => $request['reason'] ?? '', 'detail' => 'Foto não disponível com vínculo confirmado.'];
+            }
+        }
+        return ['images' => array_values($selected), 'issues' => $issues];
+    }
+
     public static function manifestoCorresponde(array $manifest, array $requests): bool
     {
         $expected=[];

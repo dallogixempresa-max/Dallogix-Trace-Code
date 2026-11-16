@@ -91,6 +91,8 @@ $loads = $pdo->prepare('SELECT c.id, c.state, c.started_at, c.finished_at, e.nam
     FROM carregamentos c LEFT JOIN equipamentos e ON e.id = c.equipment_id WHERE c.romaneio_id = :id ORDER BY c.id');
 $loads->execute(["id" => $romaneioId]);
 $loadRows = $loads->fetchAll();
+$evidenceWarnings = [];
+$unresolvedPassageCount = 0;
 $loadIds = array_map(static fn(array $row): int => (int) $row["id"], $loadRows);
 if ($loadIds !== []) {
     $unresolvedPassages = $pdo->prepare(
@@ -101,10 +103,7 @@ if ($loadIds !== []) {
     $unresolvedPassages->execute($loadIds);
     $unresolvedPassageCount = (int) $unresolvedPassages->fetchColumn();
     if ($unresolvedPassageCount > 0) {
-        $respondJson([
-            "error" => "O relatório aguarda a conclusão da leitura e da foto de todas as passagens detectadas.",
-            "pending_passage_count" => $unresolvedPassageCount,
-        ], 409);
+        $evidenceWarnings[] = "{$unresolvedPassageCount} passagem(ns) com leitura ainda em processamento. Os resultados refletem os dados disponíveis nesta emissão.";
     }
 }
 // Hashes das capturas são comparáveis entre PC e Central sem depender dos IDs locais.
@@ -169,13 +168,16 @@ if ($publishedStorageRoot !== false) {
         $publishedVersion = is_array($publishedManifestData) ? ($publishedManifestData["version"] ?? null) : null;
         $publishedCountsMatch = is_array($publishedManifestData)
             && (int) ($publishedManifestData["no_read_count"] ?? -1) === $publishedNoReadCount
-        && (int) ($publishedManifestData["evidence_count"] ?? -1) === $publishedNoReadCount;
+        && (int) ($publishedManifestData["evidence_count"] ?? -1) >= 0
+        && (int) ($publishedManifestData["evidence_count"] ?? -1) <= $publishedNoReadCount;
         $publishedExcessMatches = is_array($publishedManifestData)
             && (int) ($publishedManifestData["excess_count"] ?? 0) === $publishedExcessCount
-        && (int) ($publishedManifestData["excess_evidence_count"] ?? 0) === $publishedExcessCount;
+        && (int) ($publishedManifestData["excess_evidence_count"] ?? -1) >= 0
+        && (int) ($publishedManifestData["excess_evidence_count"] ?? -1) <= $publishedExcessCount;
         $publishedWrongProductMatches = is_array($publishedManifestData)
             && (int) ($publishedManifestData["wrong_product_count"] ?? -1) === $publishedWrongProductCount
-        && (int) ($publishedManifestData["wrong_product_evidence_count"] ?? 0) === $publishedWrongProductCount;
+        && (int) ($publishedManifestData["wrong_product_evidence_count"] ?? -1) >= 0
+        && (int) ($publishedManifestData["wrong_product_evidence_count"] ?? -1) <= $publishedWrongProductCount;
         $publishedEvidenceValid = $publishedCountsMatch
             && (($publishedVersion === 3 && $publishedExcessMatches && $publishedWrongProductMatches)
                 // Versões anteriores não registravam fotos de produtos fora do romaneio.
@@ -197,7 +199,7 @@ if ($publishedStorageRoot !== false) {
                 );
             } catch (Throwable $exception) {
                 registrar_log_erro($exception, "relatorio_auditoria_sync");
-                $respondJson(["error" => "O PDF foi preservado, mas não entrou na fila de sincronização. Refaça o download para tentar novamente."], 503);
+                header("X-Trace-Report-Sync: pending");
             }
             $downloadAuditPdf($publishedPdfBytes);
         }
@@ -205,80 +207,32 @@ if ($publishedStorageRoot !== false) {
 }
 if ($loadIds !== []) {
     expirar_solicitacoes_imagem_keyence($pdo, null, $loadIds);
-    $pendingCaptures = $pdo->prepare(
-        "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia i
-         WHERE i.carregamento_id IN (" . implode(",", array_fill(0, count($loadIds), "?")) . ")
-           AND i.status IN ('PENDENTE', 'CAPTURANDO')",
+    $unavailableCaptures = $pdo->prepare(
+        "SELECT id, sensor_event_id, reason, status FROM solicitacoes_imagens_evidencia
+         WHERE carregamento_id IN (" . implode(",", array_fill(0, count($loadIds), "?")) . ")
+           AND reason IN ('SEM_LEITURA', 'PRODUTO_INCORRETO', 'EXCESSO')
+           AND status <> 'CAPTURADA' ORDER BY id",
     );
-    $pendingCaptures->execute($loadIds);
-    if ((int) $pendingCaptures->fetchColumn() > 0) {
-        $respondJson(["error" => "Aguarde o envio das imagens de erro do Keyence antes de gerar o PDF."], 409);
+    $unavailableCaptures->execute($loadIds);
+    foreach ($unavailableCaptures->fetchAll(PDO::FETCH_ASSOC) as $capture) {
+        $evidenceWarnings[] = "Evento " . $capture["sensor_event_id"] . " · Evidência " . $capture["id"]
+            . " · " . $capture["reason"] . ": foto não recebida nesta emissão (" . $capture["status"] . ").";
     }
-    $missingRequests = $pdo->prepare(
-        "SELECT COUNT(*) FROM leituras l
-         LEFT JOIN solicitacoes_imagens_evidencia r
-           ON r.sensor_event_id = l.sensor_event_id
-          AND r.carregamento_id = l.carregamento_id AND r.reason = 'SEM_LEITURA'
+    $incidentsWithoutRequest = $pdo->prepare(
+        "SELECT l.id, l.sensor_event_id, l.result FROM leituras l
          WHERE l.carregamento_id IN (" . implode(",", array_fill(0, count($loadIds), "?")) . ")
-           AND l.result = 'SEM_LEITURA'
-           AND (r.id IS NULL OR r.status <> 'CAPTURADA')",
+           AND l.result IN ('SEM_LEITURA', 'PRODUTO_INCORRETO', 'EXCESSO')
+           AND NOT EXISTS (SELECT 1 FROM solicitacoes_imagens_evidencia r
+             WHERE r.carregamento_id = l.carregamento_id AND r.sensor_event_id = l.sensor_event_id
+               AND r.reason = l.result) ORDER BY l.id",
     );
-    $missingRequests->execute($loadIds);
-    $missingCount = (int) $missingRequests->fetchColumn();
-    if ($missingCount > 0) {
-        $respondJson([
-            "error" => "O relatório aguarda foto do Keyence para {$missingCount} passagem(ns) sem código.",
-            "missing_evidence_count" => $missingCount,
-        ], 409);
-    }
-    $missingWrongProductEvidence = $pdo->prepare(
-        "SELECT COUNT(*) FROM leituras l
-         LEFT JOIN solicitacoes_imagens_evidencia r
-           ON r.sensor_event_id = l.sensor_event_id
-          AND r.carregamento_id = l.carregamento_id AND r.reason = 'PRODUTO_INCORRETO'
-         WHERE l.carregamento_id IN (" . implode(",", array_fill(0, count($loadIds), "?")) . ")
-           AND l.result = 'PRODUTO_INCORRETO'
-           AND (r.id IS NULL OR r.status <> 'CAPTURADA')",
-    );
-    $missingWrongProductEvidence->execute($loadIds);
-    $missingWrongProductCount = (int) $missingWrongProductEvidence->fetchColumn();
-    if ($missingWrongProductCount > 0) {
-        $respondJson([
-            "error" => "O relatório aguarda foto do Keyence para {$missingWrongProductCount} produto(s) fora do romaneio.",
-            "missing_evidence_count" => $missingWrongProductCount,
-        ], 409);
-    }
-    $uncapturedExcessRequests = $pdo->prepare(
-        "SELECT COUNT(*) FROM solicitacoes_imagens_evidencia i
-         WHERE i.carregamento_id IN (" . implode(",", array_fill(0, count($loadIds), "?")) . ")
-           AND i.reason = 'EXCESSO' AND i.status <> 'CAPTURADA'",
-    );
-    $uncapturedExcessRequests->execute($loadIds);
-    $uncapturedExcessCount = (int) $uncapturedExcessRequests->fetchColumn();
-    if ($uncapturedExcessCount > 0) {
-        $respondJson([
-            "error" => "O relatório aguarda foto do Keyence para {$uncapturedExcessCount} solicitação(ões) de excesso.",
-            "missing_evidence_count" => $uncapturedExcessCount,
-        ], 409);
-    }
-    $missingExcessEvidence = $pdo->prepare(
-        "SELECT COUNT(*) FROM leituras l
-         LEFT JOIN solicitacoes_imagens_evidencia r
-           ON r.sensor_event_id = l.sensor_event_id
-          AND r.carregamento_id = l.carregamento_id AND r.reason = 'EXCESSO'
-         WHERE l.carregamento_id IN (" . implode(",", array_fill(0, count($loadIds), "?")) . ")
-           AND l.result = 'EXCESSO' AND l.sensor_event_id IS NOT NULL
-           AND (r.id IS NULL OR r.status <> 'CAPTURADA')",
-    );
-    $missingExcessEvidence->execute($loadIds);
-    $missingExcessCount = (int) $missingExcessEvidence->fetchColumn();
-    if ($missingExcessCount > 0) {
-        $respondJson([
-            "error" => "O relatório aguarda foto do Keyence para {$missingExcessCount} passagem(ns) em excesso.",
-            "missing_evidence_count" => $missingExcessCount,
-        ], 409);
+    $incidentsWithoutRequest->execute($loadIds);
+    foreach ($incidentsWithoutRequest->fetchAll(PDO::FETCH_ASSOC) as $incident) {
+        $evidenceWarnings[] = "Leitura " . $incident["id"] . " · Evento " . ($incident["sensor_event_id"] ?? "não vinculado")
+            . " · " . $incident["result"] . ": foto não solicitada ou solicitação não vinculada.";
     }
 }
+
 $noReadCount = 0;
 $excessEvidenceCount = 0;
 $excessImagesCount = 0;
@@ -344,11 +298,14 @@ if ($savedReport !== null && is_file($evidenceManifestPath) && !is_link($evidenc
     $cachedEvidenceValid = is_array($manifestData)
         && ($manifestData["version"] ?? null) === 3
         && (int) ($manifestData["no_read_count"] ?? -1) === $noReadCount
-        && (int) ($manifestData["evidence_count"] ?? -1) === $noReadCount
+        && (int) ($manifestData["evidence_count"] ?? -1) >= 0
+        && (int) ($manifestData["evidence_count"] ?? -1) <= $noReadCount
         && (int) ($manifestData["excess_count"] ?? -1) === $excessEvidenceCount
-        && (int) ($manifestData["excess_evidence_count"] ?? -1) === $excessEvidenceCount
+        && (int) ($manifestData["excess_evidence_count"] ?? -1) >= 0
+        && (int) ($manifestData["excess_evidence_count"] ?? -1) <= $excessEvidenceCount
         && (int) ($manifestData["wrong_product_count"] ?? -1) === $wrongProductCount
-        && (int) ($manifestData["wrong_product_evidence_count"] ?? -1) === $wrongProductCount
+        && (int) ($manifestData["wrong_product_evidence_count"] ?? -1) >= 0
+        && (int) ($manifestData["wrong_product_evidence_count"] ?? -1) <= $wrongProductCount
         && is_string($cachedPdfHash)
         && hash_equals((string) ($manifestData["pdf_sha256"] ?? ""), $cachedPdfHash);
  }
@@ -363,7 +320,7 @@ if ($savedReport !== null && $cachedEvidenceValid && !$isLocalReport
         $reportPublisher->enfileirar((int) $user["company_id"], (int) $romaneioId, $reportRelativePath);
     } catch (Throwable $exception) {
         registrar_log_erro($exception, "relatorio_auditoria_sync");
-        $respondJson(["error" => "O PDF foi preservado, mas não entrou na fila de sincronização. Refaça o download para tentar novamente."], 503);
+        header("X-Trace-Report-Sync: pending");
     }
     if (is_array($apiClient)) {
         api_v1_registrar_download_pdf($pdo, $apiClient, (int) $romaneioId);
@@ -588,12 +545,7 @@ if ($loadIds !== []) {
     }
     unset($noRead);
     $missingEvidence = count(array_filter($noReadRows, static fn(array $row): bool => !$row["has_image"]));
-    if ($missingEvidence > 0) {
-        $respondJson([
-            "error" => "O relatório aguarda foto de {$missingEvidence} passagem(ns) sem código. Verifique a captura do Keyence antes de gerar o PDF.",
-            "missing_evidence_count" => $missingEvidence,
-        ], 409);
-    }
+
 
     $wrongProductQuery = $pdo->prepare(
         "SELECT l.id, l.sensor_event_id, l.carregamento_id, l.read_at, l.barcode,
@@ -635,12 +587,7 @@ if ($loadIds !== []) {
         $wrongProductRows,
         static fn(array $row): bool => !$row["has_image"],
     ));
-    if ($wrongProductMissingImages > 0) {
-        $respondJson([
-            "error" => "O relatório aguarda a imagem de {$wrongProductMissingImages} produto(s) fora do romaneio.",
-            "missing_evidence_count" => $wrongProductMissingImages,
-        ], 409);
-    }
+
 
     $occurrenceQuery = $pdo->prepare("SELECT o.type, o.quantity, o.description, o.created_at, p.name AS product_name
         FROM ocorrencias o LEFT JOIN produtos p ON p.id = o.product_id WHERE o.carregamento_id IN ({$placeholders}) ORDER BY o.created_at");
@@ -728,10 +675,12 @@ if ($loadIds !== []) {
         ];
         $representedRequestIds[$requestId] = true;
     }
-    try {
-        $incidentImages = ConferidorEvidenciasRelatorio::vincular($incidentImages, $capturedRequests);
-    } catch (Throwable $exception) {
-        $reportFailure($exception);
+    $selection = ConferidorEvidenciasRelatorio::selecionarDisponiveis($incidentImages, $capturedRequests);
+    $incidentImages = $selection["images"];
+    foreach ($selection["issues"] as $issue) {
+        $evidenceWarnings[] = "Evento " . ($issue["sensor_event_id"] ?? "não confirmado")
+            . " · Evidência " . $issue["request_id"] . " · " . $issue["reason"]
+            . ": vínculo não confirmado; foto não anexada. " . $issue["detail"];
     }
     usort($incidentImages, static function (array $left, array $right): int {
         $timeOrder = strcmp((string) ($left["captured_at"] ?? ""), (string) ($right["captured_at"] ?? ""));
@@ -756,107 +705,149 @@ if (is_file($reportPath) && !is_link($reportPath)) {
     if (is_string($previousPdfBytes) && str_starts_with($previousPdfBytes, "%PDF-")
         && is_array($previousManifest) && is_string($previousPdfHash)
         && hash_equals((string) ($previousManifest["pdf_sha256"] ?? ""), $previousPdfHash)) {
-        $previousEvidenceImagesByReference = FontesEvidenciasRelatorio::indexar(
-            $previousPdfBytes,
-            $previousManifest,
-            $capturedRequests ?? [],
-            (int) (filemtime($reportPath) ?: 0),
-        );
+        try {
+            $previousEvidenceImagesByReference = FontesEvidenciasRelatorio::indexar(
+                $previousPdfBytes,
+                $previousManifest,
+                $capturedRequests ?? [],
+                (int) (filemtime($reportPath) ?: 0),
+            );
+        } catch (RuntimeException $exception) {
+            registrar_log_erro($exception, "relatorio_recuperacao_evidencia");
+            $evidenceWarnings[] = "Não foi possível recuperar fotos do PDF anterior. As demais evidências foram conferidas individualmente.";
+        }
     }
 }
 
 $evidenceImages = [];
 if ($incidentImages !== []) {
     foreach ($incidentImages as $image) {
-        $relativePath = ltrim((string) $image["path"], "/");
-        if (str_starts_with($relativePath, "armazenamento/")) {
-            $relativePath = substr($relativePath, strlen("armazenamento/"));
-        }
-        $absolutePath = trace_image_storage_path($storageRoot, $relativePath);
-        $imageId = (int) ($image["image_id"] ?? 0);
-        $requestId = (int) ($image["request_id"] ?? 0);
-        if ($requestId < 1
-            && preg_match('/(?:^|\/)keyence-([1-9][0-9]*)-[a-f0-9]{64}\.(?:jpg|png)\z/i', $relativePath, $matches) === 1) {
-            $requestId = (int) $matches[1];
-        }
-        $expectedImageHash = strtolower(trim((string) ($image["image_sha256"] ?? "")));
-        if ($expectedImageHash === ""
-            && preg_match('/(?:^|\/)keyence-[1-9][0-9]*-([a-f0-9]{64})\.(?:jpg|png)\z/i', $relativePath, $matches) === 1) {
-            $expectedImageHash = strtolower($matches[1]);
-        }
-        $sourceImages = [];
-        if ($absolutePath === null) {
-            $reference = $requestId > 0 ? "request:" . $requestId : "image:" . $imageId;
-            $sourceImages = $previousEvidenceImagesByReference[$reference] ?? [];
-            if ($expectedImageHash !== "" && preg_match('/\A[a-f0-9]{64}\z/', $expectedImageHash) === 1) {
-                $sourceImages = array_values(array_filter(
-                    $sourceImages,
-                    static fn(array $sourceImage): bool => hash_equals($expectedImageHash, $sourceImage["sha256"]),
-                ));
+        try {
+            $relativePath = ltrim((string) $image["path"], "/");
+            if (str_starts_with($relativePath, "armazenamento/")) {
+                $relativePath = substr($relativePath, strlen("armazenamento/"));
             }
-            if ($sourceImages === []) {
-                $reportFailure(new RuntimeException(
-                    "A foto original não está no armazenamento e não pôde ser recuperada do PDF anterior.",
-                ));
+            $absolutePath = trace_image_storage_path($storageRoot, $relativePath);
+            $imageId = (int) ($image["image_id"] ?? 0);
+            $requestId = (int) ($image["request_id"] ?? 0);
+            if ($requestId < 1
+                && preg_match('/(?:^|\/)keyence-([1-9][0-9]*)-[a-f0-9]{64}\.(?:jpg|png)\z/i', $relativePath, $matches) === 1) {
+                $requestId = (int) $matches[1];
             }
-        } else {
-            $mime = (new finfo(FILEINFO_MIME_TYPE))->file($absolutePath);
-            if ($mime === "application/pdf") {
-                $evidencePdf = file_get_contents($absolutePath);
-                if (!is_string($evidencePdf) || !str_starts_with($evidencePdf, "%PDF-")) {
-                    $reportFailure(new RuntimeException("Um PDF de evidência está inválido."));
+            $expectedImageHash = strtolower(trim((string) ($image["image_sha256"] ?? "")));
+            if ($expectedImageHash === ""
+                && preg_match('/(?:^|\/)keyence-[1-9][0-9]*-([a-f0-9]{64})\.(?:jpg|png)\z/i', $relativePath, $matches) === 1) {
+                $expectedImageHash = strtolower($matches[1]);
+            }
+            $sourceImages = [];
+            if ($absolutePath === null) {
+                $reference = $requestId > 0 ? "request:" . $requestId : "image:" . $imageId;
+                $sourceImages = $previousEvidenceImagesByReference[$reference] ?? [];
+                if ($expectedImageHash !== "" && preg_match('/\A[a-f0-9]{64}\z/', $expectedImageHash) === 1) {
+                    $sourceImages = array_values(array_filter(
+                        $sourceImages,
+                        static fn(array $sourceImage): bool => hash_equals($expectedImageHash, $sourceImage["sha256"]),
+                    ));
                 }
-                $sourceImages = RelatorioAuditoriaPdf::extrairImagensOriginaisDoPdf($evidencePdf);
                 if ($sourceImages === []) {
-                    $reportFailure(new RuntimeException("Um PDF de evidência não contém uma imagem recuperável."));
+                    throw new RuntimeException(
+                        "A foto original não está no armazenamento e não pôde ser recuperada do PDF anterior.",
+                    );
                 }
-            } elseif (in_array($mime, ["image/jpeg", "image/png"], true)) {
-                $sourceImageBytes = file_get_contents($absolutePath);
-                if (!is_string($sourceImageBytes)) {
-                    $reportFailure(new RuntimeException("Não foi possível ler uma evidência do romaneio."));
-                }
-                $sourceImages = [["bytes" => $sourceImageBytes, "mime" => $mime]];
             } else {
-                $reportFailure(new RuntimeException("Formato de evidência não suportado."));
+                $mime = (new finfo(FILEINFO_MIME_TYPE))->file($absolutePath);
+                if ($mime === "application/pdf") {
+                    $evidencePdf = file_get_contents($absolutePath);
+                    if (!is_string($evidencePdf) || !str_starts_with($evidencePdf, "%PDF-")) {
+                        throw new RuntimeException("Um PDF de evidência está inválido.");
+                    }
+                    $sourceImages = RelatorioAuditoriaPdf::extrairImagensOriginaisDoPdf($evidencePdf);
+                    if ($sourceImages === []) {
+                        throw new RuntimeException("Um PDF de evidência não contém uma imagem recuperável.");
+                    }
+                } elseif (in_array($mime, ["image/jpeg", "image/png"], true)) {
+                    $sourceImageBytes = file_get_contents($absolutePath);
+                    if (!is_string($sourceImageBytes)) {
+                        throw new RuntimeException("Não foi possível ler uma evidência do romaneio.");
+                    }
+                    $sourceImages = [["bytes" => $sourceImageBytes, "mime" => $mime]];
+                } else {
+                    throw new RuntimeException("Formato de evidência não suportado.");
+                }
             }
-        }
-        $capturedAt = $formatDateTime((string) $image["captured_at"]);
-        $sensorEventId = (int) ($image["sensor_event_id"] ?? 0);
-        $caption = (string) $image["reason"] . " · " . $capturedAt;
-        if ($image["reason"] === "SEM_LEITURA" && $sensorEventId > 0) {
-            $sackReference = $sackReferencesByEvent[$sensorEventId] ?? "passagem sem número";
-            $caption = "Falha de leitura · {$sackReference} · {$capturedAt}";
-        } elseif ($image["reason"] === "PRODUTO_INCORRETO" && $sensorEventId > 0) {
-            $sackReference = $sackReferencesByEvent[$sensorEventId] ?? "passagem não contabilizada";
-            $caption = "Produto fora do romaneio · {$sackReference} · {$capturedAt}";
-        } elseif ($image["reason"] === "EXCESSO" && $sensorEventId > 0) {
-            $sackReference = $sackReferencesByEvent[$sensorEventId] ?? "passagem sem número";
-            $caption = "Saca em excesso · {$sackReference} · {$capturedAt}";
-        }
-        $caption .= " · Evento {$sensorEventId} · Evidência {$requestId}";
-        foreach ($sourceImages as $sourceImage) {
-            $sourceHash = hash("sha256", $sourceImage["bytes"]);
-            if ($expectedImageHash !== "" && preg_match('/\A[a-f0-9]{64}\z/', $expectedImageHash) === 1
-                && !hash_equals($expectedImageHash, $sourceHash)) {
-                $reportFailure(new RuntimeException("A evidência recuperada não corresponde ao hash da captura."));
+            $capturedAt = $formatDateTime((string) $image["captured_at"]);
+            $sensorEventId = (int) ($image["sensor_event_id"] ?? 0);
+            $caption = (string) $image["reason"] . " · " . $capturedAt;
+            if ($image["reason"] === "SEM_LEITURA" && $sensorEventId > 0) {
+                $sackReference = $sackReferencesByEvent[$sensorEventId] ?? "passagem sem número";
+                $caption = "Falha de leitura · {$sackReference} · {$capturedAt}";
+            } elseif ($image["reason"] === "PRODUTO_INCORRETO" && $sensorEventId > 0) {
+                $sackReference = $sackReferencesByEvent[$sensorEventId] ?? "passagem não contabilizada";
+                $caption = "Produto fora do romaneio · {$sackReference} · {$capturedAt}";
+            } elseif ($image["reason"] === "EXCESSO" && $sensorEventId > 0) {
+                $sackReference = $sackReferencesByEvent[$sensorEventId] ?? "passagem sem número";
+                $caption = "Saca em excesso · {$sackReference} · {$capturedAt}";
             }
-            $evidenceImages[] = [
-                "bytes" => $sourceImage["bytes"],
-                "mime" => $sourceImage["mime"],
-                "caption" => $caption,
-                "image_id" => $imageId > 0 ? $imageId : null,
-                "request_id" => $requestId > 0 ? $requestId : null,
-                "sha256" => $sourceHash,
-                "carregamento_id" => (int) $image["carregamento_id"],
-                "reading_id" => $image["reading_id"] ?? null,
-                "sensor_event_uuid" => $image["sensor_event_uuid"] ?? null,
-                "reason" => (string) $image["reason"],
-                "captured_at" => (string) $image["captured_at"],
-                "sensor_event_id" => $sensorEventId > 0 ? $sensorEventId : null,
-            ];
+            $caption .= " · Evento {$sensorEventId} · Evidência {$requestId}";
+            foreach ($sourceImages as $sourceImage) {
+                $probe = new RelatorioAuditoriaPdf("", "");
+                if (!$probe->inserirDadosDaImagemDaOcorrencia($sourceImage["bytes"], $sourceImage["mime"])) {
+                    throw new RuntimeException("Imagem corrompida ou incompatível com o relatório.");
+                }
+                $sourceHash = hash("sha256", $sourceImage["bytes"]);
+                if ($expectedImageHash !== "" && preg_match('/\A[a-f0-9]{64}\z/', $expectedImageHash) === 1
+                    && !hash_equals($expectedImageHash, $sourceHash)) {
+                    throw new RuntimeException("A evidência recuperada não corresponde ao hash da captura.");
+                }
+                $evidenceImages[] = [
+                    "bytes" => $sourceImage["bytes"],
+                    "mime" => $sourceImage["mime"],
+                    "caption" => $caption,
+                    "image_id" => $imageId > 0 ? $imageId : null,
+                    "request_id" => $requestId > 0 ? $requestId : null,
+                    "sha256" => $sourceHash,
+                    "carregamento_id" => (int) $image["carregamento_id"],
+                    "reading_id" => $image["reading_id"] ?? null,
+                    "sensor_event_uuid" => $image["sensor_event_uuid"] ?? null,
+                    "reason" => (string) $image["reason"],
+                    "captured_at" => (string) $image["captured_at"],
+                    "sensor_event_id" => $sensorEventId > 0 ? $sensorEventId : null,
+                ];
+            }
+        } catch (RuntimeException $exception) {
+            registrar_log_erro($exception, "relatorio_evidencia_indisponivel");
+            $evidenceWarnings[] = "Evento " . ($image["sensor_event_id"] ?? "não confirmado")
+                . " · Evidência " . ($image["request_id"] ?? "não confirmada")
+                . ": foto indisponível ou inválida; não anexada. " . $exception->getMessage();
         }
     }
 }
+
+$attachedEvents = [];
+foreach ($evidenceImages as $image) {
+    $attachedEvents[$image["reason"] . ":" . $image["sensor_event_id"]] = true;
+}
+$operationSummary["no_read_images"] = 0;
+$operationSummary["wrong_product_images"] = 0;
+foreach (["SEM_LEITURA" => &$noReadRows, "PRODUTO_INCORRETO" => &$wrongProductRows] as $reason => &$rows) {
+    foreach ($rows as &$row) {
+        $row["has_image"] = isset($attachedEvents[$reason . ":" . ($row["sensor_event_id"] ?? 0)]);
+        $row["evidence_label"] = $row["has_image"] ? "Foto anexada" : "Foto não disponível nesta emissão";
+        if (!empty($row["return_reason"])) {
+            $row["evidence_label"] = "Retirada: " . $row["return_reason"] . " · " . $row["evidence_label"];
+        }
+        if ($row["has_image"]) {
+            $operationSummary[$reason === "SEM_LEITURA" ? "no_read_images" : "wrong_product_images"]++;
+        } else {
+            $evidenceWarnings[] = $row["sack_reference"] . " · Evento " . ($row["sensor_event_id"] ?? "não vinculado")
+                . " · " . $reason . ": foto não recebida ou indisponível nesta emissão.";
+        }
+    }
+    unset($row);
+}
+unset($rows);
+$excessImagesCount = count(array_filter($evidenceImages, static fn(array $image): bool => $image["reason"] === "EXCESSO"));
+$wrongProductImagesCount = (int) $operationSummary["wrong_product_images"];
 
 $report = new RelatorioAuditoriaPdf(
     (string) $romaneio["company_name"],
@@ -895,7 +886,7 @@ $report->escreverTitulo("Falhas de leitura do código de barras");
 if ($noReadRows === []) {
     $report->escreverParagrafo("Nenhuma falha sem leitura foi registrada nesta operação.");
 } else {
-    $report->escreverParagrafo("Cada falha corresponde a uma passagem de saco registrada pelo sensor e exige foto de evidência. O relatório só é liberado quando todas as fotos foram recebidas e validadas. Passagens ocorridas durante a pausa aparecem como não contabilizadas. Em romaneios com vários produtos, a identidade de uma saca sem código é registrada como \"Não identificado\".");
+    $report->escreverParagrafo("Cada falha corresponde a uma passagem de saco registrada pelo sensor; a foto é anexada quando disponível. O relatório só é liberado quando todas as fotos foram recebidas e validadas. Passagens ocorridas durante a pausa aparecem como não contabilizadas. Em romaneios com vários produtos, a identidade de uma saca sem código é registrada como \"Não identificado\".");
     $report->escreverTabela(
         ["Data/hora", "Produto", "Passagem", "Evidência da imagem"],
         array_map(
@@ -912,7 +903,7 @@ if ($noReadRows === []) {
 }
 if ($wrongProductRows !== []) {
     $report->escreverTitulo("Produtos fora do romaneio");
-    $report->escreverParagrafo("Cada linha representa um código reconhecido de um produto que não pertence ao romaneio. Essas passagens não entram na quantidade prevista; a foto correspondente aparece na seção de evidências.");
+    $report->escreverParagrafo("Cada linha representa um código reconhecido de um produto que não pertence ao romaneio. Essas passagens não entram na quantidade prevista; as fotos disponíveis aparecem na seção de evidências. A ausência de foto fica registrada nesta emissão.");
     $report->escreverTabela(
         ["Data/hora", "Produto reconhecido", "Código lido", "Passagem", "Evidência"],
         array_map(
@@ -1030,6 +1021,7 @@ if ($occurrences !== []) {
 }
 if ($evidenceImages !== []) {
     $report->escreverTitulo("Evidências");
+    $embeddedImages = [];
     foreach ($evidenceImages as $image) {
         if (!$report->inserirDadosDaImagemDaOcorrencia(
             $image["bytes"],
@@ -1037,10 +1029,22 @@ if ($evidenceImages !== []) {
             $image["caption"],
             true,
         )) {
-            $reportFailure(new RuntimeException("Não foi possível incorporar uma evidência ao PDF final."));
+            $evidenceWarnings[] = $image["caption"] . ": imagem não incorporada nesta emissão.";
+            registrar_log_erro(new RuntimeException("Imagem validada não incorporada ao relatório."), "relatorio_evidencia_indisponivel");
+        } else {
+            $embeddedImages[] = $image;
         }
     }
+    $evidenceImages = $embeddedImages;
 }
+if ($evidenceWarnings !== []) {
+    $report->escreverTitulo("Pendências de evidência nesta emissão");
+    $report->escreverParagrafo("Emitido com os dados disponíveis. Fotos ausentes não impedem o relatório. Uma nova emissão poderá incorporar evidências recebidas depois; nenhum vínculo duvidoso foi usado.");
+    foreach (array_unique($evidenceWarnings) as $warning) {
+        $report->escreverParagrafo($warning);
+    }
+}
+
 try {
     $pdfBytes = $report->obterArquivoPdf();
 } catch (Throwable $exception) {
@@ -1063,11 +1067,13 @@ if (file_put_contents($temporaryReportPath, $pdfBytes, LOCK_EX) !== strlen($pdfB
         "version" => 3,
         "pdf_sha256" => hash("sha256", $pdfBytes),
         "no_read_count" => $noReadCount,
-        "evidence_count" => (int) ($operationSummary["no_read_images"] ?? 0),
+        "evidence_count" => count(array_filter($evidenceImages, static fn(array $image): bool => $image["reason"] === "SEM_LEITURA")),
         "excess_count" => $excessEvidenceCount,
-        "excess_evidence_count" => $excessImagesCount,
+        "excess_evidence_count" => count(array_filter($evidenceImages, static fn(array $image): bool => $image["reason"] === "EXCESSO")),
         "wrong_product_count" => $wrongProductCount,
-        "wrong_product_evidence_count" => $wrongProductImagesCount,
+        "wrong_product_evidence_count" => count(array_filter($evidenceImages, static fn(array $image): bool => $image["reason"] === "PRODUTO_INCORRETO")),
+        "evidence_warnings" => array_values(array_unique($evidenceWarnings)),
+        "pending_passage_count" => $unresolvedPassageCount,
         "source_images" => array_map(
             static fn(array $image): array => [
                 "image_id" => $image["image_id"],
@@ -1098,7 +1104,7 @@ try {
     $reportPublisher->enfileirar((int) $user["company_id"], (int) $romaneioId, $reportRelativePath);
 } catch (Throwable $exception) {
     registrar_log_erro($exception, "relatorio_auditoria_sync");
-    $respondJson(["error" => "O PDF foi preservado, mas não entrou na fila de sincronização. Refaça o download para tentar novamente."], 503);
+    header("X-Trace-Report-Sync: pending");
 }
 if (is_array($apiClient)) {
     api_v1_registrar_download_pdf($pdo, $apiClient, (int) $romaneioId);
