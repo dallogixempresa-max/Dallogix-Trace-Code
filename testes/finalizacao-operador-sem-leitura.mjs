@@ -64,21 +64,21 @@ test("a mesma regra permite um romaneio de produto único", () => {
   assert.equal(podeFinalizarCarregamento(current), true);
 });
 
-test("a exceção por sem leitura continua bloqueada por excesso, foto pendente ou retorno", () => {
+test("conferência da evidência mantém divergências, conclusão operacional não espera foto", () => {
   assert.equal(divergenciaCobertaPorEvidencia(state({ detected: 16 })), false);
   assert.equal(divergenciaCobertaPorEvidencia(state({ excessEvidenceRequests: 1 })), false);
   assert.equal(divergenciaCobertaPorEvidencia(state({ incorrect: 1, returned: 1 })), false);
-  assert.equal(podeFinalizarCarregamento(state({ captured: false })), false);
+  assert.equal(podeFinalizarCarregamento(state({ captured: false })), true);
 });
 
-test("produto fora do romaneio não consome a meta e exige foto antes de finalizar", () => {
+test("produto fora do romaneio não consome a meta; sua foto é conferida depois", () => {
   assert.equal(divergenciaCobertaPorEvidencia(state({ incorrect: 1, wrongPhotos: 1 })), true);
-  assert.equal(podeFinalizarCarregamento(state({ incorrect: 1 })), false);
+  assert.equal(podeFinalizarCarregamento(state({ incorrect: 1 })), true);
   assert.equal(podeFinalizarCarregamento(state({ incorrect: 1, wrongPhotos: 1 })), true);
   const withoutPhoto = state();
   withoutPhoto.summaryMonitoring.carregamento.sem_leitura_com_foto = 0;
   assert.equal(divergenciaCobertaPorEvidencia(withoutPhoto), false);
-  assert.equal(podeFinalizarCarregamento(withoutPhoto), false);
+  assert.equal(podeFinalizarCarregamento(withoutPhoto), true);
 });
 
 test("nenhum excesso total, de item ou sinalizado libera a finalização", () => {

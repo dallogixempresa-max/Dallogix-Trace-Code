@@ -202,7 +202,8 @@ final class RelatorioAuditoriaPdf
         $scale = min($maxWidth / $info[0], $maxHeight / $info[1], 1.0);
         $width = $info[0] * $scale;
         $height = $info[1] * $scale;
-        $blockHeight = $height + ($caption !== "" ? 28 : 8);
+        $captionLines = $caption !== "" ? $this->quebrarTexto($caption, 52) : [];
+        $blockHeight = $height + ($captionLines !== [] ? 22 + count($captionLines) * 10 : 8);
         $this->garantirEspaco($blockHeight);
         $x = (float) self::MARGEM_ESQUERDA_CONTEUDO;
         $y = $this->y - $height;
@@ -214,12 +215,9 @@ final class RelatorioAuditoriaPdf
             $y,
             $alias,
         );
-        if ($caption !== "") {
-            foreach ($this->quebrarTexto($caption, 52) as $index => $line) {
+        if ($captionLines !== []) {
+            foreach ($captionLines as $index => $line) {
                 $this->escreverTexto($line, $x, $y - 14 - $index * 10, 8);
-                if ($index >= 1) {
-                    break;
-                }
             }
         }
         $this->y -= $blockHeight;

@@ -26,7 +26,8 @@ test("a query de falhas de leitura inclui product_id e nome do produto", () => {
 test("a tabela de falhas exibe coluna Produto com fallback 'Não identificado'", () => {
   // Produto NULL deve aparecer como texto explícito, não como vazio ou travessão.
   assert.match(auditoria, /\$row\["product_name"\] \?\? "Não identificado"/);
-  assert.match(auditoria, /"Data\/hora", "Produto", "Passagem", "Evidência da imagem"/);
+  assert.match(auditoria, /"Data\/hora", "Produto", "Passagem e tratamento"/);
+  assert.doesNotMatch(auditoria, /"Evidência da imagem"|evidence_label/);
 });
 
 test("o resumo da operação exibe 'Sacas não identificadas' somente quando há NULLs", () => {

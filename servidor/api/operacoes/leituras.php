@@ -85,7 +85,9 @@ try {
 $loadingStatement = $pdo->prepare(
     'SELECT c.id, c.state, c.stop_reason, c.operator_alert, c.romaneio_id, c.truck_id, c.equipment_id, c.leituras_validas
      FROM carregamentos c
-     WHERE c.id = :id AND c.company_id = :company_id LIMIT 1 FOR UPDATE',
+     WHERE c.id = :id AND c.company_id = :company_id
+       AND EXISTS (SELECT 1 FROM romaneios rm WHERE rm.id = c.romaneio_id AND rm.status <> \'CANCELADO\')
+     LIMIT 1 FOR UPDATE',
 );
 $loadingStatement->execute([
     "id" => $loadingId,
@@ -146,7 +148,7 @@ if ($loading["state"] === "EMERGENCIA") {
         423,
     );
 }
-if (!in_array($loading["state"], ["CARREGANDO", "FINALIZANDO", "PAUSADO"], true)) {
+if (!in_array($loading["state"], ["CARREGANDO", "FINALIZANDO", "PAUSADO", "FINALIZADO"], true)) {
     $pdo->rollBack();
     responder_json(
         ["error" => "Leitura ignorada: a esteira está em {$loading["state"]}."],
@@ -489,7 +491,7 @@ if ($wrongProductDetected) {
         ["carregamento_id" => (int) $loadingId, "leitura_id" => $readingId],
     );
     $evidenceStatus = "NAO_SOLICITADA";
-    if ($result === "PRODUTO_INCORRETO") {
+    if ($result === "PRODUTO_INCORRETO" && $loading["state"] !== "FINALIZADO") {
         $wrongProductStop = (new ServicoComandoClp($pdo))->solicitarParadaPorProdutoIncorreto(
             $usuarioAtor,
             (int) $loadingId,

@@ -35,13 +35,14 @@ test("produto reconhecido fora do romaneio mantém ocorrência e parada apropria
   assert.match(endpoint, /\$wrongProductDetected = \$classification\["wrong_product_detected"\]/);
   assert.match(
     endpoint,
-    /if \(\$wrongProductDetected\) \{[\s\S]*?if \(\$result === "PRODUTO_INCORRETO"\) \{/,
+    /if \(\$wrongProductDetected\) \{[\s\S]*?if \(\$result === "PRODUTO_INCORRETO" && \$loading\["state"\] !== "FINALIZADO"\) \{/,
   );
   assert.match(endpoint, /solicitarParadaPorProdutoIncorreto/);
   assert.doesNotMatch(endpoint, /solicitarParadaPorExcesso/);
   assert.match(imageEndpoint, /"PRODUTO_INCORRETO" => \["PRODUTO_INCORRETO"\]/);
   assert.match(imageEndpoint, /r\.reason IN \('SEM_LEITURA', 'PRODUTO_INCORRETO', 'EXCESSO'\)/);
-  assert.match(reportEndpoint, /l\.result = 'PRODUTO_INCORRETO'[\s\S]*?r\.status <> 'CAPTURADA'/);
+  assert.match(reportEndpoint, /l\.result = 'PRODUTO_INCORRETO'/);
+  assert.match(reportEndpoint, /relatorio_pendencia_evidencia/);
   assert.match(reportEndpoint, /Produto fora do romaneio · \{\$sackReference\} · \{\$capturedAt\}/);
   assert.match(reportEndpoint, /"version" => 3/);
   assert.match(reportEndpoint, /"wrong_product_count" => \$wrongProductCount/);

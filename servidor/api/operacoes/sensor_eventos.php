@@ -27,10 +27,17 @@ if ($action === "FINALIZE_EXPIRED") {
         // O mesmo lock do carregamento usado pela leitura do scanner serializa
         // a associação do código e o timeout, evitando dois resultados no saco.
         $loadingStatement = $pdo->prepare(
-            "SELECT id, romaneio_id, truck_id FROM carregamentos
+            "SELECT c.id, c.romaneio_id, c.truck_id FROM carregamentos c
              WHERE equipment_id = :equipment_id AND company_id = :company_id
-               AND state IN ('CARREGANDO', 'FINALIZANDO', 'PAUSADO')
-             ORDER BY id DESC LIMIT 1 FOR UPDATE",
+               AND (state IN ('CARREGANDO', 'FINALIZANDO', 'PAUSADO')
+             OR (state = 'FINALIZADO' AND EXISTS (
+               SELECT 1 FROM eventos_sensor pending_event
+               WHERE pending_event.carregamento_id = c.id
+                 AND NOT EXISTS (SELECT 1 FROM leituras resolved WHERE resolved.sensor_event_id = pending_event.id)
+             )))
+           AND EXISTS (SELECT 1 FROM romaneios rm WHERE rm.id = c.romaneio_id AND rm.status <> 'CANCELADO')
+             ORDER BY CASE WHEN state = 'FINALIZADO' THEN 0 ELSE 1 END,
+                  CASE WHEN state = 'FINALIZADO' THEN c.id END ASC, c.id DESC LIMIT 1 FOR UPDATE",
         );
         $loadingStatement->execute([
             "equipment_id" => $device["equipment_id"],

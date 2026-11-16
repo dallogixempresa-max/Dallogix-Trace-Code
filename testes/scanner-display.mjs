@@ -14,6 +14,7 @@ const keyenceWorkerApi = await readFile(new URL("../servidor/api/keyence_worker.
 const equipmentGatewayApi = await readFile(new URL("../servidor/api/dalas/equipamentos_gateway.php", import.meta.url), "utf8");
 const sensorEventsApi = await readFile(new URL("../servidor/api/operacoes/sensor_eventos.php", import.meta.url), "utf8");
 const readingsEndpoint = await readFile(new URL("../servidor/api/operacoes/leituras.php", import.meta.url), "utf8");
+const sensorQueueRepository = await readFile(new URL("../servidor/src/Persistencia/RepositorioFilaSensor.php", import.meta.url), "utf8");
 const finishLoadingApi = await readFile(new URL("../servidor/api/operacoes/encerrar_carregamento.php", import.meta.url), "utf8");
 const loadingSummaryApi = await readFile(new URL("../servidor/api/operacoes/resumo_carregamento.php", import.meta.url), "utf8");
 const installationHeartbeatDetails = await readFile(new URL("../servidor/src/Aplicacao/DetalhesHeartbeatInstalacao.php", import.meta.url), "utf8");
@@ -82,18 +83,14 @@ test("fila durável do M2052 é reprocessada após reinício e fechamento aguard
   assert.doesNotMatch(retry, /attempt >= 3/);
   assert.match(heartbeat, /sensor_event_outbox_pending = events\.length/);
   assert.match(heartbeat, /sensor_event_outbox_pending_by_loading = outbox\.countEventsByLoading\(events\)/);
-  assert.match(finishLoadingApi, /NOT EXISTS \(SELECT 1 FROM leituras l WHERE l\.sensor_event_id = s\.id\)/);
-  assert.match(finishLoadingApi, /sensor_event_outbox_pending/);
-  assert.match(finishLoadingApi, /pending_events_by_loading/);
+  assert.doesNotMatch(finishLoadingApi, /\$pendingSensorEvents =/);
+  assert.match(finishLoadingApi, /\$loadingDetectedQuantity !== \$loadingPlannedQuantity/);
   assert.match(loadingSummaryApi, /leituras_pendentes_sensor/);
-  assert.match(loadingSummaryApi, /pending_events_by_loading/);
+  assert.match(loadingSummaryApi, /RepositorioFilaSensor/);
   assert.match(observabilityService, /resumo_carregamento\.php\?carregamento_id=/);
   assert.match(operationalRealtime, /store\.loadSummaryMonitoring\(\)/);
-  assert.match(loadingFinishRules, /outboxPending === null/);
-  assert.match(loadingFinishRules, /outboxPending === undefined/);
-  assert.match(loadingFinishRules, /!Number\.isInteger\(pendingOutboxCount\)/);
-  assert.match(loadingFinishRules, /pendingOutboxCount < 0/);
-  assert.match(loadingFinishRules, /pendingOutboxCount > 0/);
+  assert.match(loadingFinishRules, /detected < planned/);
+  assert.match(loadingFinishRules, /hasPendingMachineCommand/);
 });
 
 test("heartbeat SENSOR preserva a fila agregada para liberar a finalização no Central", () => {
@@ -106,6 +103,7 @@ test("heartbeat SENSOR preserva a fila agregada para liberar a finalização no 
   assert.match(sensorBranch, /\$normalized\["sensor_event_outbox_pending_by_loading"\] = \$normalizedMap/);
   assert.match(remoteSyncService, /SELECT id, remote_carregamento_id FROM carregamentos/);
   assert.match(remoteSyncService, /\$translated\[\$key\] = \(\$translated\[\$key\] \?\? 0\) \+ \$count/);
+  assert.match(loadingSummaryApi, /ValidadorFilaSensor::pendentes/);
   assert.match(loadingSummaryApi, /\$pendingEventsByLoading\)\s*\?\s*\(int\)\s*\(\$pendingEventsByLoading\[\(string\) \$loadingId\][\s\S]*?:\s*\(\$sensorOutboxState\["pending_events"\]/);
 });
 

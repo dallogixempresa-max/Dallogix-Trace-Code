@@ -21,10 +21,17 @@ if ($action === "STATUS") {
         json_response(["error" => $exception->getMessage()], 422);
     }
     $active = $pdo->prepare(
-        "SELECT id FROM carregamentos
+        "SELECT c.id FROM carregamentos c
          WHERE equipment_id = :equipment_id AND company_id = :company_id
-           AND state IN ('CARREGANDO', 'FINALIZANDO', 'PAUSADO')
-         ORDER BY id DESC LIMIT 1",
+           AND (state IN ('CARREGANDO', 'FINALIZANDO', 'PAUSADO')
+             OR (state = 'FINALIZADO' AND EXISTS (
+               SELECT 1 FROM eventos_sensor pending_event
+               WHERE pending_event.carregamento_id = c.id
+                 AND NOT EXISTS (SELECT 1 FROM leituras resolved WHERE resolved.sensor_event_id = pending_event.id)
+             )))
+           AND EXISTS (SELECT 1 FROM romaneios rm WHERE rm.id = c.romaneio_id AND rm.status <> 'CANCELADO')
+         ORDER BY CASE WHEN state = 'FINALIZADO' THEN 0 ELSE 1 END,
+                  CASE WHEN state = 'FINALIZADO' THEN c.id END ASC, c.id DESC LIMIT 1",
     );
     $active->execute([
         "equipment_id" => $device["equipment_id"],

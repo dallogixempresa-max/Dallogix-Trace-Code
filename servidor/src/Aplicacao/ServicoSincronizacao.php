@@ -601,11 +601,11 @@ final class ServicoSincronizacao
             || $expectedSize === false || (int) $expectedSize < 5
             || (int) $expectedSize > self::TAMANHO_MAXIMO_RELATORIO
             || $evidenceNoReadCount === false || (int) $evidenceNoReadCount < 0
-            || $evidenceCount === false || (int) $evidenceCount < (int) $evidenceNoReadCount
+            || $evidenceCount === false || (int) $evidenceCount < 0 || (int) $evidenceCount > (int) $evidenceNoReadCount
             || $evidenceExcessCount === false || (int) $evidenceExcessCount < 0
-            || $evidenceExcessEvidenceCount === false || (int) $evidenceExcessEvidenceCount < (int) $evidenceExcessCount
+            || $evidenceExcessEvidenceCount === false || (int) $evidenceExcessEvidenceCount < 0 || (int) $evidenceExcessEvidenceCount > (int) $evidenceExcessCount
             || $evidenceWrongProductCount === false || (int) $evidenceWrongProductCount < 0
-            || $evidenceWrongProductEvidenceCount === false || (int) $evidenceWrongProductEvidenceCount < (int) $evidenceWrongProductCount) {
+            || $evidenceWrongProductEvidenceCount === false || (int) $evidenceWrongProductEvidenceCount < 0 || (int) $evidenceWrongProductEvidenceCount > (int) $evidenceWrongProductCount) {
             return ["ok" => false, "error" => "Metadados do PDF do romaneio inválidos.", "http_code" => 422];
         }
         if ($remoteManifestId === false || (int) $remoteManifestId <= 0) {
@@ -637,6 +637,7 @@ final class ServicoSincronizacao
                 "X-Trace-Source-Romaneio-Id" => (string) (int) $sourceManifestId,
                 "X-Trace-Remote-Romaneio-Id" => (string) (int) $remoteManifestId,
                 "X-Trace-Report-SHA256" => $expectedHash,
+                "X-Trace-Report-Evidence-Identity" => (string) ($data["evidence_identity_sha256"] ?? ""),
                 "X-Trace-Report-No-Read-Count" => (string) (int) $evidenceNoReadCount,
                 "X-Trace-Report-Evidence-Count" => (string) (int) $evidenceCount,
                 "X-Trace-Report-Excess-Count" => (string) (int) $evidenceExcessCount,
