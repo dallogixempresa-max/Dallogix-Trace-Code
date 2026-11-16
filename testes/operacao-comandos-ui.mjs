@@ -232,6 +232,12 @@ test("em emergência a partida mostra aviso e o botão de emergência segue habi
   assert.match(markup, /data-action="emergency"(?![^>]*\sdisabled)/);
 });
 
+test("mensagens de bloqueio do comando ficam visíveis na tela de operação", () => {
+  const markup = render({ commandFeedback: "A emergência precisa ser liberada antes de iniciar." });
+
+  assert.match(markup, /role="alert" aria-live="assertive">A emergência precisa ser liberada antes de iniciar\./);
+});
+
 test("botão de emergência continua habilitado sem carregamento selecionado", () => {
   const markup = render({
     selectedLoadingId: null,

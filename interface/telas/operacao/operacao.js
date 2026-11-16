@@ -432,6 +432,9 @@ function workControls(store) {
       ? '<span class="badge red">Emergência solicitada · operação bloqueada</span>'
       : `<span class="badge yellow">${esc(rotuloEstado(store.state.operationalState))}</span>`;
   const itemCountLabel = `${numero(loadingItems.length)} ${loadingItems.length === 1 ? "item" : "itens"}`;
+  const commandFeedback = store.state.commandFeedback
+    ? `<p class="work-selection-error" role="alert" aria-live="assertive">${esc(store.state.commandFeedback)}</p>`
+    : "";
   const itemProgress = `<section class="panel work-items-panel"><div class="panel-heading"><div><h3>Itens do romaneio</h3></div><div class="work-items-summary"><small>${itemCountLabel}</small></div></div><div class="work-item-progress-list">${loadingItems.length ? loadingItems.map((item) => {
     const loaded = Number(item.loaded_quantity) || 0;
     const noRead = Number(item.no_read_quantity) || 0;
@@ -483,7 +486,7 @@ function workControls(store) {
   const panelHeading = estadoOperacional === "EMERGENCIA"
     ? ""
     : `<div class="panel-heading"><div><span class="kicker">Comandos da máquina</span><h3>Operar Dala</h3></div></div>`;
-  const machinePanel = `<section class="panel work-machine-panel">${panelHeading}<div class="work-machine-controls">${emergencySection}${stopConfirmation}${controls}</div></section>`;
+  const machinePanel = `<section class="panel work-machine-panel">${panelHeading}${commandFeedback}<div class="work-machine-controls">${emergencySection}${stopConfirmation}${controls}</div></section>`;
   const statusColumn = `<section class="work-status-column">${totalSummary}${itemProgress}</section>`;
   const workHeader = `<header class="work-screen-header">${loadingPicker}<div class="work-screen-heading"><h2>${esc(workTitle)}</h2><p>Dala ${esc(equipmentLabel(store))} · Caminhão ${esc(store.state.truck || "—")} <span class="work-header-state">${badge}</span></p></div>${finishAction}</header>`;
   return `<div class="work-operation-screen">${workHeader}<div class="work-operation-layout">${statusColumn}${machinePanel}</div></div>`;
