@@ -6,6 +6,7 @@ define("TRACE_SKIP_SESSION", true);
 
 require_once __DIR__ . "/../../configuracao/bootstrap.php";
 require_once __DIR__ . "/../../src/Aplicacao/InicializadorAcoesDala.php";
+require_once __DIR__ . "/../../src/Aplicacao/ValidadorCodigoBarras.php";
 require_once __DIR__ . "/../../src/Aplicacao/ServicoPreparacaoCarregamentoSincronizado.php";
 require_once __DIR__ . "/../../src/Aplicacao/ServicoPausasCarregamento.php";
 require_once __DIR__ . "/../../src/Persistencia/RepositorioItensRomaneioSincronizacao.php";
@@ -18,6 +19,7 @@ require_once __DIR__ . "/../../src/Persistencia/RepositorioRomaneiosEventos.php"
 require_once __DIR__ . "/../../src/Persistencia/RepositorioStatusDispositivosEventos.php";
 
 use App\Aplicacao\InicializadorAcoesDala;
+use App\Aplicacao\ValidadorCodigoBarras;
 use App\Aplicacao\ServicoPreparacaoCarregamentoSincronizado;
 use App\Aplicacao\ServicoPausasCarregamento;
 use App\Persistencia\RepositorioAuditoriaEventosSincronizacao;
@@ -681,6 +683,9 @@ try {
 
             $readingBarcode = isset($data["barcode"]) && $data["barcode"] !== ""
                 ? (string) $data["barcode"] : null;
+            $readingBarcodeForLookup = $readingBarcode === null
+                ? null
+                : ValidadorCodigoBarras::normalizarDuplicacaoGtin($readingBarcode);
             $sourceProductId = filter_var($data["product_id"] ?? null, FILTER_VALIDATE_INT);
             $readingProductId = null;
             if ($sourceProductId !== false && $sourceProductId > 0) {
@@ -696,17 +701,28 @@ try {
                 $resolvedProductId = $productStmt->fetchColumn();
                 $readingProductId = $resolvedProductId !== false ? (int) $resolvedProductId : null;
             }
-            if ($readingProductId === null && $readingBarcode !== null) {
+            if ($readingProductId === null && $readingBarcodeForLookup !== null) {
                 $barcodeProduct = $pdo->prepare(
                     "SELECT product_id FROM codigos_produtos
                      WHERE company_id = :company_id AND barcode = :barcode LIMIT 1",
                 );
                 $barcodeProduct->execute([
                     "company_id" => $readingCompanyId,
-                    "barcode" => $readingBarcode,
+                    "barcode" => $readingBarcodeForLookup,
                 ]);
                 $resolvedProductId = $barcodeProduct->fetchColumn();
                 $readingProductId = $resolvedProductId !== false ? (int) $resolvedProductId : null;
+            }
+
+            // A instalação local pode ter identificado o produto, mas a busca
+            // central pode falhar com HID que envia o mesmo GTIN duas vezes.
+            // Nunca aceite VALIDO sem produto central associado: isso divergia
+            // o total agregado do relatório do resumo por produto.
+            if ($readingResult === "VALIDO" && $readingProductId === null) {
+                $readingResult = $readingBarcodeForLookup !== null
+                    && ValidadorCodigoBarras::codigoDecodificadoConfiavel($readingBarcodeForLookup)
+                    ? "PRODUTO_INCORRETO"
+                    : "SEM_LEITURA";
             }
 
             $readingAtInput = trim((string) ($data["read_at"] ?? ""));
