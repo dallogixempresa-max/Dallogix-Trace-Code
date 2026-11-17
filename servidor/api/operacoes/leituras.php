@@ -67,6 +67,7 @@ try {
 $loadingId = $solicitacao->loadingId;
 $sensorEventId = $solicitacao->sensorEventId;
 $barcode = $solicitacao->barcode;
+$barcodeForClassification = ValidadorCodigoBarras::normalizarDuplicacaoGtin($barcode);
 $noRead = $solicitacao->noRead;
 $offlineEventId = $solicitacao->offlineEventId;
 $attemptNumber = $solicitacao->attemptNumber;
@@ -277,14 +278,14 @@ if ($dispositivoScanner !== null) {
 $matchedProductId = null;
 $productPlannedQuantity = 0;
 $productValidCount = 0;
-if ($barcode !== "") {
+if ($barcodeForClassification !== "") {
     $matchedProductId = $readingRepository->buscarProdutoAtivoPorCodigo(
         (int) $usuarioAtor["company_id"],
-        $barcode,
+        $barcodeForClassification,
     );
     if ($matchedProductId !== null
-        && ValidadorCodigoBarras::ehFormatoGtinNumerico($barcode)
-        && !ValidadorCodigoBarras::codigoDecodificadoConfiavel($barcode)) {
+        && ValidadorCodigoBarras::ehFormatoGtinNumerico($barcodeForClassification)
+        && !ValidadorCodigoBarras::codigoDecodificadoConfiavel($barcodeForClassification)) {
         // Um GTIN com dígito verificador inválido não identifica o produto,
         // mesmo se o valor estiver cadastrado por engano no catálogo.
         $matchedProductId = null;
@@ -335,7 +336,7 @@ if ($sensorEventId && $loadingPlannedQuantity > 0) {
     $physicalExcess = $physicalEventPosition > $loadingPlannedQuantity;
 }
 $classification = (new ClassificadorLeitura())->classificar(
-    $barcode !== "",
+    $barcodeForClassification !== "",
     $matchedProductId,
     $productPlannedQuantity,
     $productValidCount,
@@ -344,7 +345,8 @@ $classification = (new ClassificadorLeitura())->classificar(
     $physicalExcess,
     $productSemLeituraCount,
     $loadingSemLeituraCount,
-    $barcode !== "" && $matchedProductId === null && ValidadorCodigoBarras::codigoDecodificadoConfiavel($barcode),
+    $barcodeForClassification !== "" && $matchedProductId === null
+        && ValidadorCodigoBarras::codigoDecodificadoConfiavel($barcodeForClassification),
 );
 $result = $classification["result"];
 $productId = $classification["product_id"];
