@@ -1,9 +1,9 @@
 import { button, esc } from "../../js/funcoes/html.js";
-import { numero } from "../../js/funcoes/formato.js?v=202611170004";
-import { rotuloComando, rotuloEstado } from "../../js/funcoes/rotulos.js?v=202611170004";
-import { resolverComandoAtual } from "../../js/funcoes/estado-comando.js?v=202611170004";
-import { pageHeader } from "../../js/funcoes/view.js?v=202611170004";
-import { motivoBloqueioFinalizacao, podeFinalizarCarregamento } from "../../js/funcoes/regras-carregamento.js?v=202611170004";
+import { numero } from "../../js/funcoes/formato.js?v=202611170005";
+import { rotuloComando, rotuloEstado } from "../../js/funcoes/rotulos.js?v=202611170005";
+import { resolverComandoAtual } from "../../js/funcoes/estado-comando.js?v=202611170005";
+import { pageHeader } from "../../js/funcoes/view.js?v=202611170005";
+import { motivoBloqueioFinalizacao, podeFinalizarCarregamento } from "../../js/funcoes/regras-carregamento.js?v=202611170005";
 
 function equipmentLabel(store) {
   if (store.state.equipmentCode && store.state.equipmentCode !== "—") {
@@ -353,7 +353,7 @@ function workControls(store) {
   const stopConfirmationMessage = store.state.stopReason === "COTA_PRODUTO_ATINGIDA"
       ? "A cota deste produto foi atingida. Aguarde a confirmação da parada física antes de continuar com outro produto."
     : store.state.stopReason === "COTA_ROMANEIO_ATINGIDA"
-      ? "A quantidade do romaneio foi atingida. Confirme a parada física para finalizar; leituras e fotos serão conferidas no relatório."
+      ? "A quantidade do romaneio foi atingida. A pausa foi solicitada; leituras pendentes e fotos serão conferidas no relatório."
     : !stopCommand
     ? "O gateway ainda não confirmou um comando de parada. Verifique a máquina antes de confirmar."
     : ["PENDENTE", "PROCESSANDO"].includes(pendingStatus)

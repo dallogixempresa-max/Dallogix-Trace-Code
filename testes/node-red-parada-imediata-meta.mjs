@@ -13,7 +13,7 @@ const gatewayService = await readFile(new URL("../servidor/src/Aplicacao/Servico
 test("a quota do sensor dispara claim imediato pelo mesmo gateway físico", async () => {
   assert.match(
     eventApi,
-    /\$detectedBags === \$plannedQuantity[\s\S]*?solicitarParadaAoAtingirMetaRomaneio/,
+    /\$detectedBags >= \$plannedQuantity[\s\S]*?solicitarParadaAoAtingirMetaRomaneio/,
     "a parada da meta total deve ser solicitada na igualdade, sem aguardar a próxima passagem",
   );
 

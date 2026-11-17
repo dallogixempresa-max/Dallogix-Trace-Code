@@ -218,7 +218,7 @@ test("integra SCANNER, fila SEM_LEITURA e preserva a origem para regenerar o PDF
   assert.match(readingsEndpoint, /"evidence_status" => \$evidenceStatus/);
   assert.match(sensorEventsEndpoint, /COUNT\(\*\) FROM eventos_sensor/);
   assert.match(sensorEventsEndpoint, /\$physicalExcess = \$plannedQuantity > 0[\s\S]*?fetchColumn\(\) > \$plannedQuantity/);
-  assert.match(sensorEventsEndpoint, /\$detectedBags === \$plannedQuantity[\s\S]*?solicitarParadaAoAtingirMetaRomaneio/);
+  assert.match(sensorEventsEndpoint, /\$detectedBags >= \$plannedQuantity[\s\S]*?solicitarParadaAoAtingirMetaRomaneio/);
   assert.doesNotMatch(sensorEventsEndpoint, /solicitarParadaPorExcesso|EXCESSO_DETECTADO|EXCESSO_EVIDENCIA_SOLICITADA|EVIDENCIA_EXCESSO_SOLICITADA/);
   assert.match(sensorEventsEndpoint, /"image_action" => "AGUARDANDO_RESULTADO_LEITURA"/);
   assert.match(sensorEventsEndpoint, /"command_request_id" => \$targetStop\["command_request_id"\]/);
