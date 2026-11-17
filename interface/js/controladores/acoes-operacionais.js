@@ -155,11 +155,18 @@ export function criarTratadorAcoesOperacionais({
 
   async function liberarEmergencia(node) {
     node.disabled = true;
+    store.state.commandFeedback = "";
     try {
       await servicoEmergencia.liberar();
       render();
     } catch (error) {
-      notificarForaDaOperacao(error.message, "erro");
+      // notificarForaDaOperacao silencia erros quando currentPage === "work",
+      // então o operador nunca sabia que o desbloqueio falhou. Usamos
+      // commandFeedback para mostrar o erro diretamente na tela de operação,
+      // igual ao tratamento de erros em executarComandoDeOperacao.
+      store.state.commandFeedback = error?.message
+        || "Não foi possível liberar a emergência. Verifique o equipamento.";
+      render();
     } finally {
       node.disabled = false;
     }
