@@ -1,5 +1,26 @@
 import { createHash, randomUUID } from "node:crypto";
 
+/** Carrega todas as páginas antes de decidir se um horário tem vínculo único. */
+export async function loadPendingImagePages(fetchPage) {
+  let afterId = 0;
+  const requests = new Map();
+  for (;;) {
+    const result = await fetchPage(afterId);
+    if (!Array.isArray(result?.data)) throw new Error("Página de evidências inválida.");
+    for (const request of result.data) {
+      const id = Number(request.id);
+      if (!Number.isSafeInteger(id) || id <= afterId) throw new Error("Identificação de evidência inválida na página.");
+      requests.set(id, request);
+    }
+    const next = result.meta?.next_after_id;
+    if (next === null || next === undefined) return [...requests.values()];
+    if (!Number.isSafeInteger(next) || next <= afterId || !requests.has(next)) {
+      throw new Error("Cursor de evidências sem avanço; associação interrompida.");
+    }
+    afterId = next;
+  }
+}
+
 export function parseBarcodeFrame(value, maxLength = 128) {
   const barcode = String(value ?? "").replace(/[\r\n]+$/g, "").trim();
   if (!barcode || Buffer.byteLength(barcode, "utf8") > maxLength) return null;
@@ -77,6 +98,9 @@ export function matchUniquePendingImage(receivedAt, requests, windowMs, timestam
 
   if (candidates.length === 0) return { request: null, reason: "sem_solicitacao_compativel" };
   if (candidates.length !== 1) return { request: null, reason: "solicitacoes_ambiguas" };
+  // Uma solicitação já capturada também participa da ambiguidade por horário.
+  // Não reutilize a mesma passagem para anexar outra foto ou alimentar outro saco.
+  if (candidates[0].request.status === "CAPTURADA") return { request: null, reason: "sem_solicitacao_compativel" };
   return { request: candidates[0].request, reason: null };
 }
 

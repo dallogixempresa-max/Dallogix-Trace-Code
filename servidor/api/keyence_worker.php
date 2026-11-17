@@ -59,6 +59,10 @@ if ($action === "STATUS") {
 }
 
 if ($action === "PENDING_IMAGES") {
+    $afterId = filter_var($payload["after_request_id"] ?? 0, FILTER_VALIDATE_INT);
+    if ($afterId === false || $afterId < 0) {
+        json_response(["error" => "Cursor de solicitações inválido."], 422);
+    }
     expirar_solicitacoes_imagem_keyence($pdo, (int) $device["equipment_id"]);
     $statement = $pdo->prepare(
         "SELECT r.id, r.sensor_event_id, r.status, r.reason, r.image_sha256,
@@ -69,13 +73,13 @@ if ($action === "PENDING_IMAGES") {
          JOIN carregamentos c ON c.id = r.carregamento_id
          JOIN eventos_sensor s ON s.id = r.sensor_event_id AND s.carregamento_id = r.carregamento_id
          WHERE r.equipment_id = :equipment_id AND c.company_id = :company_id
+           AND r.id > :after_request_id
            AND r.reason IN ('SEM_LEITURA', 'PRODUTO_INCORRETO', 'EXCESSO')
-           AND (r.status IN ('PENDENTE', 'ERRO') OR
-                (r.status = 'CAPTURADA' AND r.requested_at >= NOW(3) - INTERVAL 10 MINUTE))
-         ORDER BY CASE WHEN r.status = 'CAPTURADA' THEN 1 ELSE 0 END,
-                  r.requested_at, r.id LIMIT 100",
+           AND r.status IN ('PENDENTE', 'ERRO', 'CAPTURADA')
+         ORDER BY r.id LIMIT 100",
     );
     $statement->execute([
+        "after_request_id" => $afterId,
         "equipment_id" => $device["equipment_id"],
         "company_id" => $device["company_id"],
     ]);
@@ -94,7 +98,10 @@ if ($action === "PENDING_IMAGES") {
             "image_expected_at_epoch_ms" => $sensorDetectedAtMs + trace_scanner_timing()["travel_ms"],
         ];
     }, $statement->fetchAll(PDO::FETCH_ASSOC));
-    json_response(["data" => $requests]);
+    json_response([
+        "data" => $requests,
+        "meta" => ["next_after_id" => count($requests) === 100 ? $requests[99]["id"] : null],
+    ]);
 }
 
 if ($action !== "UPLOAD_IMAGE") {
