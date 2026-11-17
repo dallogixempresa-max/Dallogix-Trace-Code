@@ -945,7 +945,7 @@ body.work-page:has(.work-operation-screen) .work-machine-controls .work-routine-
 
 body.work-page:has(.work-operation-screen) .work-machine-controls .work-routine-controls .button,
 body.work-page:has(.work-operation-screen) .work-machine-controls .work-emergency-zone .button {
-  min-height: 92px;
+  min-height: clamp(112px, 13vh, 148px);
   padding: 18px 16px;
   font-size: 18px;
   border-radius: 12px;
@@ -1140,13 +1140,11 @@ body.work-page:has(.work-operation-screen) .work-reader-monitor-heading p {
   }
 }
 
-/* Regra final da tela de operação.
-   O CSS responsivo geral ainda contém compatibilidade histórica que transforma
-   as duas colunas em áreas de altura total. Aqui a tela operacional mantém o
-   tamanho real dos cartões e limita o rolagem somente à lista de itens. */
+/* Em telas grandes, alinha os comandos ao fim do cartão de itens sem expandir
+   a página inteira; a rolagem continua limitada à lista de itens. */
 @media (min-width: 960px) and (min-height: 680px) {
   body.work-page:has(.work-operation-screen) .work-operation-layout {
-    align-items: start;
+    align-items: stretch;
     flex: 0 0 auto;
   }
 
@@ -1170,8 +1168,22 @@ body.work-page:has(.work-operation-screen) .work-reader-monitor-heading p {
 
   body.work-page:has(.work-operation-screen) .work-machine-panel {
     height: auto;
-    align-self: start;
+    align-self: stretch;
     overflow: visible;
+  }
+
+  body.work-page:has(.work-operation-screen) .work-machine-controls,
+  body.work-page:has(.work-operation-screen) .work-controls {
+    display: flex;
+    min-height: 0;
+    flex: 1 1 auto;
+    flex-direction: column;
+  }
+
+  body.work-page:has(.work-operation-screen) .work-machine-controls .work-routine-controls {
+    min-height: 0;
+    flex: 1 1 auto;
+    grid-template-rows: repeat(4, minmax(clamp(112px, 13vh, 148px), 1fr));
   }
 }
 
