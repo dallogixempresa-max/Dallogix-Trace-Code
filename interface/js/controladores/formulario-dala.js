@@ -1,5 +1,5 @@
-import { setFormFeedback } from "../componentes/form-feedback.js?v=202611120004";
-import { validarDala } from "../utilitarios/Validadores.js?v=202611120004";
+import { setFormFeedback } from "../componentes/form-feedback.js?v=202611170001";
+import { validarDala } from "../utilitarios/Validadores.js?v=202611170001";
 
 function definirBotoesDesabilitados(form, disabled) {
   form.querySelectorAll("button").forEach((button) => {
