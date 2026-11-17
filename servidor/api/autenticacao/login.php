@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 define("TRACE_START_SESSION", true);
 require_once __DIR__ . "/../../configuracao/bootstrap.php";
+require_once __DIR__ . "/../../src/Aplicacao/AutenticadorContaEmpresaLocal.php";
+
+use App\Aplicacao\AutenticadorContaEmpresaLocal;
 
 exigir_metodo_http(["POST"]);
 
@@ -40,8 +43,9 @@ if (mb_strlen($password) < 6 || mb_strlen($password) > 128) {
     responder_json(["error" => "Credenciais inválidas."], 401);
 }
 
-$statement = obter_conexao_banco()->prepare(
-    "SELECT u.id, u.company_id, u.name, u.email, u.password_hash, u.role, u.active, u.must_change_password, u.auth_version,
+$pdo = obter_conexao_banco();
+$statement = $pdo->prepare(
+    "SELECT u.id, u.company_id, u.remote_user_id, u.name, u.email, u.password_hash, u.role, u.active, u.must_change_password, u.auth_version,
             e.login_domain AS company_login_domain
      FROM usuarios u
      LEFT JOIN empresas e ON e.id = u.company_id
@@ -55,6 +59,38 @@ $hashComparacao = is_array($usuario)
     ? (string) $usuario["password_hash"]
     : '$2y$10$KyYdGXeTDGHkxm8b83po0OrNc6y90vZqVfUreYwjbQU4ptOOeHcB2'; // nosemgrep: generic.secrets.security.detected-bcrypt-hash.detected-bcrypt-hash -- Hash fictício fixo equaliza o custo de password_verify para usuário inexistente; não autentica uma conta.
 $senhaValida = password_verify($password, $hashComparacao);
+
+$identidadeCentral = is_array($usuario) && $usuario["remote_user_id"] !== null;
+$usuarioAutenticadoCentralmente = false;
+if (
+    trace_e_instalacao_local() &&
+    ($identidadeCentral || !$usuario || !(bool) $usuario["active"] || !$senhaValida)
+) {
+    $autenticadorCentral = new AutenticadorContaEmpresaLocal();
+    $autenticacaoCentral = $autenticadorCentral->autenticar($pdo, $email, $password);
+
+    if (($autenticacaoCentral["status"] ?? "") === "authenticated") {
+        exigir_instalacao_local_ativa($pdo, (int) $autenticacaoCentral["company_id"]);
+        $usuario = $autenticadorCentral->provisionar($pdo, $autenticacaoCentral, $password);
+        $senhaValida = is_array($usuario);
+        $usuarioAutenticadoCentralmente = $senhaValida;
+    } elseif (($autenticacaoCentral["status"] ?? "") === "rejected") {
+        $statusRemoto = (int) ($autenticacaoCentral["http_status"] ?? 401);
+        $statusResposta = in_array($statusRemoto, [402, 429], true) ? $statusRemoto : 401;
+        $mensagem = $statusResposta === 401
+            ? "Credenciais inválidas."
+            : trim((string) ($autenticacaoCentral["error"] ?? ""));
+        responder_json(
+            [
+                "error" => $mensagem !== "" ? $mensagem : "Não foi possível autenticar neste PC.",
+                ...(($autenticacaoCentral["error_code"] ?? "") !== ""
+                    ? ["error_code" => $autenticacaoCentral["error_code"]]
+                    : []),
+            ],
+            $statusResposta,
+        );
+    }
+}
 
 if (
     !$usuario ||
@@ -80,7 +116,7 @@ if (($usuario["role"] ?? "") !== "ADMIN_DALLOGIX") {
 
 registrar_login_sucesso($email);
 
-if (password_needs_rehash($usuario["password_hash"], PASSWORD_DEFAULT)) {
+if (!$usuarioAutenticadoCentralmente && password_needs_rehash($usuario["password_hash"], PASSWORD_DEFAULT)) {
     $rehash = db()->prepare(
         "UPDATE usuarios SET password_hash = :password_hash WHERE id = :id",
     );

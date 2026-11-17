@@ -44,22 +44,39 @@ export function bindPdfManifestImportForm({
         if (input && value) input.value = value;
       }
 
-      if (respostaPdf.product && camposPdf.quantidade_numero) {
-        const itensRomaneio = documentRef.querySelector("#manifest-items tbody");
-        if (itensRomaneio) {
-          itensRomaneio.innerHTML = "";
+      const itensImportados = Array.isArray(respostaPdf.items) ? respostaPdf.items : [];
+      const itensRomaneio = documentRef.querySelector("#manifest-items tbody");
+      if (itensRomaneio && itensImportados.length > 0) {
+        itensRomaneio.innerHTML = "";
+        for (const item of itensImportados) {
           itensRomaneio.insertAdjacentHTML(
             "beforeend",
-            renderManifestItem(store, respostaPdf.product.id, camposPdf.quantidade_numero),
+            renderManifestItem(store, item.product_id || "", item.quantity, item),
           );
         }
       }
 
-      const camposAusentes = respostaPdf.missing || [];
-      const mensagemImportacaoPdf = camposAusentes.length
-        ? `PDF importado. Campos não encontrados: ${camposAusentes.join(", ")}.`
-        : "PDF importado. Confira os dados e salve.";
-      showFeedback(mensagemImportacaoPdf, camposAusentes.length ? "warning" : "success");
+      const labelsCampos = {
+        codigo: "código do pedido",
+        data: "data de carregamento (a data de hoje foi mantida)",
+        expedidor: "expedidor",
+        placa: "placa do caminhão",
+        motorista: "motorista",
+      };
+      const camposAusentes = (respostaPdf.missing || []).map((key) => labelsCampos[key] || key);
+      const itensSemProduto = Number(respostaPdf.unmatched_items || 0);
+      const quantidadeTotal = Number(respostaPdf.quantity_total || 0);
+      const partesMensagem = [
+        `Leitura concluída: ${itensImportados.length} item(ns), ${quantidadeTotal} sacas.`,
+      ];
+      if (itensSemProduto > 0) {
+        partesMensagem.push(`${itensSemProduto} item(ns) precisam de seleção manual do produto.`);
+      }
+      if (camposAusentes.length > 0) {
+        partesMensagem.push(`Não encontrados no PDF: ${camposAusentes.join(", ")}.`);
+      }
+      partesMensagem.push("Confira os dados e clique em Cadastrar para criar o romaneio.");
+      showFeedback(partesMensagem.join(" "), itensSemProduto || camposAusentes.length ? "warning" : "success");
     } catch (error) {
       showFeedback(error.message || "Não foi possível importar o PDF.", "error");
     } finally {

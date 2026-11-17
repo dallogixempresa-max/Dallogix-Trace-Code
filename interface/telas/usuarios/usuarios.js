@@ -5,7 +5,7 @@ import { pageHeader } from "../../js/funcoes/view.js?v=202611040002";
 const roleLabel = {
   ADMIN_EMPRESA: "Administrador",
   SUPERVISOR: "Supervisor",
-  USUARIO: "Usuário",
+  USUARIO: "Operador",
 };
 
 export function users(store) {

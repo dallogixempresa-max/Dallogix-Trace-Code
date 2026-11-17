@@ -91,7 +91,7 @@ const registroTelas = criarRegistroTelas({
   emergency: () =>
     import("../telas/emergencia/emergencia.js?v=202611040002").then(({ emergency }) => emergency),
   settings: () =>
-    import("../telas/configuracoes/configuracoes.js?v=202611040002").then(({ settings }) => settings),
+    import("../telas/configuracoes/configuracoes.js?v=202611050001").then(({ settings }) => settings),
   dalas: () =>
     import("../telas/dalas/dalas.js?v=202611040002").then(({ dalas }) => dalas),
   dala: () =>
@@ -109,7 +109,7 @@ const registroTelas = criarRegistroTelas({
   company: () =>
     import("../telas/empresa/empresa.js?v=202611040002").then(({ company }) => company),
   users: () =>
-    import("../telas/usuarios/usuarios.js?v=202611040002").then(({ users }) => users),
+    import("../telas/usuarios/usuarios.js?v=202611050002").then(({ users }) => users),
   "error-logs": () =>
     import("../telas/logs-erros/logs-erros.js?v=202611040002").then(({ errorLogs }) => errorLogs),
 });
