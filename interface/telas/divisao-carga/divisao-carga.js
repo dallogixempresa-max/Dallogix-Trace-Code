@@ -1,12 +1,12 @@
 import { button, esc } from "../../js/funcoes/html.js";
-import { data, numero } from "../../js/funcoes/formato.js?v=202611170005";
-import { agora } from "../../js/funcoes/relogio.js?v=202611170005";
-import { rotuloComando, rotuloEstado, rotuloStatusComando, rotuloStatusRomaneio } from "../../js/funcoes/rotulos.js?v=202611170005";
+import { data, numero } from "../../js/funcoes/formato.js?v=202611170006";
+import { agora } from "../../js/funcoes/relogio.js?v=202611170006";
+import { rotuloComando, rotuloEstado, rotuloStatusComando, rotuloStatusRomaneio } from "../../js/funcoes/rotulos.js?v=202611170006";
 import {
   pageHeader,
   manifestsTable,
   statuses,
-} from "../../js/funcoes/view.js?v=202611170005";
+} from "../../js/funcoes/view.js?v=202611170006";
 
 export function division(store) {
   const manifest = store.state.manifestDetail;

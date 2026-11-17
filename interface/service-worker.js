@@ -1,5 +1,5 @@
 const CACHE_NAME = "trace-shell-20261117-quota-finish-01";
-const APPLICATION_ASSET_VERSION = "202611170005";
+const APPLICATION_ASSET_VERSION = "202611170006";
 const PRECACHE_CONCURRENCY = 4;
 const SHELL = [
   "/",
