@@ -92,6 +92,7 @@ $loads = $pdo->prepare('SELECT c.id, c.state, c.started_at, c.finished_at, e.nam
 $loads->execute(["id" => $romaneioId]);
 $loadRows = $loads->fetchAll();
 $evidenceWarnings = [];
+$evidenceAttachmentFailure = null;
 $unresolvedPassageCount = 0;
 $loadIds = array_map(static fn(array $row): int => (int) $row["id"], $loadRows);
 if ($loadIds !== []) {
@@ -576,7 +577,7 @@ if ($loadIds !== []) {
     $imageQuery = $pdo->prepare(
         "SELECT i.id AS image_id, i.company_id, i.equipment_id, i.carregamento_id, i.reading_id, i.path, i.reason, i.captured_at,
                 COALESCE(l.sensor_event_id, r.sensor_event_id) AS sensor_event_id,
-                r.id AS request_id, r.image_sha256
+                r.id AS request_id, NULL AS image_sha256
          FROM imagens i LEFT JOIN leituras l
            ON l.id = i.reading_id AND l.carregamento_id = i.carregamento_id
          LEFT JOIN solicitacoes_imagens_evidencia r
@@ -656,6 +657,14 @@ if ($loadIds !== []) {
     }
     $selection = ConferidorEvidenciasRelatorio::selecionarDisponiveis($incidentImages, $capturedRequests);
     $incidentImages = $selection["images"];
+    if (count(array_filter(
+        $selection["issues"],
+        static fn(array $issue): bool => (int) ($issue["request_id"] ?? 0) > 0,
+    )) > 0) {
+        $evidenceAttachmentFailure = new RuntimeException(
+            "Uma foto de erro recebida não pôde ser identificada sem ambiguidade.",
+        );
+    }
     foreach ($selection["issues"] as $issue) {
         $evidenceWarnings[] = "Evento " . ($issue["sensor_event_id"] ?? "não confirmado")
             . " · Evidência " . $issue["request_id"] . " · " . $issue["reason"]
@@ -798,11 +807,19 @@ if ($incidentImages !== []) {
             }
         } catch (RuntimeException $exception) {
             registrar_log_erro($exception, "relatorio_evidencia_indisponivel");
+            $evidenceAttachmentFailure ??= $exception;
             $evidenceWarnings[] = "Evento " . ($image["sensor_event_id"] ?? "não confirmado")
                 . " · Evidência " . ($image["request_id"] ?? "não confirmada")
                 . ": foto indisponível ou inválida; não anexada. " . $exception->getMessage();
         }
     }
+}
+if ($evidenceAttachmentFailure instanceof RuntimeException) {
+    $reportFailure(new RuntimeException(
+        "Uma foto Keyence recebida não pôde ser validada e anexada; o relatório anterior foi preservado.",
+        0,
+        $evidenceAttachmentFailure,
+    ));
 }
 
 $attachedEvents = [];
@@ -1008,7 +1025,7 @@ if ($evidenceImages !== []) {
             true,
         )) {
             $evidenceWarnings[] = $image["caption"] . ": imagem não incorporada nesta emissão.";
-            registrar_log_erro(new RuntimeException("Imagem validada não incorporada ao relatório."), "relatorio_evidencia_indisponivel");
+            $reportFailure(new RuntimeException("Uma imagem validada não pôde ser incorporada ao relatório."));
         } else {
             $embeddedImages[] = $image;
         }
@@ -1048,6 +1065,7 @@ if (file_put_contents($temporaryReportPath, $pdfBytes, LOCK_EX) !== strlen($pdfB
         "wrong_product_count" => $wrongProductCount,
         "wrong_product_evidence_count" => count(array_filter($evidenceImages, static fn(array $image): bool => $image["reason"] === "PRODUTO_INCORRETO")),
         "pending_passage_count" => $unresolvedPassageCount,
+        "evidence_identity_sha256" => ConferidorEvidenciasRelatorio::assinaturaSolicitacoes($capturedRequests ?? []),
         "source_images" => array_map(
             static fn(array $image): array => [
                 "image_id" => $image["image_id"],

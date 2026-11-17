@@ -16,6 +16,9 @@ foreach(['SEM_LEITURA','PRODUTO_INCORRETO','EXCESSO'] as $i=>$reason){
 }
 $selected=Check::vincular(array_reverse($images),$requests);check(count($selected)===3,'Nem todas as fotos foram vinculadas');
 check(count(Check::vincular([...$images,$images[0]],$requests))===3,'Foto duplicada entrou duas vezes');
+$extraHash=hash('sha256',png(128,128,0));
+$extra=$images[0];unset($extra['image_sha256']);$extra['path']="company_7/equipment_3/keyence-1-{$extraHash}.png";
+check(count(Check::vincular([...$images,$extra],$requests))===4,'Foto adicional do mesmo evento foi descartada');
 foreach(['sensor_event_id','carregamento_id','company_id','equipment_id','reading_id'] as $field){
  $bad=$images;$bad[0][$field]=999;
  try{Check::vincular($bad,$requests);throw new LogicException('Vínculo incorreto aceito: '.$field);}catch(RuntimeException $e){if($e instanceof LogicException)throw $e;}
@@ -27,6 +30,11 @@ foreach(['SEM_LEITURA-falso','PRODUTO_INCORRETO'] as $badReason){
 try{Check::vincular(array_slice($images,1),$requests);throw new LogicException('Foto faltante aceita');}catch(RuntimeException $e){if($e instanceof LogicException)throw $e;}
 $manifest=['source_images'=>array_map(fn($r)=>['sha256'=>$r['image_sha256'],'reason'=>$r['reason'],'sensor_event_uuid'=>$r['sensor_event_uuid']],$requests)];
 check(Check::manifestoCorresponde($manifest,array_reverse($requests)),'Ordem dos registros alterou a identidade');
+$manifestWithExtra=['evidence_identity_sha256'=>Check::assinaturaSolicitacoes($requests),'source_images'=>[
+ ...array_map(fn($r)=>['request_id'=>$r['request_id'],'sha256'=>$r['image_sha256'],'reason'=>$r['reason'],'sensor_event_uuid'=>$r['sensor_event_uuid']],$requests),
+ ['request_id'=>1,'sha256'=>$extraHash,'reason'=>$requests[0]['reason'],'sensor_event_uuid'=>$requests[0]['sensor_event_uuid']],
+]];
+check(Check::manifestoCorresponde($manifestWithExtra,$requests),'Foto adicional invalidou a identidade do incidente');
 $remote=['evidence_identity_sha256'=>Check::assinaturaManifesto($manifest)];
 check(Check::manifestoCorresponde($remote,$requests),'Identidade se perdeu no transporte ao Central');
 $invalidManifest=$remote+['source_images'=>[['sha256'=>'invalido']]];

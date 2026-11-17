@@ -175,17 +175,8 @@ try {
         $pdo->rollBack();
         json_response(["error" => "Solicitação de evidência não encontrada para esta Dala."], 404);
     }
-    if ($capture["status"] === "CAPTURADA") {
-        if (is_string($capture["image_sha256"])
-            && preg_match('/^[a-f0-9]{64}$/i', $capture["image_sha256"]) === 1
-            && hash_equals(strtolower($capture["image_sha256"]), $sha256)) {
-            $pdo->commit();
-            json_response(["data" => ["request_id" => (int) $requestId, "duplicate" => true]]);
-        }
-        $pdo->rollBack();
-        json_response(["error" => "A solicitação já possui outra imagem; a nova foto deve ser preservada para revisão."], 409);
-    }
-    if (!in_array($capture["status"], ["PENDENTE", "ERRO"], true)) {
+    $additionalCapture = $capture["status"] === "CAPTURADA";
+    if (!$additionalCapture && !in_array($capture["status"], ["PENDENTE", "ERRO"], true)) {
         $pdo->rollBack();
         json_response(["error" => "A solicitação não está mais disponível para a imagem Keyence."], 409);
     }
@@ -257,6 +248,18 @@ try {
         throw new RuntimeException("A imagem Keyence não passou pela validação do arquivo persistido.");
     }
 
+    $duplicateImage = $pdo->prepare(
+        "SELECT id FROM imagens WHERE carregamento_id = :carregamento_id AND path = :path LIMIT 1",
+    );
+    $duplicateImage->execute([
+        "carregamento_id" => $capture["carregamento_id"],
+        "path" => $storedPath,
+    ]);
+    if ($duplicateImage->fetchColumn() !== false) {
+        $pdo->commit();
+        json_response(["data" => ["request_id" => (int) $requestId, "duplicate" => true]]);
+    }
+
     $image = $pdo->prepare(
         "INSERT INTO imagens (company_id, carregamento_id, equipment_id, reading_id, path, reason, captured_at)
          VALUES (:company_id, :carregamento_id, :equipment_id, :reading_id, :path, :reason, {$capturedAtExpression})",
@@ -274,24 +277,26 @@ try {
     }
     $image->execute($imageParameters);
     $imageId = (int) $pdo->lastInsertId();
-    $complete = $pdo->prepare(
-        "UPDATE solicitacoes_imagens_evidencia
-         SET status = 'CAPTURADA', captured_at = {$capturedAtExpression}, image_sha256 = :image_sha256,
-             claimed_by_device_id = :device_id,
-             error_message = NULL, updated_at = NOW(3)
-         WHERE id = :id AND status IN ('PENDENTE', 'ERRO')",
-    );
-    $completeParameters = [
-        "device_id" => $device["id"],
-        "id" => (int) $requestId,
-        "image_sha256" => $sha256,
-    ];
-    if ($capturedAtEpochMs !== null) {
-        $completeParameters["captured_at_epoch_ms"] = $capturedAtEpochMs;
-    }
-    $complete->execute($completeParameters);
-    if ($complete->rowCount() !== 1) {
-        throw new RuntimeException("A solicitação de evidência mudou durante o recebimento.");
+    if (!$additionalCapture) {
+        $complete = $pdo->prepare(
+            "UPDATE solicitacoes_imagens_evidencia
+             SET status = 'CAPTURADA', captured_at = {$capturedAtExpression}, image_sha256 = :image_sha256,
+                 claimed_by_device_id = :device_id,
+                 error_message = NULL, updated_at = NOW(3)
+             WHERE id = :id AND status IN ('PENDENTE', 'ERRO')",
+        );
+        $completeParameters = [
+            "device_id" => $device["id"],
+            "id" => (int) $requestId,
+            "image_sha256" => $sha256,
+        ];
+        if ($capturedAtEpochMs !== null) {
+            $completeParameters["captured_at_epoch_ms"] = $capturedAtEpochMs;
+        }
+        $complete->execute($completeParameters);
+        if ($complete->rowCount() !== 1) {
+            throw new RuntimeException("A solicitação de evidência mudou durante o recebimento.");
+        }
     }
     record_operational_event(
         $pdo,
@@ -335,4 +340,5 @@ json_response(["data" => [
     "path" => $storedPath,
     "sha256" => $sha256,
     "bytes" => $bytes,
+    "additional" => $additionalCapture,
 ]], 201);

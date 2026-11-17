@@ -98,9 +98,9 @@ export function matchUniquePendingImage(receivedAt, requests, windowMs, timestam
 
   if (candidates.length === 0) return { request: null, reason: "sem_solicitacao_compativel" };
   if (candidates.length !== 1) return { request: null, reason: "solicitacoes_ambiguas" };
-  // Uma solicitação já capturada também participa da ambiguidade por horário.
-  // Não reutilize a mesma passagem para anexar outra foto ou alimentar outro saco.
-  if (candidates[0].request.status === "CAPTURADA") return { request: null, reason: "sem_solicitacao_compativel" };
+  // Uma solicitação capturada continua elegível quando a imagem nova tem uma
+  // única passagem compatível; o servidor deduplica o mesmo arquivo e guarda
+  // cada foto diferente sob a identidade da mesma passagem.
   return { request: candidates[0].request, reason: null };
 }
 

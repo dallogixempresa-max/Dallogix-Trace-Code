@@ -44,6 +44,13 @@ function emitir(string $pipeline, string $render, string $storageRoot, array $im
     global $incidentTables;
     $selection = ConferidorEvidenciasRelatorio::selecionarDisponiveis($images, $requests);
     $incidentImages = $selection['images'];
+    $evidenceAttachmentFailure = count(array_filter(
+        $selection['issues'],
+        static fn(array $issue): bool => (int) ($issue['request_id'] ?? 0) > 0,
+    )) > 0 ? new RuntimeException('Evidência recebida sem vínculo íntegro.') : null;
+    $reportFailure = static function (Throwable $exception): never {
+        throw new RuntimeException('Relatório incompleto recusado.', 0, $exception);
+    };
     $evidenceWarnings = array_map(static fn(array $issue): string => 'Vínculo não confirmado: ' . $issue['detail'], $selection['issues']);
     $previousEvidenceImagesByReference = $previous;
     $formatDateTime = static fn(string $value): string => $value;
@@ -78,16 +85,12 @@ foreach (['SEM_LEITURA', 'PRODUTO_INCORRETO'] as $i => $reason) {
     $images[] = $requests[$i] + ['image_id' => $id, 'path' => "keyence-{$id}-{$hash}.png"];
 }
 try {
-    $missing = emitir($pipeline, $render, $root, $images, $requests);
-    verificar(count($missing['evidenceImages']) === 0 && count($missing['evidenceWarnings']) >= 2, 'Foto ausente não foi registrada');
-    verificar($missing['operationSummary']['no_read_images'] === 0, 'Foto ausente contada como anexada');
-    verificar($missing['noReadRows'][0]['return_reason'] === 'Retirada confirmada', 'Histórico de retirada perdido');
-    verificar(count($GLOBALS['evidence_test_errors']) >= 2, 'Foto ausente não foi registrada no log');
+    try { emitir($pipeline, $render, $root, $images, $requests); throw new LogicException('PDF sem fotos recebidas foi aceito'); }
+    catch (RuntimeException $exception) { if ($exception instanceof LogicException) throw $exception; }
 
     file_put_contents($root . '/' . $images[0]['path'], $bytes[0]);
-    $partial = emitir($pipeline, $render, $root, $images, $requests);
-    verificar(count($partial['evidenceImages']) === 1, 'Uma foto ausente impediu anexar a outra');
-    verificar(count(RelatorioAuditoriaPdf::extrairImagensOriginaisDoPdf($partial['pdf'])) === 1, 'Imagem válida não entrou no PDF');
+    try { emitir($pipeline, $render, $root, $images, $requests); throw new LogicException('PDF parcial foi aceito'); }
+    catch (RuntimeException $exception) { if ($exception instanceof LogicException) throw $exception; }
 
     file_put_contents($root . '/' . $images[1]['path'], $bytes[1]);
     $complete = emitir($pipeline, $render, $root, $images, $requests);
@@ -100,21 +103,20 @@ try {
     verificar($before - $cursor->getValue($captionReport) > 60, 'Legenda longa não reservou espaço antes do próximo título');
 
     file_put_contents($root . '/' . $images[0]['path'], $bytes[1]);
-    $swapped = emitir($pipeline, $render, $root, $images, $requests);
-    verificar(count($swapped['evidenceImages']) === 1 && $swapped['evidenceWarnings'] !== [], 'Foto trocada não foi isolada');
-    verificar($GLOBALS['evidence_test_errors'] !== [], 'Falha de integridade não foi registrada');
+    try { emitir($pipeline, $render, $root, $images, $requests); throw new LogicException('Foto trocada foi aceita'); }
+    catch (RuntimeException $exception) { if ($exception instanceof LogicException) throw $exception; }
 
     $wrong = $images;
     $wrong[0]['sensor_event_id'] = 999;
-    $mismatch = emitir($pipeline, $render, $root, $wrong, $requests);
-    verificar(count($mismatch['evidenceImages']) === 1 && $mismatch['evidenceWarnings'] !== [], 'Vínculo duvidoso entrou no relatório');
+    try { emitir($pipeline, $render, $root, $wrong, $requests); throw new LogicException('Vínculo duvidoso foi aceito'); }
+    catch (RuntimeException $exception) { if ($exception instanceof LogicException) throw $exception; }
 
     unlink($root . '/' . $images[0]['path']);
     $recovered = emitir($pipeline, $render, $root, $images, $requests,
         ['request:1' => [['bytes' => $bytes[0], 'mime' => 'image/png', 'sha256' => $requests[0]['image_sha256']]]]);
     verificar(count($recovered['evidenceImages']) === 2, 'Recuperação do PDF anterior deixou de funcionar');
 
-    if (isset($argv[1])) file_put_contents($argv[1], $partial['pdf']);
+    if (isset($argv[1])) file_put_contents($argv[1], $complete['pdf']);
 } finally {
     foreach ($images as $image) {
         $path = $root . '/' . $image['path'];
