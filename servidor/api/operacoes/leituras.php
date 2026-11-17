@@ -361,9 +361,10 @@ $countsTowardPlan = in_array($result, ["VALIDO", "SEM_LEITURA"], true)
     && !$physicalExcess
     && (!$sensorEventId || (int) ($sensorEvent["conta_na_meta"] ?? 0) === 1);
 $productQuotaReached = $countsTowardPlan && $productQuotaReached;
-if ($physicalExcess && $sensorEventId) {
-    // A posição após o limite não consome a meta, mesmo que a sincronização
-    // do evento chegue antes da confirmação física da parada.
+if (($physicalExcess || $result === "PRODUTO_INCORRETO") && $sensorEventId) {
+    // Excesso físico e produto fora do romaneio ficam no relatório, mas não
+    // entram na contagem da meta, mesmo que o sensor os tenha contado antes
+    // de o leitor concluir a classificação.
     $excludeLatePassage = $pdo->prepare(
         "UPDATE eventos_sensor SET conta_na_meta_origem = 0, conta_na_meta = 0
          WHERE id = :sensor_event_id AND carregamento_id = :loading_id",
