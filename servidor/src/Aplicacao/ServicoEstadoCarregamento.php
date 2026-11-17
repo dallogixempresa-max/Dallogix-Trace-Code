@@ -20,13 +20,12 @@ final class ExcecaoEstadoCarregamento extends RuntimeException
 final class ServicoEstadoCarregamento
 {
     private const TRANSICOES_DE_ESTADO = [
-        "AGUARDANDO" => ["PREPARANDO", "EMERGENCIA"],
-        "PREPARANDO" => ["CARREGANDO", "PAUSADO", "EMERGENCIA"],
-        "CARREGANDO" => ["PAUSADO", "FINALIZANDO", "EMERGENCIA"],
-        "PAUSADO" => ["CARREGANDO", "EMERGENCIA"],
-        "FINALIZANDO" => ["EMERGENCIA"],
-        // A saída da emergência só pode ocorrer após ACK do gateway industrial.
-        // O endpoint genérico não deve permitir que um usuário contorne esse fluxo.
+        "AGUARDANDO" => ["PREPARANDO"],
+        "PREPARANDO" => ["CARREGANDO", "PAUSADO"],
+        "CARREGANDO" => ["PAUSADO", "FINALIZANDO"],
+        "PAUSADO" => ["CARREGANDO"],
+        "FINALIZANDO" => [],
+        // Registros históricos interrompidos permanecem protegidos contra retomada automática.
         "EMERGENCIA" => [],
         "FINALIZADO" => [],
     ];

@@ -36,7 +36,7 @@ function action_payload(array $payload): array
     $label = trim((string) ($payload["rotulo"] ?? ""));
     $color = strtoupper(trim((string) ($payload["cor"] ?? "CINZA")));
     $mode = strtoupper(trim((string) ($payload["modo"] ?? "DIRETO")));
-    $allowed = ["INICIAR_CARREGAMENTO", "PAUSAR_CARREGAMENTO", "REVERSAO_ATIVAR", "REVERSAO_DESATIVAR", "EMERGENCIA"];
+    $allowed = ["INICIAR_CARREGAMENTO", "PAUSAR_CARREGAMENTO", "REVERSAO_ATIVAR", "REVERSAO_DESATIVAR"];
     if (!in_array($command, $allowed, true) || $label === "" || mb_strlen($label) > 80 || !in_array($color, ["VERDE", "VERMELHO", "CINZA", "AMBAR", "AZUL"], true) || !in_array($mode, ["INCREMENTAL", "DECREMENTAL", "DIRETO"], true)) {
         json_response(["error" => "Configuração da ação inválida."], 422);
     }

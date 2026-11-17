@@ -15,16 +15,16 @@ export const ROLE_PAGES = Object.freeze({
   ADMIN_DALLOGIX: ["master-home", "companies", "company", "users", "error-logs"],
   ADMIN_EMPRESA: [
     "dashboard", "manifests", "manifest", "manifest-edit", "import", "division",
-    "work", "occurrences", "products", "alerts", "emergency", "settings",
+    "work", "occurrences", "products", "alerts", "settings",
     "dalas", "dala", "dala-edit", "users", "error-logs",
   ],
   SUPERVISOR: [
     "dashboard", "manifests", "manifest", "manifest-edit", "import", "division",
-    "work", "occurrences", "products", "alerts", "emergency", "dala",
+    "work", "occurrences", "products", "alerts", "dala",
   ],
   USUARIO: [
     "dashboard", "manifests", "manifest", "division", "dala", "work",
-    "occurrences", "alerts", "emergency",
+    "occurrences", "alerts",
   ],
 });
 
@@ -44,7 +44,6 @@ export const PAGE_LABELS = Object.freeze({
   occurrences: "Ocorrências",
   products: "Produtos",
   alerts: "Alertas",
-  emergency: "Emergência",
   settings: "Configurações",
   dalas: "Dalas",
   dala: "Visualizar Dala",
@@ -70,7 +69,6 @@ export const PAGE_PATHS = Object.freeze({
   occurrences: "/telas/ocorrencias/ocorrencias.html",
   products: "/telas/produtos/produtos.html",
   alerts: "/telas/alertas/alertas.html",
-  emergency: "/telas/emergencia/emergencia.html",
   settings: "/telas/configuracoes/configuracoes.html",
   dalas: "/telas/dalas/dalas.html",
   dala: "/telas/visualizar-dala/visualizar-dala.html",
@@ -87,7 +85,7 @@ export const LEGACY_PAGE_IDS = Object.freeze({
   "manifest.html": "manifest", "manifest-edit.html": "manifest-edit", "import.html": "import",
   "division.html": "division", "work.html": "work", "occurrences.html": "occurrences",
   "products.html": "products", "alerts.html": "alerts",
-  "emergency.html": "emergency", "settings.html": "settings", "dalas.html": "dalas",
+  "settings.html": "settings", "dalas.html": "dalas",
   "dala.html": "dala", "dala-edit.html": "dala-edit", "companies.html": "companies",
   "company.html": "company", "master-home.html": "master-home", "users.html": "users",
   "error-logs.html": "error-logs",

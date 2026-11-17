@@ -62,30 +62,6 @@ export class ServicoCarregamentoAtivo {
     return result.data;
   }
 
-  async unlockMachine() {
-    if (!this.state.loadingId) {
-      throw new Error("Nenhum carregamento ativo encontrado.");
-    }
-
-    const response = await this.api.fetch("/api/desbloquear_maquina.php", {
-      method: "POST",
-      headers: this.jsonHeaders(),
-      body: JSON.stringify({ carregamento_id: this.state.loadingId }),
-    });
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      if (response.status === 409) {
-        await this.load();
-        if (!this.state.emergency) {
-          return { alreadyUnlocked: true, state: this.state.operationalState };
-        }
-      }
-      throw new Error(result.error || "Não foi possível desbloquear a máquina.");
-    }
-
-    await this.load();
-    return result.data;
-  }
 
   async finishLoading(loadingId, justification = "", automatic = false) {
     if (!loadingId) {

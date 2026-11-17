@@ -60,6 +60,17 @@ final class ServicoGatewayClp
                 return null;
             }
 
+            // Compatibilidade com instalações antigas: comandos removidos não
+            // podem reaparecer na fila após uma reconexão. Preserve a solicitação.
+            $retired = $this->connection->prepare(
+                "UPDATE solicitacoes_comandos_clp
+                 SET status = 'REJEITADO', completed_at = NOW(3),
+                     response_message = 'Comando removido do Trace; controle exclusivo do painel físico.'
+                 WHERE equipment_id = :equipment_id AND status = 'PENDENTE'
+                   AND command IN ('EMERGENCIA', 'DESBLOQUEAR_MAQUINA')",
+            );
+            $retired->execute(["equipment_id" => $equipmentId]);
+
             $expired = $this->connection->prepare(
                 "SELECT r.id, r.company_id, r.equipment_id, r.carregamento_id, r.command,
                         r.remote_command_id, c.remote_carregamento_id,
@@ -132,6 +143,7 @@ final class ServicoGatewayClp
                  JOIN carregamentos c ON c.id = r.carregamento_id
                  JOIN equipamentos e ON e.id = r.equipment_id
                  WHERE r.equipment_id = :equipment_id AND r.status = 'PENDENTE'
+                   AND r.command IN ('INICIAR_CARREGAMENTO', 'PAUSAR_CARREGAMENTO', 'REVERSAO_ATIVAR', 'REVERSAO_DESATIVAR')
                    AND (
                        (r.command = 'EMERGENCIA' AND NOT EXISTS (
                            SELECT 1 FROM solicitacoes_comandos_clp processing

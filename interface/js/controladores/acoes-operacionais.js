@@ -1,7 +1,7 @@
 import {
   motivoBloqueioFinalizacao,
   podeFinalizarCarregamento,
-} from "../funcoes/regras-carregamento.js?v=202611170002";
+} from "../funcoes/regras-carregamento.js?v=202611170003";
 
 const ACOES_COMANDO_MAQUINA = new Set([
   "start-machine",
@@ -12,7 +12,6 @@ const ACOES_COMANDO_MAQUINA = new Set([
   "reverse-on",
   "reverse-off",
   "reverse-toggle",
-  "emergency",
 ]);
 
 /** Encaminha as ações operacionais sem acoplar a regra de negócio ao DOM global. */
@@ -28,7 +27,6 @@ export function criarTratadorAcoesOperacionais({
   notificar,
   notificarForaDaOperacao,
   registrarAviso,
-  servicoEmergencia,
   executarComandoDeOperacao,
   changeOperationLoading,
 }) {
@@ -153,25 +151,6 @@ export function criarTratadorAcoesOperacionais({
     }
   }
 
-  async function liberarEmergencia(node) {
-    node.disabled = true;
-    store.state.commandFeedback = "";
-    try {
-      await servicoEmergencia.liberar();
-      render();
-    } catch (error) {
-      // notificarForaDaOperacao silencia erros quando currentPage === "work",
-      // então o operador nunca sabia que o desbloqueio falhou. Usamos
-      // commandFeedback para mostrar o erro diretamente na tela de operação,
-      // igual ao tratamento de erros em executarComandoDeOperacao.
-      store.state.commandFeedback = error?.message
-        || "Não foi possível liberar a emergência. Verifique o equipamento.";
-      render();
-    } finally {
-      node.disabled = false;
-    }
-  }
-
   async function finalizarRomaneio(node) {
     if (node?.dataset.busy === "1") return;
     if (!podeFinalizarCarregamento(store.state)) {
@@ -228,8 +207,6 @@ export function criarTratadorAcoesOperacionais({
         return selecionarCarregamento(node);
       case "change-loading":
         return changeOperationLoading(store, render);
-      case "unlock":
-        return liberarEmergencia(node);
       case "finish":
         return finalizarRomaneio(node);
       default:

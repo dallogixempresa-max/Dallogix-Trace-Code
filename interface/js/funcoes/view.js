@@ -1,6 +1,6 @@
 import { button, esc } from "./html.js";
-import { data, numero, relativo } from "./formato.js?v=202611170002";
-import { rotuloEstado, rotuloStatusComando, rotuloStatusRomaneio } from "./rotulos.js?v=202611170002";
+import { data, numero, relativo } from "./formato.js?v=202611170003";
+import { rotuloEstado, rotuloStatusComando, rotuloStatusRomaneio } from "./rotulos.js?v=202611170003";
 
 export function deviceStatusSummary(value) {
   const normalized = String(value || "DESCONHECIDO").trim().toUpperCase();
@@ -43,41 +43,6 @@ export function statuses(store = null) {
   }).join("")}</div>`;
 }
 
-export function emergencyPanel({
-  loading = "Emergência registrada no Trace",
-  canUnlock = false,
-  buttonAttributes = "",
-  commandStatus = null,
-  compact = false,
-  showStartButton = true,
-  showTechnical = true,
-} = {}) {
-  const status = String(commandStatus?.status || "").toUpperCase();
-  const command = status ? rotuloStatusComando(status) : "Aguardando retorno do gateway";
-  const commandTone = ["ERRO", "REJEITADO", "EXPIRADO"].includes(status)
-    ? "red"
-    : status === "APLICADO"
-      ? "blue"
-      : "yellow";
-  const acknowledgement = status === "APLICADO"
-    ? "O gateway reportou o comando como aplicado. Isso, sozinho, não confirma o estado físico da esteira."
-    : "A operação está bloqueada no Trace; a parada física depende do circuito de segurança e da confirmação do CLP.";
-  const disabledStart = button("Ligar esteira", "run", "primary", {
-    disabled: true,
-    "aria-disabled": "true",
-    title: "Bloqueado enquanto a emergência estiver ativa",
-  });
-  const technicalDetails = showTechnical
-    ? `<details class="emergency-technical"><summary>Detalhes do comando</summary><div class="work-command-feedback-status"><span>Retorno do gateway</span><span class="badge ${commandTone}">${esc(command)}</span></div>${commandStatus?.response_message ? `<p>${esc(commandStatus.response_message)}</p>` : ""}<p>${acknowledgement}</p></details>`
-    : "";
-  return `<section class="emergency${compact ? " emergency-compact" : ""}" aria-live="assertive">
-    <div class="emergency-intro"><span class="kicker">Solicitação de emergência</span><h2>Operação bloqueada</h2><p>Estado lógico do Trace: <strong>${esc(loading)}</strong></p></div>
-    <div class="emergency-lock-status"><strong>Esteira bloqueada</strong><span>Ligar esteira fica indisponível enquanto a emergência estiver ativa.</span></div>
-    <div class="emergency-actions">${showStartButton ? disabledStart : ""}${canUnlock ? button("Liberar emergência", "unlock", "secondary", buttonAttributes) : ""}</div>
-    ${technicalDetails}
-    <p class="emergency-safety-note">A emergência permanece travada até uma liberação explícita. A solicitação não substitui o botão físico de emergência; confira a condição segura na máquina e no CLP antes de liberar.</p>
-  </section>`;
-}
 export function progress(store) {
   const detected = Number(store.state.detectedBags ?? store.state.loaded) || 0;
   const planned = Number(store.state.planned) || 0;
