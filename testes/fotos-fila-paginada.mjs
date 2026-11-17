@@ -34,5 +34,5 @@ test('cursor inválido interrompe a leitura, sem repetir indefinidamente',async(
 test('recuperação antiga considera foto já capturada para não vincular ao saco seguinte',()=>{
  const requests=[{id:1,status:'CAPTURADA',image_expected_at_epoch_ms:100000},{id:2,status:'ERRO',image_expected_at_epoch_ms:100800}];
  assert.equal(matchUniquePendingImage(100100,requests,1500,'image_expected_at_epoch_ms').reason,'solicitacoes_ambiguas');
- assert.equal(matchUniquePendingImage(100100,requests.slice(0,1),1500,'image_expected_at_epoch_ms').request,null);
+ assert.equal(matchUniquePendingImage(100100,requests.slice(0,1),1500,'image_expected_at_epoch_ms').request.id,1);
 });
