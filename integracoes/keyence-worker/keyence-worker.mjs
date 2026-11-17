@@ -6,7 +6,7 @@ import { link, mkdir, readFile, readdir, rename, unlink, writeFile } from "node:
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { createFtpReceiver } from "./ftp-receiver.mjs";
-import { isAllowedSourceAddress, isKeyenceNoReadFrame, matchUniquePendingImage, nextUnreservedSensorEventId, parseBarcodeFrame, parseLinuxDefaultGateway, scanEventId, sha256 } from "./keyence-core.mjs";
+import { isAllowedSourceAddress, isKeyenceNoReadFrame, loadPendingImagePages, matchUniquePendingImage, nextUnreservedSensorEventId, parseBarcodeFrame, parseLinuxDefaultGateway, scanEventId, sha256 } from "./keyence-core.mjs";
 import { importArchivedImages } from "./image-archive.mjs";
 
 const SERVICE_NAME = "keyence-worker";
@@ -303,8 +303,9 @@ function enqueueBarcodeFrame(rawFrame) {
 }
 
 async function pendingImages() {
-  const result = await apiRequest("/api/keyence_worker.php", { jsonBody: { action: "PENDING_IMAGES" } });
-  return Array.isArray(result?.data) ? result.data : [];
+  return loadPendingImagePages((afterId) => apiRequest("/api/keyence_worker.php", {
+    jsonBody: { action: "PENDING_IMAGES", after_request_id: afterId },
+  }));
 }
 
 async function uploadImage(file, request, capturedAtEpochMs) {
@@ -487,7 +488,7 @@ async function processImageQueue() {
     if (names.length === 0) return;
     const requests = await pendingImages();
     const reserved = new Set();
-    const pendingRequests = requests.filter((request) => ["PENDENTE", "ERRO"].includes(request.status));
+    const pendingRequests = requests.filter((request) => ["PENDENTE", "ERRO", "CAPTURADA"].includes(request.status));
     for (const name of names) {
       const receivedAt = Number(name.slice(0, 13));
       if (!Number.isFinite(receivedAt)) continue;

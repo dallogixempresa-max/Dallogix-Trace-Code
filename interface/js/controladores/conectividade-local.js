@@ -1,4 +1,4 @@
-import { statusRelogio, sincronizarRelogio, usarRelogioDoPc } from "../funcoes/relogio.js?v=202611170003";
+import { statusRelogio, sincronizarRelogio, usarRelogioDoPc } from "../funcoes/relogio.js?v=202611170004";
 
 export function createLocalConnectivityController({
   store,

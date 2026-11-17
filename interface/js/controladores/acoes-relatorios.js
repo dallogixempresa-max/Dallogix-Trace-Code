@@ -1,4 +1,4 @@
-import { downloadBlob, downloadCsv } from "../funcoes/downloads.js?v=202611170003";
+import { downloadBlob, downloadCsv } from "../funcoes/downloads.js?v=202611170004";
 
 /** Encaminha exportações e downloads de relatórios sem ampliar o roteador da aplicação. */
 export function criarTratadorAcoesRelatorios({
@@ -11,6 +11,9 @@ export function criarTratadorAcoesRelatorios({
   browser = globalThis,
 }) {
   async function baixarRelatorioAuditoria(node) {
+    // Uma tentativa anterior pode ter ocorrido antes da finalização. O aviso
+    // não deve permanecer quando o operador tenta baixar o relatório novamente.
+    browser.document?.getElementById?.("trace-inline-feedback")?.remove();
     try {
       const id = Number(node.dataset.id);
       if (!Number.isSafeInteger(id) || id <= 0) throw new Error("Romaneio inválido.");
@@ -43,6 +46,7 @@ export function criarTratadorAcoesRelatorios({
       const blob = await response.blob();
       if (!blob.size) throw new Error("O relatório retornou vazio.");
       downloadBlob(blob, `romaneio-${id}.pdf`, browser);
+      notificar("Download do relatório iniciado.");
     } catch (error) {
       notificar(error.message || "Não foi possível baixar o relatório.");
     }
