@@ -34,6 +34,23 @@ test("renderiza a operação quando há pedido pendente de liberação de emerg�
 
   assert.match(html, /work-operation-screen/);
   assert.match(html, /Aguardando confirmação do gateway para o desbloqueio/);
+  assert.match(html, /<dialog id="work-stop-dialog" class="work-stop-dialog"/);
+  assert.match(html, /Liberação solicitada\. Aguarde o retorno do CLP\./);
+  assert.doesNotMatch(html, /class="emergency emergency-compact"/);
+});
+
+test("aviso de emergência permite liberação pelo operador e mostra falha dentro do diálogo", () => {
+  const html = work({ state: {
+    selectedLoadingId: 1, loadingId: 1, activeLoadings: [], loadingItems: [],
+    operationalState: "EMERGENCIA", emergency: true, userRole: "USUARIO",
+    equipmentId: 1, planned: 4, detectedBags: 0, loaded: 0,
+    commandFeedback: "Falha <CLP>",
+  } });
+  const dialog = html.match(/<dialog[\s\S]*?<\/dialog>/)?.[0] || "";
+  assert.match(dialog, /data-action="unlock"/);
+  assert.match(dialog, /Falha &lt;CLP&gt;/);
+  assert.match(dialog, /A liberação não liga a esteira/);
+  assert.doesNotMatch(dialog, /confirm-stop-removal-form/);
 });
 
 test("renderiza a finalização após a pausa confirmada na cota sem erro de inicialização", () => {
