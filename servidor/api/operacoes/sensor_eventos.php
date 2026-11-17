@@ -480,10 +480,9 @@ try {
     $targetStop = null;
     $automaticStop = false;
     if (
-        $countsTowardPlan &&
         in_array($loading["state"], ["CARREGANDO", "FINALIZANDO"], true)
         && $plannedQuantity > 0
-        && $detectedBags === $plannedQuantity
+        && $detectedBags >= $plannedQuantity
     ) {
         $targetStop = (new ServicoComandoClp($pdo))->solicitarParadaAoAtingirMetaRomaneio(
             ["id" => null, "company_id" => (int) $device["company_id"]],

@@ -32,7 +32,7 @@ function state({
       produtos_incorretos: incorrect,
       produtos_incorretos_com_foto: wrongPhotos,
       sacas_retornadas: returned,
-      leituras_pendentes_sensor: 0,
+      leituras_pendentes_sensor: 2,
       imagens_pendentes: captured ? 0 : 1,
       imagens_com_falha: 0,
       sensor_outbox_pendentes: 0,

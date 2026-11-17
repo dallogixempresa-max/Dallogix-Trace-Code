@@ -1,9 +1,9 @@
-import { apresentacaoConectividadePc, apresentacaoStatusDispositivo, renderStatusDalaBinario, resumoStatusDispositivos } from "../../telas/configuracoes/configuracoes.js?v=202611170004";
-import { operationStructureSignature, renderDalaStatuses } from "./operacao.js?v=202611170004";
-import { numero, relativo, dataHora } from "../funcoes/formato.js?v=202611170004";
+import { apresentacaoConectividadePc, apresentacaoStatusDispositivo, renderStatusDalaBinario, resumoStatusDispositivos } from "../../telas/configuracoes/configuracoes.js?v=202611170005";
+import { operationStructureSignature, renderDalaStatuses } from "./operacao.js?v=202611170005";
+import { numero, relativo, dataHora } from "../funcoes/formato.js?v=202611170005";
 import { el } from "../funcoes/html.js";
-import { refreshCompanyStatusCards } from "../funcoes/view.js?v=202611170004";
-import { motivoBloqueioFinalizacao, podeFinalizarCarregamento } from "../funcoes/regras-carregamento.js?v=202611170004";
+import { refreshCompanyStatusCards } from "../funcoes/view.js?v=202611170005";
+import { motivoBloqueioFinalizacao, podeFinalizarCarregamento } from "../funcoes/regras-carregamento.js?v=202611170005";
 
 /** Mantém as regiões de estado sincronizadas sem recriar formulários ou a tela toda. */
 export function createLiveViewController({
@@ -93,7 +93,7 @@ export function createLiveViewController({
         : complete
           ? finishReady
             ? "Quantidade prevista atingida e solicitação de pausa registrada. Finalize o romaneio; o relatório será processado depois."
-            : "Quantidade prevista atingida. Conclua as confirmações pendentes para liberar a finalização."
+            : "Quantidade prevista atingida. A pausa está sendo confirmada; leituras pendentes e divergências seguem para o relatório."
           : nearEnd
             ? "Atenção: o carregamento está próximo da quantidade prevista."
             : "";

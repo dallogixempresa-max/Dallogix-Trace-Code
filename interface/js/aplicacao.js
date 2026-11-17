@@ -1,41 +1,41 @@
 import {
   configurarSessaoPorAba,
-} from "./sessao.js?v=202611170004";
-import { ClienteApi } from "./api/ClienteApi.js?v=202611170004";
-import { confirmarAcao, limparNotificacao, notificar, solicitarTexto } from "./componentes/notificacoes.js?v=202611170004";
-import { setFormFeedback } from "./componentes/form-feedback.js?v=202611170004";
-import { ServicoOperacao } from "./servicos/ServicoOperacao.js?v=202611170004";
-import { ArmazenamentoTrace } from "./classes/ArmazenamentoTrace.js?v=202611170004";
-import { FORM_ACTIONS } from "./constantes/acoes.js?v=202611170004";
-import { changeOperationLoading, linhaItemRomaneio } from "./controladores/operacao.js?v=202611170004";
-import { createOperationalRealtimeController } from "./controladores/tempo-real.js?v=202611170004";
-import { createPageRefreshController } from "./controladores/page-refresh.js?v=202611170004";
-import { createDalaStatusRealtimeController } from "./controladores/status-dalas-tempo-real.js?v=202611170004";
-import { createMachineCommandQueue } from "./controladores/comandos-maquina.js?v=202611170004";
-import { criarRegistroTelas } from "./controladores/registro-telas.js?v=202611170004";
-import { criarTratadorAcoesNavegacao } from "./controladores/acoes-navegacao.js?v=202611170004";
-import { criarTratadorAcoesAdministracao } from "./controladores/acoes-administracao.js?v=202611170004";
-import { criarTratadorAcoesOperacionais } from "./controladores/acoes-operacionais.js?v=202611170004";
-import { criarTratadorAcoesDiagnostico } from "./controladores/acoes-diagnostico.js?v=202611170004";
-import { criarTratadorAcoesCadastros } from "./controladores/acoes-cadastros.js?v=202611170004";
-import { criarTratadorAcoesInterface, instalarInteracoesGlobaisInterface } from "./controladores/acoes-interface.js?v=202611170004";
-import { criarTratadorAcoesRelatorios } from "./controladores/acoes-relatorios.js?v=202611170004";
-import { criarDelegacaoAcoes, criarDespachanteAcoes } from "./controladores/despachante-acoes.js?v=202611170004";
-import { criarCarregadorPaginas } from "./controladores/carregador-paginas.js?v=202611170004";
-import { createLiveViewController } from "./controladores/estado-visualizacao.js?v=202611170004";
-import { createHidScannerCapture, isScannerNoReadMarker } from "./controladores/captura-leitor-hid.js?v=202611170004";
-import { createLocalConnectivityController } from "./controladores/conectividade-local.js?v=202611170004";
-import { bindManifestCreationForm, bindManifestEditForm } from "./controladores/formulario-romaneio.js?v=202611170004";
-import { bindProductForm } from "./controladores/formulario-produto.js?v=202611170004";
-import { bindDalaCreationForm, bindDalaEditForm } from "./controladores/formulario-dala.js?v=202611170004";
-import { bindCsvManifestImportForm, bindPdfManifestImportForm } from "./controladores/formulario-importacao-romaneio.js?v=202611170004";
-import { bindAdministrativeForms } from "./controladores/formularios-administrativos.js?v=202611170004";
-import { bindOperationalForms } from "./controladores/formularios-operacionais.js?v=202611170004";
-import { bindPageForms } from "./controladores/formularios-telas.js?v=202611170004";
+} from "./sessao.js?v=202611170005";
+import { ClienteApi } from "./api/ClienteApi.js?v=202611170005";
+import { confirmarAcao, limparNotificacao, notificar, solicitarTexto } from "./componentes/notificacoes.js?v=202611170005";
+import { setFormFeedback } from "./componentes/form-feedback.js?v=202611170005";
+import { ServicoOperacao } from "./servicos/ServicoOperacao.js?v=202611170005";
+import { ArmazenamentoTrace } from "./classes/ArmazenamentoTrace.js?v=202611170005";
+import { FORM_ACTIONS } from "./constantes/acoes.js?v=202611170005";
+import { changeOperationLoading, linhaItemRomaneio } from "./controladores/operacao.js?v=202611170005";
+import { createOperationalRealtimeController } from "./controladores/tempo-real.js?v=202611170005";
+import { createPageRefreshController } from "./controladores/page-refresh.js?v=202611170005";
+import { createDalaStatusRealtimeController } from "./controladores/status-dalas-tempo-real.js?v=202611170005";
+import { createMachineCommandQueue } from "./controladores/comandos-maquina.js?v=202611170005";
+import { criarRegistroTelas } from "./controladores/registro-telas.js?v=202611170005";
+import { criarTratadorAcoesNavegacao } from "./controladores/acoes-navegacao.js?v=202611170005";
+import { criarTratadorAcoesAdministracao } from "./controladores/acoes-administracao.js?v=202611170005";
+import { criarTratadorAcoesOperacionais } from "./controladores/acoes-operacionais.js?v=202611170005";
+import { criarTratadorAcoesDiagnostico } from "./controladores/acoes-diagnostico.js?v=202611170005";
+import { criarTratadorAcoesCadastros } from "./controladores/acoes-cadastros.js?v=202611170005";
+import { criarTratadorAcoesInterface, instalarInteracoesGlobaisInterface } from "./controladores/acoes-interface.js?v=202611170005";
+import { criarTratadorAcoesRelatorios } from "./controladores/acoes-relatorios.js?v=202611170005";
+import { criarDelegacaoAcoes, criarDespachanteAcoes } from "./controladores/despachante-acoes.js?v=202611170005";
+import { criarCarregadorPaginas } from "./controladores/carregador-paginas.js?v=202611170005";
+import { createLiveViewController } from "./controladores/estado-visualizacao.js?v=202611170005";
+import { createHidScannerCapture, isScannerNoReadMarker } from "./controladores/captura-leitor-hid.js?v=202611170005";
+import { createLocalConnectivityController } from "./controladores/conectividade-local.js?v=202611170005";
+import { bindManifestCreationForm, bindManifestEditForm } from "./controladores/formulario-romaneio.js?v=202611170005";
+import { bindProductForm } from "./controladores/formulario-produto.js?v=202611170005";
+import { bindDalaCreationForm, bindDalaEditForm } from "./controladores/formulario-dala.js?v=202611170005";
+import { bindCsvManifestImportForm, bindPdfManifestImportForm } from "./controladores/formulario-importacao-romaneio.js?v=202611170005";
+import { bindAdministrativeForms } from "./controladores/formularios-administrativos.js?v=202611170005";
+import { bindOperationalForms } from "./controladores/formularios-operacionais.js?v=202611170005";
+import { bindPageForms } from "./controladores/formularios-telas.js?v=202611170005";
 import { el, esc } from "./funcoes/html.js";
-import { rotuloEstado } from "./funcoes/rotulos.js?v=202611170004";
-import { logFrontend, configurarTransporteLogs } from "./utilitarios/LogFrontend.js?v=202611170004";
-import { estadoErro } from "./componentes/estados.js?v=202611170004";
+import { rotuloEstado } from "./funcoes/rotulos.js?v=202611170005";
+import { logFrontend, configurarTransporteLogs } from "./utilitarios/LogFrontend.js?v=202611170005";
+import { estadoErro } from "./componentes/estados.js?v=202611170005";
 import {
   LEGACY_PAGE_IDS,
   NAV_GROUPS,
@@ -44,7 +44,7 @@ import {
   PAGE_PATHS,
   ROLE_LABELS,
   ROLE_PAGES,
-} from "./configuracaoAplicacao.js?v=202611170004";
+} from "./configuracaoAplicacao.js?v=202611170005";
 
 configurarSessaoPorAba();
 
@@ -69,43 +69,43 @@ let companyViewSignature = "";
 let sidebarPreferenceWarningReported = false;
 const registroTelas = criarRegistroTelas({
   dashboard: () =>
-    import("../telas/painel/painel.js?v=202611170004").then(({ dashboard }) => dashboard),
+    import("../telas/painel/painel.js?v=202611170005").then(({ dashboard }) => dashboard),
   manifests: () =>
-    import("../telas/romaneios/romaneios.js?v=202611170004").then(({ manifests }) => manifests),
+    import("../telas/romaneios/romaneios.js?v=202611170005").then(({ manifests }) => manifests),
   import: () =>
-    import("../telas/importar-romaneio/importar-romaneio.js?v=202611170004").then(({ importScreen }) => importScreen),
+    import("../telas/importar-romaneio/importar-romaneio.js?v=202611170005").then(({ importScreen }) => importScreen),
   division: () =>
-    import("../telas/divisao-carga/divisao-carga.js?v=202611170004").then(({ division }) => division),
+    import("../telas/divisao-carga/divisao-carga.js?v=202611170005").then(({ division }) => division),
   work: () =>
-    import("../telas/operacao/operacao.js?v=202611170004").then(({ work }) => work),
+    import("../telas/operacao/operacao.js?v=202611170005").then(({ work }) => work),
   occurrences: () =>
-    import("../telas/ocorrencias/ocorrencias.js?v=202611170004").then(({ occurrences }) => occurrences),
+    import("../telas/ocorrencias/ocorrencias.js?v=202611170005").then(({ occurrences }) => occurrences),
   products: () =>
-    import("../telas/produtos/produtos.js?v=202611170004").then(({ products }) => products),
+    import("../telas/produtos/produtos.js?v=202611170005").then(({ products }) => products),
   alerts: () =>
-    import("../telas/alertas/alertas.js?v=202611170004").then(({ alerts }) => alerts),
+    import("../telas/alertas/alertas.js?v=202611170005").then(({ alerts }) => alerts),
   settings: () =>
-    import("../telas/configuracoes/configuracoes.js?v=202611170004").then(({ settings }) => settings),
+    import("../telas/configuracoes/configuracoes.js?v=202611170005").then(({ settings }) => settings),
   dalas: () =>
-    import("../telas/dalas/dalas.js?v=202611170004").then(({ dalas }) => dalas),
+    import("../telas/dalas/dalas.js?v=202611170005").then(({ dalas }) => dalas),
   dala: () =>
-    import("../telas/visualizar-dala/visualizar-dala.js?v=202611170004").then(({ dalaView }) => dalaView),
+    import("../telas/visualizar-dala/visualizar-dala.js?v=202611170005").then(({ dalaView }) => dalaView),
   "dala-edit": () =>
-    import("../telas/editar-dala/editar-dala.js?v=202611170004").then(({ dalaEdit }) => dalaEdit),
+    import("../telas/editar-dala/editar-dala.js?v=202611170005").then(({ dalaEdit }) => dalaEdit),
   manifest: () =>
-    import("../telas/romaneio/romaneio.js?v=202611170004").then(({ manifestView }) => manifestView),
+    import("../telas/romaneio/romaneio.js?v=202611170005").then(({ manifestView }) => manifestView),
   "manifest-edit": () =>
-    import("../telas/editar-romaneio/editar-romaneio.js?v=202611170004").then(({ manifestEdit }) => manifestEdit),
+    import("../telas/editar-romaneio/editar-romaneio.js?v=202611170005").then(({ manifestEdit }) => manifestEdit),
   companies: () =>
-    import("../telas/empresas/empresas.js?v=202611170004").then(({ companies }) => companies),
+    import("../telas/empresas/empresas.js?v=202611170005").then(({ companies }) => companies),
   "master-home": () =>
-    import("../telas/painel-dallogix/painel-dallogix.js?v=202611170004").then(({ masterHome }) => masterHome),
+    import("../telas/painel-dallogix/painel-dallogix.js?v=202611170005").then(({ masterHome }) => masterHome),
   company: () =>
-    import("../telas/empresa/empresa.js?v=202611170004").then(({ company }) => company),
+    import("../telas/empresa/empresa.js?v=202611170005").then(({ company }) => company),
   users: () =>
-    import("../telas/usuarios/usuarios.js?v=202611170004").then(({ users }) => users),
+    import("../telas/usuarios/usuarios.js?v=202611170005").then(({ users }) => users),
   "error-logs": () =>
-    import("../telas/logs-erros/logs-erros.js?v=202611170004").then(({ errorLogs }) => errorLogs),
+    import("../telas/logs-erros/logs-erros.js?v=202611170005").then(({ errorLogs }) => errorLogs),
 });
 const screens = registroTelas.telas;
 const FAST_STATUS_PAGES = new Set([
@@ -402,7 +402,7 @@ const conectividadeLocal = createLocalConnectivityController({
   refreshSettingsView: () => refreshSettingsStatusView(),
   render: () => render(),
   logWarning: (...args) => logFrontend.aviso(...args),
-  serviceWorkerUrl: "/service-worker.js?v=202611170004",
+  serviceWorkerUrl: "/service-worker.js?v=202611170005",
 });
 
 function waitForDocumentStyles() {
@@ -423,13 +423,13 @@ function waitForDocumentStyles() {
 // tela que tem CSS próprio precisa garantir seu arquivo e sua versão antes do
 // primeiro render, inclusive quando a rota inicial veio de outra página.
 const SCREEN_STYLES = {
-  work: "/telas/operacao/operacao.css?v=202611170004",
-  import: "/telas/importar-romaneio/importar-romaneio.css?v=202611170004",
-  settings: "/telas/configuracoes/configuracoes.css?v=202611170004",
-  dalas: "/telas/dalas/dalas.css?v=202611170004",
-  dala: "/telas/dalas/dalas.css?v=202611170004",
-  "dala-edit": "/telas/dalas/dalas.css?v=202611170004",
-  company: "/telas/empresa/empresa.css?v=202611170004",
+  work: "/telas/operacao/operacao.css?v=202611170005",
+  import: "/telas/importar-romaneio/importar-romaneio.css?v=202611170005",
+  settings: "/telas/configuracoes/configuracoes.css?v=202611170005",
+  dalas: "/telas/dalas/dalas.css?v=202611170005",
+  dala: "/telas/dalas/dalas.css?v=202611170005",
+  "dala-edit": "/telas/dalas/dalas.css?v=202611170005",
+  company: "/telas/empresa/empresa.css?v=202611170005",
 };
 
 async function ensureScreenStyles(page) {

@@ -110,7 +110,7 @@ test("heartbeat SENSOR preserva a fila agregada para liberar a finalização no 
 });
 
 test("a meta do romaneio solicita parada sem criar uma ocorrência de excesso", () => {
-  assert.match(sensorEventsApi, /\$detectedBags === \$plannedQuantity[\s\S]*?solicitarParadaAoAtingirMetaRomaneio/);
+  assert.match(sensorEventsApi, /\$detectedBags >= \$plannedQuantity[\s\S]*?solicitarParadaAoAtingirMetaRomaneio/);
   assert.doesNotMatch(sensorEventsApi, /solicitarParadaPorExcesso|EXCESSO_DETECTADO|EXCESSO_EVIDENCIA_SOLICITADA/);
   assert.doesNotMatch(sensorEventsApi, /\$excessStop/);
 });
