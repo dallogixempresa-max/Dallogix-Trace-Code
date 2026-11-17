@@ -221,7 +221,7 @@ final class RepositorioMonitoramento
                 WHERE r.reason = 'EXCESSO'
                 GROUP BY r.carregamento_id
             ), leituras_recentes AS (
-                SELECT l.carregamento_id, l.barcode, l.result, l.read_at,
+                SELECT l.carregamento_id, l.barcode, l.product_id, l.result, l.read_at,
                        ROW_NUMBER() OVER (
                            PARTITION BY l.carregamento_id
                            ORDER BY l.read_at DESC, l.id DESC
@@ -250,6 +250,7 @@ final class RepositorioMonitoramento
                    COALESCE(ee.excess_evidence_pending, 0) AS excess_evidence_pending,
                    COALESCE(ee.excess_evidence_failed, 0) AS excess_evidence_failed,
                    lr.barcode AS last_scanner_barcode,
+                   lr.product_id AS last_scanner_product_id,
                    lr.result AS last_scanner_result,
                    lr.read_at AS last_scanner_read_at,
                    ca.stop_reason, ca.operator_alert,

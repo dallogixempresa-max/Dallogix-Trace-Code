@@ -86,7 +86,7 @@ test("a quota do sensor dispara claim imediato pelo mesmo gateway físico", asyn
   assert.match(gatewayService, /r\.id = :priority_stop_request_id/);
   assert.match(gatewayService, /r\.command = 'PAUSAR_CARREGAMENTO'/);
   assert.match(gatewayService, /r\.command = 'EMERGENCIA'/);
-  assert.match(gatewayService, /c\.state = 'PAUSADO'/);
+  assert.match(gatewayService, /c\.state IN \('PAUSADO', 'FINALIZADO'\)/);
 });
 
 test("a passagem sem leitura além da meta não fica contabilizada", () => {

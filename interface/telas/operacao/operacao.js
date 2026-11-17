@@ -3,7 +3,7 @@ import { numero } from "../../js/funcoes/formato.js?v=202611120004";
 import { rotuloComando, rotuloEstado } from "../../js/funcoes/rotulos.js?v=202611120004";
 import { resolverComandoAtual } from "../../js/funcoes/estado-comando.js?v=202611120004";
 import { emergencyPanel, pageHeader } from "../../js/funcoes/view.js?v=202611120004";
-import { motivoBloqueioFinalizacao, podeFinalizarCarregamento } from "../../js/funcoes/regras-carregamento.js?v=202611160004";
+import { motivoBloqueioFinalizacao, podeFinalizarCarregamento } from "../../js/funcoes/regras-carregamento.js?v=202611160005";
 
 function equipmentLabel(store) {
   if (store.state.equipmentCode && store.state.equipmentCode !== "—") {
@@ -423,7 +423,7 @@ function workControls(store) {
     ? "Confirmar parada e continuar"
     : "Confirmar remoção e liberar retomada";
   const quotaStopReason = ["COTA_ROMANEIO_ATINGIDA", "EXCESSO"].includes(store.state.stopReason);
-  const stopConfirmation = store.state.stopReason && !store.state.emergency && !quotaStopReason
+  const stopConfirmation = store.state.stopReason && !store.state.emergency && !quotaStopReason && !finishReady
     ? `<dialog id="work-stop-dialog" class="work-stop-dialog" role="alertdialog" aria-modal="true" aria-labelledby="work-stop-confirmation-title" aria-describedby="work-stop-confirmation-alert work-stop-confirmation-status"><section class="work-stop-confirmation"><span class="kicker">${stopConfirmationLabel}</span><h2 id="work-stop-confirmation-title">Atenção: operação pausada</h2><p id="work-stop-confirmation-alert" class="work-stop-confirmation-alert">${esc(store.state.operatorAlert || "Confirme a parada física antes de continuar.")}</p><p id="work-stop-confirmation-status">${esc(stopConfirmationMessage)}</p><form class="confirm-stop-removal-form"><label><input type="checkbox" name="confirmar_remocao" value="true" required${store.state.stopRemovalAcknowledged === true ? " checked" : ""} autofocus /><span>${stopConfirmationCheckLabel}</span></label><button class="button primary" type="submit">${stopConfirmationButtonLabel}</button><p class="form-feedback" data-form-feedback role="status" aria-live="polite" hidden></p></form><div class="work-stop-emergency-action">${stopEmergencyAction}</div></section></dialog>`
     : "";
   const badge = ["PENDENTE", "PROCESSANDO"].includes(pendingStatus) && pendingCommand
@@ -465,7 +465,9 @@ function workControls(store) {
     && pendingCommand === "PAUSAR_CARREGAMENTO"
     && pendingStatus === "APLICADO";
   const endNotice = excess
-    ? `Passagem acima da quantidade prevista registrada. ${quotaPauseConfirmed ? "O gateway confirmou o comando de pausa." : "Um comando de pausa foi solicitado ao gateway."} A finalização permanece bloqueada.`
+    ? finishReady
+      ? "Quantidade prevista atingida; " + numero(detectedBags - plannedTotal) + " passagem(ns) excedente(s) registrada(s). Finalize o romaneio; as divergências seguem para o relatório."
+      : "Passagem acima da quantidade prevista registrada. " + (quotaPauseConfirmed ? "O gateway confirmou o comando de pausa." : "Aguardando a confirmação da pausa.")
     : complete
       ? finishReady
         ? `Quantidade prevista atingida e comando de pausa confirmado. Finalize o romaneio; o relatório será conferido depois.`

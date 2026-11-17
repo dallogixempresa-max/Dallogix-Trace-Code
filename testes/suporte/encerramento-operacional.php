@@ -2,6 +2,7 @@
 declare(strict_types=1);
 // Executa o endpoint real com transporte e PDO controlados, sem servidor ou CLP.
 $scenario=json_decode($argv[1]??'{}',true);
+require_once __DIR__.'/../../servidor/src/Aplicacao/ValidadorParadaCarregamento.php';
 $events=[];
 final class FinishStatement extends PDOStatement {
     public function __construct(private string $sql) {}
@@ -17,7 +18,9 @@ final class FinishStatement extends PDOStatement {
     public function fetchColumn(int $column=0): mixed {
         global $scenario;
         if(str_contains($this->sql,'FROM logs_auditoria')) return $scenario['stopApplied']??1;
+        if(str_contains($this->sql,"command = 'PAUSAR_CARREGAMENTO'")) return $scenario['stopRequested']??1;
         if(str_contains($this->sql,'FROM solicitacoes_comandos_clp')) return $scenario['pendingCommands']??0;
+        if(str_contains($this->sql,'NOT EXISTS (SELECT 1 FROM leituras l WHERE l.sensor_event_id = s.id)')) return $scenario['pendingReadings']??0;
         if(str_contains($this->sql,'SELECT COUNT(*) FROM carregamentos c')) return 0;
         if(str_contains($this->sql,'SUM(ri.planned_quantity)')) return $scenario['planned']??2;
         if(str_contains($this->sql,'COUNT(*) FROM eventos_sensor')) return $scenario['detected']??2;

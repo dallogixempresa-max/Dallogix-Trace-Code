@@ -5,6 +5,7 @@ declare(strict_types=1);
 require_once __DIR__ . "/../../configuracao/bootstrap.php";
 require_once __DIR__ . "/temporizacao_leitor.php";
 require_once __DIR__ . "/../../src/Aplicacao/ClassificadorLeitura.php";
+require_once __DIR__ . "/../../src/Aplicacao/ValidadorCodigoBarras.php";
 require_once __DIR__ . "/../../src/Aplicacao/SolicitacaoLeitura.php";
 require_once __DIR__ . "/../../src/Aplicacao/ServicoLeituras.php";
 require_once __DIR__ . "/../../src/Aplicacao/ServicoComandoClp.php";
@@ -12,6 +13,7 @@ require_once __DIR__ . "/../../src/Aplicacao/ServicoPausasCarregamento.php";
 require_once __DIR__ . "/../../src/Persistencia/RepositorioLeituras.php";
 
 use App\Aplicacao\ClassificadorLeitura;
+use App\Aplicacao\ValidadorCodigoBarras;
 use App\Aplicacao\SolicitacaoLeitura;
 use App\Aplicacao\ServicoComandoClp;
 use App\Aplicacao\ServicoLeituras;
@@ -280,6 +282,13 @@ if ($barcode !== "") {
         (int) $usuarioAtor["company_id"],
         $barcode,
     );
+    if ($matchedProductId !== null
+        && ValidadorCodigoBarras::ehFormatoGtinNumerico($barcode)
+        && !ValidadorCodigoBarras::codigoDecodificadoConfiavel($barcode)) {
+        // Um GTIN com dígito verificador inválido não identifica o produto,
+        // mesmo se o valor estiver cadastrado por engano no catálogo.
+        $matchedProductId = null;
+    }
 }
 $quantities = $readingRepository->obterQuantidadesParaClassificar(
     (int) $usuarioAtor["company_id"],
@@ -335,6 +344,7 @@ $classification = (new ClassificadorLeitura())->classificar(
     $physicalExcess,
     $productSemLeituraCount,
     $loadingSemLeituraCount,
+    $barcode !== "" && $matchedProductId === null && ValidadorCodigoBarras::codigoDecodificadoConfiavel($barcode),
 );
 $result = $classification["result"];
 $productId = $classification["product_id"];
@@ -343,7 +353,8 @@ $productValidCount = $classification["product_valid_count"];
 $productQuotaReached = $classification["product_quota_reached"];
 $noReadEvidenceRequired = $classification["no_read_evidence_required"];
 $wrongProductDetected = $classification["wrong_product_detected"];
-$barcodeUnmatched = $barcode !== "" && $matchedProductId === null;
+$stopRequired = $classification["stop_required"];
+$barcodeUnmatched = $classification["unregistered_product_detected"];
 $countsTowardPlan = in_array($result, ["VALIDO", "SEM_LEITURA"], true)
     && !$physicalExcess
     && (!$sensorEventId || (int) ($sensorEvent["conta_na_meta"] ?? 0) === 1);
@@ -478,7 +489,9 @@ if ($wrongProductDetected) {
     $occurrence->execute([
         "company_id" => $usuarioAtor["company_id"],
         "carregamento_id" => $loadingId,
-        "description" => "Produto lido não está previsto para o carregamento.",
+        "description" => $barcodeUnmatched
+            ? "Código de barras válido sem correspondência no catálogo de produtos."
+            : "Produto lido não está previsto para o carregamento.",
         "created_by" => $usuarioAtor["id"],
     ]);
     $occurrenceId = (int) $pdo->lastInsertId();
@@ -491,26 +504,28 @@ if ($wrongProductDetected) {
         ["carregamento_id" => (int) $loadingId, "leitura_id" => $readingId],
     );
     $evidenceStatus = "NAO_SOLICITADA";
-    if ($result === "PRODUTO_INCORRETO" && $loading["state"] !== "FINALIZADO") {
-        $wrongProductStop = (new ServicoComandoClp($pdo))->solicitarParadaPorProdutoIncorreto(
-            $usuarioAtor,
-            (int) $loadingId,
-        );
-        record_operational_event(
-            $pdo,
-            $usuarioAtor,
-            "PARADA_PRODUTO_INCORRETO",
-            "leitura",
-            $readingId,
-            [
-                "carregamento_id" => (int) $loadingId,
-                "stop_reason" => $wrongProductStop["stop_reason"],
-                "operator_alert" => $wrongProductStop["operator_alert"],
-                "physical_stop_request_status" => $wrongProductStop["physical_stop_request_status"],
-                "command_request_id" => $wrongProductStop["command_request_id"],
-            ],
-        );
-    }
+}
+if ($stopRequired && $loading["state"] !== "FINALIZADO") {
+    $wrongProductStop = (new ServicoComandoClp($pdo))->solicitarParadaPorProdutoIncorreto(
+        $usuarioAtor,
+        (int) $loadingId,
+        $barcodeUnmatched ? "Código válido não cadastrado no catálogo" : "Produto fora do romaneio ou da quantidade prevista",
+    );
+    record_operational_event(
+        $pdo,
+        $usuarioAtor,
+        "PARADA_PRODUTO_INCORRETO",
+        "leitura",
+        $readingId,
+        [
+            "carregamento_id" => (int) $loadingId,
+            "barcode_unmatched" => $barcodeUnmatched,
+            "stop_reason" => $wrongProductStop["stop_reason"],
+            "operator_alert" => $wrongProductStop["operator_alert"],
+            "physical_stop_request_status" => $wrongProductStop["physical_stop_request_status"],
+            "command_request_id" => $wrongProductStop["command_request_id"],
+        ],
+    );
 }
 if ($sensorEventId && ($noReadEvidenceRequired || $result === "PRODUTO_INCORRETO")) {
     $evidenceReason = $result === "PRODUTO_INCORRETO" ? "PRODUTO_INCORRETO" : "SEM_LEITURA";
@@ -570,6 +585,7 @@ responder_json(
             "id" => $readingId,
             "result" => $result,
             "barcode" => $barcode !== "" ? $barcode : null,
+            "unregistered_product_detected" => $classification["unregistered_product_detected"],
             "attempt_number" => $attemptNumber,
             "retry" => false,
             "final" => true,
@@ -581,9 +597,9 @@ responder_json(
             "stop_reason" => $stopDetails["stop_reason"] ?? $loading["stop_reason"] ?? null,
             "physical_stop_request_status" => $stopDetails["physical_stop_request_status"] ?? null,
             "command_request_id" => $stopDetails["command_request_id"] ?? null,
-            "operator_alert" => $result === "PRODUTO_INCORRETO"
-                ? ($wrongProductStop["operator_alert"] ?? "Produto fora do romaneio ou da quantidade prevista. Remova a unidade e confirme a parada física antes de continuar.")
-                : ($loading["operator_alert"] ?? null),
+            "operator_alert" => $barcodeUnmatched
+                ? "Código válido não cadastrado no catálogo. A esteira foi pausada para conferência; o saco não foi contado na quantidade prevista."
+                : ($wrongProductStop["operator_alert"] ?? ($loading["operator_alert"] ?? null)),
         ],
     ],
     201,

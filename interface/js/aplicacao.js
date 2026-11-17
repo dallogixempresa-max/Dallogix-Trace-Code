@@ -6,7 +6,7 @@ import { confirmarAcao, limparNotificacao, notificar, solicitarTexto } from "./c
 import { setFormFeedback } from "./componentes/form-feedback.js?v=202611120004";
 import { ServicoEmergencia } from "./servicos/ServicoEmergencia.js?v=202611120004";
 import { ServicoOperacao } from "./servicos/ServicoOperacao.js?v=202611120004";
-import { ArmazenamentoTrace } from "./classes/ArmazenamentoTrace.js?v=202611160004";
+import { ArmazenamentoTrace } from "./classes/ArmazenamentoTrace.js?v=202611160005";
 import { FORM_ACTIONS } from "./constantes/acoes.js?v=202611120004";
 import { changeOperationLoading, linhaItemRomaneio } from "./controladores/operacao.js?v=202611120004";
 import { createOperationalRealtimeController } from "./controladores/tempo-real.js?v=202611120004";
@@ -23,8 +23,8 @@ import { criarTratadorAcoesInterface, instalarInteracoesGlobaisInterface } from 
 import { criarTratadorAcoesRelatorios } from "./controladores/acoes-relatorios.js?v=202611120004";
 import { criarDelegacaoAcoes, criarDespachanteAcoes } from "./controladores/despachante-acoes.js?v=202611120004";
 import { criarCarregadorPaginas } from "./controladores/carregador-paginas.js?v=202611120004";
-import { createLiveViewController } from "./controladores/estado-visualizacao.js?v=202611120004";
-import { createHidScannerCapture, isScannerNoReadMarker } from "./controladores/captura-leitor-hid.js?v=202611160004";
+import { createLiveViewController } from "./controladores/estado-visualizacao.js?v=202611160005";
+import { createHidScannerCapture, isScannerNoReadMarker } from "./controladores/captura-leitor-hid.js?v=202611160005";
 import { createLocalConnectivityController } from "./controladores/conectividade-local.js?v=202611120004";
 import { bindManifestCreationForm, bindManifestEditForm } from "./controladores/formulario-romaneio.js?v=202611120004";
 import { bindProductForm } from "./controladores/formulario-produto.js?v=202611120004";
@@ -79,7 +79,7 @@ const registroTelas = criarRegistroTelas({
   division: () =>
     import("../telas/divisao-carga/divisao-carga.js?v=202611120004").then(({ division }) => division),
   work: () =>
-    import("../telas/operacao/operacao.js?v=202611160004").then(({ work }) => work),
+    import("../telas/operacao/operacao.js?v=202611160005").then(({ work }) => work),
   occurrences: () =>
     import("../telas/ocorrencias/ocorrencias.js?v=202611120004").then(({ occurrences }) => occurrences),
   products: () =>
@@ -413,7 +413,7 @@ const conectividadeLocal = createLocalConnectivityController({
   refreshSettingsView: () => refreshSettingsStatusView(),
   render: () => render(),
   logWarning: (...args) => logFrontend.aviso(...args),
-  serviceWorkerUrl: "/service-worker.js?v=202611160004",
+  serviceWorkerUrl: "/service-worker.js?v=202611160005",
 });
 
 function waitForDocumentStyles() {
@@ -599,7 +599,15 @@ function installScannerHidReceiver() {
         try {
           const reading = await store.registerScannerReading(barcode, capturedAtEpochMs);
           if (reading?.result === "PRODUTO_INCORRETO") {
-            store.state.latestScannerReading = { ...store.state.latestScannerReading, result: reading.result };
+            const value = reading.unregistered_product_detected
+              ? `Código válido não cadastrado: ${barcode}`
+              : `Produto fora do romaneio: ${barcode}`;
+            store.state.latestScannerReading = {
+              ...store.state.latestScannerReading,
+              result: reading.result,
+              value,
+            };
+            displayBarcode(value, { error: true });
             notificar(
               reading.operator_alert || "Produto fora do romaneio. Remova a unidade e confirme a parada física antes de continuar.",
               "erro",

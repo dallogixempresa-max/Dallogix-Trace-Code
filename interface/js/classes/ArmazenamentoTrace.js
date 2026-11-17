@@ -1,9 +1,9 @@
 import { OfflineOperationBuffer, secureRandomId } from "./OfflineOperationBuffer.js?v=202611120004";
 import { ClienteApi, erroRespostaHttp } from "../api/ClienteApi.js?v=202611120004";
 import { ServicoSincronizacao } from "../servicos/ServicoSincronizacao.js?v=202611120004";
-import { ServicoDalas } from "../servicos/ServicoDalas.js?v=202611160004";
+import { ServicoDalas } from "../servicos/ServicoDalas.js?v=202611160005";
 import { ServicoObservabilidade } from "../servicos/ServicoObservabilidade.js?v=202611120004";
-import { ServicoCarregamentoAtivo } from "../servicos/ServicoCarregamentoAtivo.js?v=202611120004";
+import { ServicoCarregamentoAtivo } from "../servicos/ServicoCarregamentoAtivo.js?v=202611160005";
 import { ServicoComandosMaquina } from "../servicos/ServicoComandosMaquina.js?v=202611120004";
 import { ServicoLeiturasOperacionais } from "../servicos/ServicoLeiturasOperacionais.js?v=202611120004";
 import { resolverComandoAtual } from "../funcoes/estado-comando.js?v=202611120004";
@@ -208,7 +208,7 @@ export class ArmazenamentoTrace {
   obterServicoRomaneios() {
     return this.obterServicoSobDemanda(
       "servicoRomaneios",
-      () => import("../servicos/ServicoRomaneios.js?v=202611160004"),
+      () => import("../servicos/ServicoRomaneios.js?v=202611160005"),
       ({ ServicoRomaneios }) => new ServicoRomaneios({
         api: this.api,
         state: this.state,
@@ -222,7 +222,7 @@ export class ArmazenamentoTrace {
   obterServicoCatalogoProdutos() {
     return this.obterServicoSobDemanda(
       "servicoCatalogoProdutos",
-      () => import("../servicos/ServicoCatalogoProdutos.js?v=202611160004"),
+      () => import("../servicos/ServicoCatalogoProdutos.js?v=202611160005"),
       ({ ServicoCatalogoProdutos }) => new ServicoCatalogoProdutos({
         api: this.api,
         state: this.state,

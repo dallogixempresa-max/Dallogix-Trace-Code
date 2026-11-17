@@ -19,7 +19,7 @@ const reportReceiver = await readFile(
   "utf8",
 );
 
-test("código sem correspondência fica auditado como não identificado e pede foto", () => {
+test("código válido sem correspondência é divergência, pede pausa e foto", () => {
   assert.match(endpoint, /\$noReadEvidenceRequired = \$classification\["no_read_evidence_required"\]/);
   assert.match(endpoint, /"barcode_unmatched" => \$barcodeUnmatched/);
   assert.match(endpoint, /if \(\$noReadEvidenceRequired\) \{/);
@@ -29,13 +29,17 @@ test("código sem correspondência fica auditado como não identificado e pede f
   );
   assert.match(endpoint, /\$evidenceReason = \$result === "PRODUTO_INCORRETO" \? "PRODUTO_INCORRETO" : "SEM_LEITURA"/);
   assert.match(endpoint, /\? "Saco detectado pelo sensor com código sem correspondência no catálogo\."/);
+  assert.match(endpoint, /\$stopRequired = \$classification\["stop_required"\]/);
+  assert.match(endpoint, /if \(\$stopRequired && \$loading\["state"\] !== "FINALIZADO"\)/);
+  assert.match(endpoint, /Código válido não cadastrado no catálogo\. A esteira foi pausada para conferência/);
+  assert.match(endpoint, /\$classification\["unregistered_product_detected"\]/);
 });
 
 test("produto reconhecido fora do romaneio mantém ocorrência e parada apropriada", () => {
   assert.match(endpoint, /\$wrongProductDetected = \$classification\["wrong_product_detected"\]/);
   assert.match(
     endpoint,
-    /if \(\$wrongProductDetected\) \{[\s\S]*?if \(\$result === "PRODUTO_INCORRETO" && \$loading\["state"\] !== "FINALIZADO"\) \{/,
+    /if \(\$stopRequired && \$loading\["state"\] !== "FINALIZADO"\) \{/,
   );
   assert.match(endpoint, /solicitarParadaPorProdutoIncorreto/);
   assert.doesNotMatch(endpoint, /solicitarParadaPorExcesso/);
@@ -43,7 +47,8 @@ test("produto reconhecido fora do romaneio mantém ocorrência e parada apropria
   assert.match(imageEndpoint, /r\.reason IN \('SEM_LEITURA', 'PRODUTO_INCORRETO', 'EXCESSO'\)/);
   assert.match(reportEndpoint, /l\.result = 'PRODUTO_INCORRETO'/);
   assert.match(reportEndpoint, /relatorio_pendencia_evidencia/);
-  assert.match(reportEndpoint, /Produto fora do romaneio · \{\$sackReference\} · \{\$capturedAt\}/);
+  assert.match(reportEndpoint, /\$captionType = isset\(\$unregisteredCodeEvents\[\$sensorEventId\]\)/);
+  assert.match(reportEndpoint, /\$caption = "\{\$captionType\} · \{\$sackReference\} · \{\$capturedAt\}"/);
   assert.match(reportEndpoint, /"version" => 3/);
   assert.match(reportEndpoint, /"wrong_product_count" => \$wrongProductCount/);
   assert.match(reportReceiver, /HTTP_X_TRACE_REPORT_WRONG_PRODUCT_COUNT/);

@@ -3,7 +3,7 @@ import { operationStructureSignature, renderDalaStatuses } from "./operacao.js?v
 import { numero, relativo, dataHora } from "../funcoes/formato.js?v=202611120004";
 import { el } from "../funcoes/html.js";
 import { refreshCompanyStatusCards } from "../funcoes/view.js?v=202611120004";
-import { motivoBloqueioFinalizacao, podeFinalizarCarregamento } from "../funcoes/regras-carregamento.js?v=202611160004";
+import { motivoBloqueioFinalizacao, podeFinalizarCarregamento } from "../funcoes/regras-carregamento.js?v=202611160005";
 
 /** Mantém as regiões de estado sincronizadas sem recriar formulários ou a tela toda. */
 export function createLiveViewController({
@@ -87,10 +87,12 @@ export function createLiveViewController({
       const excess = planned > 0 && detectedBags > planned;
       const finishReady = podeFinalizarCarregamento(store.state);
       endNotice.textContent = excess
-        ? `Atenção: ${numero(detectedBags - planned)} sacas passaram do total previsto.`
+        ? finishReady
+          ? "Quantidade prevista atingida; " + numero(detectedBags - planned) + " passagem(ns) excedente(s) registrada(s). Finalize o romaneio; as divergências seguem para o relatório."
+          : "Atenção: " + numero(detectedBags - planned) + " sacas passaram do total previsto; aguarde a confirmação da pausa."
         : complete
           ? finishReady
-            ? "Quantidade prevista atingida e parada confirmada. Finalize o romaneio; o relatório será conferido depois."
+            ? "Quantidade prevista atingida e solicitação de pausa registrada. Finalize o romaneio; o relatório será processado depois."
             : "Quantidade prevista atingida. Conclua as confirmações pendentes para liberar a finalização."
           : nearEnd
             ? "Atenção: o carregamento está próximo da quantidade prevista."

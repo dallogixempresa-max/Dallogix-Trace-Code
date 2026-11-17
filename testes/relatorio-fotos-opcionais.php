@@ -62,7 +62,7 @@ function emitir(string $pipeline, string $render, string $storageRoot, array $im
     foreach (['indispon', 'recebida', 'Pendências', 'Pendencias', 'inválida', 'invalida', 'Foto n'] as $forbidden) {
         verificar(!str_contains($pdf, $forbidden), 'Aviso de ausência de foto apareceu no PDF: ' . $forbidden);
     }
-    verificar(str_contains($pdf, 'Retirada confirmada'), 'Tratamento da retirada sumiu do PDF');
+    verificar(str_contains($pdf, 'Retirada:') && str_contains($pdf, 'confirmada'), 'Tratamento da retirada sumiu do PDF');
     verificar(str_contains($pdf, 'Produto externo'), 'Incidente sem foto sumiu do PDF');
     return compact('pdf', 'evidenceImages', 'evidenceWarnings', 'noReadRows', 'operationSummary');
 }
