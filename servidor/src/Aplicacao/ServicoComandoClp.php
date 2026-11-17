@@ -628,6 +628,20 @@ final class ServicoComandoClp
             // de desbloqueio ainda em voo.
             $this->cancelarDesbloqueiosPendentes($user, $loadingId);
 
+            // Uma emergência invalida partidas ainda não enviadas de toda a
+            // Dala, inclusive de outro carregamento. Não as reaplique no rearme.
+            $cancelStarts = $this->connection->prepare(
+                "UPDATE solicitacoes_comandos_clp
+                 SET status = 'REJEITADO', completed_at = NOW(3),
+                     response_message = 'Partida pendente revogada por emergência; é necessária nova solicitação do operador.'
+                 WHERE company_id = :company_id AND equipment_id = :equipment_id
+                   AND command = 'INICIAR_CARREGAMENTO' AND status = 'PENDENTE'",
+            );
+            $cancelStarts->execute([
+                "company_id" => $user["company_id"],
+                "equipment_id" => $loading["equipment_id"],
+            ]);
+
             $pending = $this->repositorio->comandoPendente($loadingId, self::COMANDO_DE_EMERGENCIA);
             if ($pending) {
                 if ($loading["state"] !== "EMERGENCIA") {
