@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { work } from "../interface/telas/operacao/operacao.js";
+import { work, podeLiberarEmergencia } from "../interface/telas/operacao/operacao.js";
+
+test("operador pode solicitar liberação apenas com carregamento selecionado", () => {
+  assert.equal(podeLiberarEmergencia({ role: "USUARIO", loadingId: 1 }), true);
+  assert.equal(podeLiberarEmergencia({ role: "USUARIO", loadingId: null }), false);
+  assert.equal(podeLiberarEmergencia({ role: "", loadingId: 1 }), false);
+});
 
 test("renderiza a operação quando há pedido pendente de liberação de emergência", () => {
   const html = work({

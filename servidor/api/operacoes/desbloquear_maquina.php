@@ -8,7 +8,7 @@ use App\Aplicacao\ExcecaoDisponibilidadeClp;
 use App\Aplicacao\ServicoDisponibilidadeClp;
 use App\Persistencia\RepositorioDisponibilidadeClp;
 
-$user = require_role(["ADMIN_EMPRESA", "SUPERVISOR"]);
+$user = require_role(["ADMIN_EMPRESA", "SUPERVISOR", "USUARIO"]);
 if ($_SERVER["REQUEST_METHOD"] !== "POST") {
     json_response(["error" => "Método não permitido."], 405);
 }

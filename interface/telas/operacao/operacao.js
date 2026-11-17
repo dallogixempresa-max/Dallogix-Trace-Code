@@ -70,7 +70,7 @@ export function paradaPodeSerEnfileiradaAposInicio({ state, pendingStatus, pendi
 }
 
 export function podeLiberarEmergencia({ role, loadingId }) {
-  return Boolean(loadingId) && ["ADMIN_EMPRESA", "SUPERVISOR"].includes(
+  return Boolean(loadingId) && ["ADMIN_EMPRESA", "SUPERVISOR", "USUARIO"].includes(
     String(role || "").toUpperCase(),
   );
 }
