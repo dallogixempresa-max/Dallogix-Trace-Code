@@ -1,9 +1,9 @@
 import { button, esc } from "../../js/funcoes/html.js";
-import { numero } from "../../js/funcoes/formato.js?v=202611120004";
-import { rotuloComando, rotuloEstado } from "../../js/funcoes/rotulos.js?v=202611120004";
-import { resolverComandoAtual } from "../../js/funcoes/estado-comando.js?v=202611120004";
-import { emergencyPanel, pageHeader } from "../../js/funcoes/view.js?v=202611120004";
-import { motivoBloqueioFinalizacao, podeFinalizarCarregamento } from "../../js/funcoes/regras-carregamento.js?v=202611160005";
+import { numero } from "../../js/funcoes/formato.js?v=202611170001";
+import { rotuloComando, rotuloEstado } from "../../js/funcoes/rotulos.js?v=202611170001";
+import { resolverComandoAtual } from "../../js/funcoes/estado-comando.js?v=202611170001";
+import { emergencyPanel, pageHeader } from "../../js/funcoes/view.js?v=202611170001";
+import { motivoBloqueioFinalizacao, podeFinalizarCarregamento } from "../../js/funcoes/regras-carregamento.js?v=202611170001";
 
 function equipmentLabel(store) {
   if (store.state.equipmentCode && store.state.equipmentCode !== "—") {
@@ -70,7 +70,7 @@ export function paradaPodeSerEnfileiradaAposInicio({ state, pendingStatus, pendi
 }
 
 export function podeLiberarEmergencia({ role, loadingId }) {
-  return Boolean(loadingId) && ["ADMIN_EMPRESA", "SUPERVISOR"].includes(
+  return Boolean(loadingId) && ["ADMIN_EMPRESA", "SUPERVISOR", "USUARIO"].includes(
     String(role || "").toUpperCase(),
   );
 }
@@ -460,17 +460,24 @@ function workControls(store) {
   const nearEnd = plannedTotal > 0 && detectedBags > 0 && remainingTotal > 0 && remainingTotal <= nearEndThreshold;
   const complete = plannedTotal > 0 && detectedBags >= plannedTotal;
   const excess = plannedTotal > 0 && detectedBags > plannedTotal;
-  const quotaPauseConfirmed = quotaStopReason
-    && store.state.operationalState === "PAUSADO"
+  const automaticPauseConfirmed = store.state.summaryMonitoring?.carregamento?.parada_automatica_confirmada === true
+    || Number(store.state.summaryMonitoring?.carregamento?.parada_automatica_confirmada) === 1;
+  const pauseCommandConfirmed = store.state.operationalState === "PAUSADO"
     && pendingCommand === "PAUSAR_CARREGAMENTO"
     && pendingStatus === "APLICADO";
+  const quotaPauseConfirmed = quotaStopReason
+    && (pauseCommandConfirmed || automaticPauseConfirmed);
   const endNotice = excess
     ? finishReady
       ? "Quantidade prevista atingida; " + numero(detectedBags - plannedTotal) + " passagem(ns) excedente(s) registrada(s). Finalize o romaneio; as divergências seguem para o relatório."
       : "Passagem acima da quantidade prevista registrada. " + (quotaPauseConfirmed ? "O gateway confirmou o comando de pausa." : "Aguardando a confirmação da pausa.")
     : complete
       ? finishReady
-        ? `Quantidade prevista atingida e comando de pausa confirmado. Finalize o romaneio; o relatório será conferido depois.`
+        ? pauseCommandConfirmed || automaticPauseConfirmed
+          ? `Quantidade prevista atingida e comando de pausa confirmado. Finalize o romaneio; o relatório será conferido depois.`
+          : store.state.stopReason
+            ? `Quantidade prevista atingida. Pausa solicitada; aguardando confirmação do gateway. Você já pode finalizar o romaneio; o relatório será conferido depois.`
+            : `Quantidade prevista atingida e operação pausada. Finalize o romaneio; o relatório será conferido depois.`
         : `Quantidade prevista atingida. ${quotaPauseConfirmed ? "O gateway confirmou o comando de pausa." : "Aguardando o comando de pausa do gateway."} Aguarde a confirmação da parada para liberar a finalização.`
       : nearEnd
         ? "Atenção: o carregamento está próximo da quantidade prevista."
@@ -485,7 +492,10 @@ function workControls(store) {
   const panelHeading = estadoOperacional === "EMERGENCIA"
     ? ""
     : `<div class="panel-heading"><div><span class="kicker">Comandos da máquina</span><h3>Operar Dala</h3></div></div>`;
-  const machinePanel = `<section class="panel work-machine-panel">${panelHeading}<div class="work-machine-controls">${emergencySection}${stopConfirmation}${controls}</div></section>`;
+  const commandFeedback = store.state.commandFeedback
+    ? `<p class="work-selection-error" role="alert" aria-live="assertive">${esc(store.state.commandFeedback)}</p>`
+    : "";
+  const machinePanel = `<section class="panel work-machine-panel">${panelHeading}${commandFeedback}<div class="work-machine-controls">${emergencySection}${stopConfirmation}${controls}</div></section>`;
   const statusColumn = `<section class="work-status-column">${totalSummary}${itemProgress}</section>`;
   const workHeader = `<header class="work-screen-header">${loadingPicker}<div class="work-screen-heading"><h2>${esc(workTitle)}</h2><p>Dala ${esc(equipmentLabel(store))} · Caminhão ${esc(store.state.truck || "—")} <span class="work-header-state">${badge}</span></p></div>${finishAction}</header>`;
   return `<div class="work-operation-screen">${workHeader}<div class="work-operation-layout">${statusColumn}${machinePanel}</div></div>`;

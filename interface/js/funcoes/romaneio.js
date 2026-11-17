@@ -1,4 +1,4 @@
-import { agora } from "./relogio.js?v=202611120004";
+import { agora } from "./relogio.js?v=202611170001";
 import { button, esc } from "./html.js";
 
 export function produtosDisponiveisParaRomaneio(products, selectedId = "") {
