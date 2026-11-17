@@ -1,5 +1,5 @@
-const CACHE_NAME = "trace-shell-20261117-emergency-02";
-const APPLICATION_ASSET_VERSION = "202611170002";
+const CACHE_NAME = "trace-shell-20261117-panel-only-03";
+const APPLICATION_ASSET_VERSION = "202611170003";
 const PRECACHE_CONCURRENCY = 4;
 const SHELL = [
   "/",
@@ -16,7 +16,6 @@ const SHELL = [
   "/summary.html",
   "/products.html",
   "/alerts.html",
-  "/emergency.html",
   "/settings.html",
   "/dalas.html",
   "/dala.html",
@@ -33,7 +32,6 @@ const SHELL = [
   "/telas/divisao-carga/divisao-carga.html",
   "/telas/editar-dala/editar-dala.html",
   "/telas/editar-romaneio/editar-romaneio.html",
-  "/telas/emergencia/emergencia.html",
   "/telas/empresa/empresa.html",
   "/telas/empresas/empresas.html",
   "/telas/importar-romaneio/importar-romaneio.html",
@@ -55,7 +53,6 @@ const SHELL = [
   "/telas/divisao-carga/divisao-carga.js",
   "/telas/editar-dala/editar-dala.js",
   "/telas/editar-romaneio/editar-romaneio.js",
-  "/telas/emergencia/emergencia.js",
   "/telas/empresa/empresa.js",
   "/telas/empresas/empresas.js",
   "/telas/importar-romaneio/importar-romaneio.js",
@@ -76,7 +73,6 @@ const SHELL = [
   "/telas/divisao-carga/divisao-carga.css",
   "/telas/editar-dala/editar-dala.css",
   "/telas/editar-romaneio/editar-romaneio.css",
-  "/telas/emergencia/emergencia.css",
   "/telas/empresa/empresa.css",
   "/telas/empresas/empresas.css",
   "/telas/importar-romaneio/importar-romaneio.css",
@@ -102,7 +98,6 @@ const SHELL = [
   "/js/componentes/notificacoes.js",
   "/js/componentes/form-feedback.js",
   "/js/componentes/estados.js",
-  "/js/servicos/ServicoEmergencia.js",
   "/js/servicos/ServicoOperacao.js",
   "/js/servicos/ServicoSincronizacao.js",
   "/js/servicos/ServicoInstalacoesIndustriais.js",

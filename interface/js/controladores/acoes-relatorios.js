@@ -1,4 +1,4 @@
-import { downloadBlob, downloadCsv } from "../funcoes/downloads.js?v=202611170002";
+import { downloadBlob, downloadCsv } from "../funcoes/downloads.js?v=202611170003";
 
 /** Encaminha exportações e downloads de relatórios sem ampliar o roteador da aplicação. */
 export function criarTratadorAcoesRelatorios({

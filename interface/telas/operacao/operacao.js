@@ -1,9 +1,9 @@
 import { button, esc } from "../../js/funcoes/html.js";
-import { numero } from "../../js/funcoes/formato.js?v=202611170002";
-import { rotuloComando, rotuloEstado } from "../../js/funcoes/rotulos.js?v=202611170002";
-import { resolverComandoAtual } from "../../js/funcoes/estado-comando.js?v=202611170002";
-import { pageHeader } from "../../js/funcoes/view.js?v=202611170002";
-import { motivoBloqueioFinalizacao, podeFinalizarCarregamento } from "../../js/funcoes/regras-carregamento.js?v=202611170002";
+import { numero } from "../../js/funcoes/formato.js?v=202611170003";
+import { rotuloComando, rotuloEstado } from "../../js/funcoes/rotulos.js?v=202611170003";
+import { resolverComandoAtual } from "../../js/funcoes/estado-comando.js?v=202611170003";
+import { pageHeader } from "../../js/funcoes/view.js?v=202611170003";
+import { motivoBloqueioFinalizacao, podeFinalizarCarregamento } from "../../js/funcoes/regras-carregamento.js?v=202611170003";
 
 function equipmentLabel(store) {
   if (store.state.equipmentCode && store.state.equipmentCode !== "—") {
@@ -67,12 +67,6 @@ export function paradaPodeSerEnfileiradaAposInicio({ state, pendingStatus, pendi
   ) && ["PENDENTE", "PROCESSANDO"].includes(
     String(pendingStatus || "").toUpperCase(),
   ) && String(pendingCommand || "").toUpperCase() === "INICIAR_CARREGAMENTO";
-}
-
-export function podeLiberarEmergencia({ role, loadingId }) {
-  return Boolean(loadingId) && ["ADMIN_EMPRESA", "SUPERVISOR", "USUARIO"].includes(
-    String(role || "").toUpperCase(),
-  );
 }
 
 function estadoControles(state) {
@@ -283,12 +277,6 @@ function workControls(store) {
       } : {}),
     };
   };
-  // A emergência continua disponível para registrar a intenção; o gateway
-  // valida a comunicação e a autorização antes de qualquer escrita física.
-  const atributosEmergencia = atributosAcao(
-    store.state.loadingId ? "" : "Nenhum carregamento selecionado",
-    false,
-  );
   const estadoOperacional = controlState.operationalState;
   const esteiraEmMovimentoOuIniciando = controlState.stopAvailable;
   const estadoReversaoConhecido = controlState.reversalKnown;
@@ -342,19 +330,7 @@ function workControls(store) {
   const scannerMonitor = store.state.loadingId
     ? `<div class="work-reader-monitor"><div class="work-reader-monitor-heading"><span class="kicker">Visor do leitor</span><small>Último código recebido automaticamente do leitor.</small></div><div class="work-scanner-display"><span class="work-scanner-display-label">Código de barras</span><output id="automatic-scanner-barcode" class="work-scanner-display-value${scannerValueClass}" data-live="scanner-value" role="status" aria-live="polite" aria-atomic="true">${esc(scannerValue)}</output></div></div>`
     : "";
-  const controls = `<div class="work-controls"><div class="work-routine-controls">${button("Ligar esteira", "run", "primary", atributosLigarEsteira)}${button(rotuloPararEsteira, "stop", "ghost", atributosPararEsteira)}${button("Ligar reversão", "reverse-on", "secondary", atributosLigarReversao)}${button("Desligar reversão", "reverse-off", "secondary", atributosDesligarReversao)}</div><div class="work-emergency-zone">${button("EMERGÊNCIA", "emergency", "danger", atributosEmergencia)}</div></div>`;
-  // Quando o carregamento entra em emergência, o painel de liberação precisa
-  // aparecer na própria tela de operação — sem forçar o operador a navegar
-  // para a página separada /emergencia.html. O botão de desbloqueio fica
-  // desabilitado enquanto já houver uma solicitação DESBLOQUEAR_MAQUINA
-  // pendente ou em processamento pelo gateway.
-  const pendingUnlock = currentCommandPending && pendingCommand === "DESBLOQUEAR_MAQUINA";
-  const unlockButtonAttributes = pendingUnlock
-    ? { disabled: true, "aria-disabled": "true", title: "Aguardando confirmação do gateway para o desbloqueio." }
-    : "";
-  const emergencySection = estadoOperacional === "EMERGENCIA"
-    ? `<dialog id="work-stop-dialog" class="work-stop-dialog" role="alertdialog" aria-modal="true" aria-labelledby="work-emergency-title" aria-describedby="work-emergency-message"><section class="work-stop-confirmation"><span class="kicker">Emergência</span><h2 id="work-emergency-title">Operação bloqueada</h2><p id="work-emergency-message" class="work-stop-confirmation-alert">${pendingUnlock ? "Liberação solicitada. Aguarde o retorno do CLP." : "Partida e reversão bloqueadas. Confira a parada e a condição segura da máquina antes de liberar."}</p><p>A liberação não liga a esteira. Para retomar, será necessário acionar Ligar esteira.</p>${store.state.commandFeedback ? `<p class="work-selection-error" role="alert">${esc(store.state.commandFeedback)}</p>` : ""}<div class="work-stop-emergency-action">${podeLiberarEmergencia({ role: store.state.userRole, loadingId: store.state.loadingId }) ? button("Solicitar liberação da emergência", "unlock", "secondary", unlockButtonAttributes) : "<p>Solicite a liberação a um usuário autorizado.</p>"}</div></section></dialog>`
-    : "";
+  const controls = `<div class="work-controls"><div class="work-routine-controls">${button("Ligar esteira", "run", "primary", atributosLigarEsteira)}${button(rotuloPararEsteira, "stop", "ghost", atributosPararEsteira)}${button("Ligar reversão", "reverse-on", "secondary", atributosLigarReversao)}${button("Desligar reversão", "reverse-off", "secondary", atributosDesligarReversao)}</div></div>`;
   const finishReady = podeFinalizarCarregamento(store.state);
   const targetReached = plannedTotal > 0 && detectedBags >= plannedTotal;
   const finishBlockReason = motivoBloqueioFinalizacao(store.state);
@@ -374,11 +350,7 @@ function workControls(store) {
         },
   )}</div>`;
   const stopCommand = pendingCommand === "PAUSAR_CARREGAMENTO" ? currentCommand : null;
-  const stopConfirmationMessage = store.state.emergency
-    ? pendingCommand === "DESBLOQUEAR_MAQUINA" && currentCommandPending
-      ? "A solicitação de liberação da emergência está aguardando o gateway. A confirmação fica disponível quando o carregamento voltar a pausado."
-      : "A emergência está ativa. Solicite a liberação abaixo; a operação continuará pausada até a confirmação da unidade removida."
-    : store.state.stopReason === "COTA_PRODUTO_ATINGIDA"
+  const stopConfirmationMessage = store.state.stopReason === "COTA_PRODUTO_ATINGIDA"
       ? "A cota deste produto foi atingida. Aguarde a confirmação da parada física antes de continuar com outro produto."
     : store.state.stopReason === "COTA_ROMANEIO_ATINGIDA"
       ? "A quantidade do romaneio foi atingida. Confirme a parada física para finalizar; leituras e fotos serão conferidas no relatório."
@@ -389,11 +361,6 @@ function workControls(store) {
       : pendingStatus === "APLICADO"
         ? "O gateway confirmou o comando de parada. Verifique a máquina e retire a unidade antes de liberar a retomada."
         : `O gateway não confirmou a parada: ${currentCommand.response_message || "estado físico não confirmado."} Verifique a máquina antes de liberar a retomada.`;
-  const stopEmergencyAction = store.state.emergency
-    ? podeLiberarEmergencia({ role: store.state.userRole, loadingId: store.state.loadingId })
-      ? button("Solicitar liberação da emergência", "unlock", "secondary", unlockButtonAttributes)
-      : '<p>Solicite ao supervisor ou administrador a liberação da emergência.</p>'
-    : button("Acionar emergência", "emergency", "danger");
   const stopReasonIsProductQuota = store.state.stopReason === "COTA_PRODUTO_ATINGIDA";
   const stopReasonIsManifestQuota = store.state.stopReason === "COTA_ROMANEIO_ATINGIDA";
   const stopConfirmationLabel = stopReasonIsManifestQuota
@@ -415,12 +382,12 @@ function workControls(store) {
     : "Confirmar remoção e liberar retomada";
   const quotaStopReason = ["COTA_ROMANEIO_ATINGIDA", "EXCESSO"].includes(store.state.stopReason);
   const stopConfirmation = store.state.stopReason && !store.state.emergency && !quotaStopReason && !finishReady
-    ? `<dialog id="work-stop-dialog" class="work-stop-dialog" role="alertdialog" aria-modal="true" aria-labelledby="work-stop-confirmation-title" aria-describedby="work-stop-confirmation-alert work-stop-confirmation-status"><section class="work-stop-confirmation"><span class="kicker">${stopConfirmationLabel}</span><h2 id="work-stop-confirmation-title">Atenção: operação pausada</h2><p id="work-stop-confirmation-alert" class="work-stop-confirmation-alert">${esc(store.state.operatorAlert || "Confirme a parada física antes de continuar.")}</p><p id="work-stop-confirmation-status">${esc(stopConfirmationMessage)}</p><form class="confirm-stop-removal-form"><label><input type="checkbox" name="confirmar_remocao" value="true" required${store.state.stopRemovalAcknowledged === true ? " checked" : ""} autofocus /><span>${stopConfirmationCheckLabel}</span></label><button class="button primary" type="submit">${stopConfirmationButtonLabel}</button><p class="form-feedback" data-form-feedback role="status" aria-live="polite" hidden></p></form><div class="work-stop-emergency-action">${stopEmergencyAction}</div></section></dialog>`
+    ? `<dialog id="work-stop-dialog" class="work-stop-dialog" role="alertdialog" aria-modal="true" aria-labelledby="work-stop-confirmation-title" aria-describedby="work-stop-confirmation-alert work-stop-confirmation-status"><section class="work-stop-confirmation"><span class="kicker">${stopConfirmationLabel}</span><h2 id="work-stop-confirmation-title">Atenção: operação pausada</h2><p id="work-stop-confirmation-alert" class="work-stop-confirmation-alert">${esc(store.state.operatorAlert || "Confirme a parada física antes de continuar.")}</p><p id="work-stop-confirmation-status">${esc(stopConfirmationMessage)}</p><form class="confirm-stop-removal-form"><label><input type="checkbox" name="confirmar_remocao" value="true" required${store.state.stopRemovalAcknowledged === true ? " checked" : ""} autofocus /><span>${stopConfirmationCheckLabel}</span></label><button class="button primary" type="submit">${stopConfirmationButtonLabel}</button><p class="form-feedback" data-form-feedback role="status" aria-live="polite" hidden></p></form></section></dialog>`
     : "";
   const badge = ["PENDENTE", "PROCESSANDO"].includes(pendingStatus) && pendingCommand
       ? `<span class="badge blue">${esc(rotuloComando(pendingCommand))} · aguardando CLP</span>`
       : store.state.operationalState === "EMERGENCIA"
-      ? '<span class="badge red">Emergência solicitada · operação bloqueada</span>'
+      ? '<span class="badge red">Registro anterior · operação interrompida</span>'
       : `<span class="badge yellow">${esc(rotuloEstado(store.state.operationalState))}</span>`;
   const itemCountLabel = `${numero(loadingItems.length)} ${loadingItems.length === 1 ? "item" : "itens"}`;
   const itemProgress = `<section class="panel work-items-panel"><div class="panel-heading"><div><h3>Itens do romaneio</h3></div><div class="work-items-summary"><small>${itemCountLabel}</small></div></div><div class="work-item-progress-list">${loadingItems.length ? loadingItems.map((item) => {
@@ -486,7 +453,7 @@ function workControls(store) {
   const commandFeedback = store.state.commandFeedback
     ? `<p class="work-selection-error" role="alert" aria-live="assertive">${esc(store.state.commandFeedback)}</p>`
     : "";
-  const machinePanel = `<section class="panel work-machine-panel">${panelHeading}${commandFeedback}<div class="work-machine-controls">${emergencySection}${stopConfirmation}${controls}</div></section>`;
+  const machinePanel = `<section class="panel work-machine-panel">${panelHeading}${commandFeedback}<div class="work-machine-controls">${stopConfirmation}${controls}</div></section>`;
   const statusColumn = `<section class="work-status-column">${totalSummary}${itemProgress}</section>`;
   const workHeader = `<header class="work-screen-header">${loadingPicker}<div class="work-screen-heading"><h2>${esc(workTitle)}</h2><p>Dala ${esc(equipmentLabel(store))} · Caminhão ${esc(store.state.truck || "—")} <span class="work-header-state">${badge}</span></p></div>${finishAction}</header>`;
   return `<div class="work-operation-screen">${workHeader}<div class="work-operation-layout">${statusColumn}${machinePanel}</div></div>`;

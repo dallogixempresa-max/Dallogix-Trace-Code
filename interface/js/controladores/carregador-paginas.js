@@ -37,7 +37,6 @@ export function criarCarregadorPaginas({
     occurrences: () => [store.loadOccurrences(), store.loadActiveLoading()],
     products: () => [store.loadProducts()],
     alerts: () => [store.loadAlertMonitoring(), store.loadSyncStatus()],
-    emergency: () => [store.loadActiveLoading(), store.loadDeviceStatuses()],
     settings: () => [
       store.loadConfiguration(),
       store.loadDeviceStatuses(),

@@ -85,7 +85,7 @@ test("em movimento habilita somente parar, em sentido normal ou reverso", () => 
   }
 });
 
-test("início pendente habilita somente parar e emergência", () => {
+test("início pendente habilita somente parar", () => {
   const markup = render({
     operationalState: "PREPARANDO",
     plcCommand: { command: "INICIAR_CARREGAMENTO", status: "PENDENTE" },
@@ -95,7 +95,7 @@ test("início pendente habilita somente parar e emergência", () => {
 
   assertTodosVisiveis(markup);
   assert.deepEqual(habilitadas(markup), ["stop"]);
-  assert.match(markup, /data-action="emergency"(?![^>]*\sdisabled)/);
+  assert.doesNotMatch(markup, /data-action="emergency"/);
 });
 
 test("FINALIZANDO mantém somente a parada habilitada", () => {
@@ -221,7 +221,7 @@ test("FINALIZADO bloqueia a partida e preserva o motivo", () => {
   assert.match(run, /data-block-reason="Este carregamento já foi finalizado\./);
 });
 
-test("em emergência a partida mostra aviso e o botão de emergência segue habilitado", () => {
+test("registro histórico interrompido não oferece comando de emergência", () => {
   const markup = render({ operationalState: "EMERGENCIA", emergency: true });
 
   assertTodosVisiveis(markup);
@@ -229,10 +229,10 @@ test("em emergência a partida mostra aviso e o botão de emergência segue habi
   const run = botao(markup, "run");
   assert.match(run, /data-action-notice=/);
   assert.doesNotMatch(run, /data-block-reason=/);
-  assert.match(markup, /data-action="emergency"(?![^>]*\sdisabled)/);
+  assert.doesNotMatch(markup, /data-action="emergency"/);
 });
 
-test("botão de emergência continua habilitado sem carregamento selecionado", () => {
+test("sem carregamento não oferece comando de emergência", () => {
   const markup = render({
     selectedLoadingId: null,
     activeLoadings: [],
@@ -242,13 +242,11 @@ test("botão de emergência continua habilitado sem carregamento selecionado", (
 
   assertTodosVisiveis(markup);
   assert.deepEqual(habilitadas(markup), []);
-  assert.match(markup, /data-action="emergency"(?![^>]*\sdisabled)/);
-  assert.match(markup, /title="Nenhum carregamento selecionado"/);
-  assert.match(botao(markup, "emergency"), /data-action-notice="Nenhum carregamento selecionado"/);
-  assert.doesNotMatch(botao(markup, "emergency"), /data-block-reason=/);
+  assert.doesNotMatch(markup, /data-action="emergency"/);
+  assert.match(botao(markup, "run"), /data-block-reason="Nenhum carregamento selecionado\."/);
 });
 
-test("CLP indisponível bloqueia comandos normais e mantém emergência habilitada", () => {
+test("CLP indisponível bloqueia comandos normais e não oferece emergência", () => {
   const markup = render({}, {
     clpDisponivel: () => false,
     mensagemClpIndisponivel: () => "CLP indisponível para novos comandos.",
@@ -256,13 +254,13 @@ test("CLP indisponível bloqueia comandos normais e mantém emergência habilita
 
   assertTodosVisiveis(markup);
   assert.deepEqual(habilitadas(markup), []);
-  assert.match(markup, /data-action="emergency"(?![^>]*\sdisabled)/);
+  assert.doesNotMatch(markup, /data-action="emergency"/);
   assert.match(botao(markup, "run"), /CLP indisponível para novos comandos\./);
   assert.match(botao(markup, "run"), /data-block-reason=/);
   assert.doesNotMatch(botao(markup, "run"), /data-action-notice=/);
 });
 
-test("gateway sem liberação bloqueia comandos normais e mantém emergência habilitada", () => {
+test("gateway sem liberação bloqueia comandos normais e não oferece emergência", () => {
   const markup = render({}, {
     clpDisponivel: () => true,
     comandosMaquinaDisponiveis: () => false,
@@ -271,7 +269,7 @@ test("gateway sem liberação bloqueia comandos normais e mantém emergência ha
 
   assertTodosVisiveis(markup);
   assert.deepEqual(habilitadas(markup), []);
-  assert.match(markup, /data-action="emergency"(?![^>]*\sdisabled)/);
+  assert.doesNotMatch(markup, /data-action="emergency"/);
   assert.match(botao(markup, "run"), /Gateway sem liberação dos comandos\./);
   assert.match(botao(markup, "run"), /data-block-reason=/);
   assert.doesNotMatch(botao(markup, "run"), /data-action-notice=/);

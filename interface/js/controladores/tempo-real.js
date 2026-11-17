@@ -1,4 +1,4 @@
-import { logFrontend } from "../utilitarios/LogFrontend.js?v=202611170002";
+import { logFrontend } from "../utilitarios/LogFrontend.js?v=202611170003";
 
 /** Compartilha SSE e polling rápido entre Operação e Emergência. */
 export function createOperationalRealtimeController({
@@ -24,7 +24,7 @@ export function createOperationalRealtimeController({
   let lastSuccessAt = Date.now();
   let lastError = "";
 
-  const isRealtimePage = () => ["work", "emergency"].includes(getPage());
+  const isRealtimePage = () => getPage() === "work";
   const isCurrent = (token) => token === generation && isRealtimePage();
   const recordSuccess = () => {
     consecutiveFailures = 0;

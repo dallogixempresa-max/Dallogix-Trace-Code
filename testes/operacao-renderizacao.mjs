@@ -1,12 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { work, podeLiberarEmergencia } from "../interface/telas/operacao/operacao.js";
-
-test("operador pode solicitar liberação apenas com carregamento selecionado", () => {
-  assert.equal(podeLiberarEmergencia({ role: "USUARIO", loadingId: 1 }), true);
-  assert.equal(podeLiberarEmergencia({ role: "USUARIO", loadingId: null }), false);
-  assert.equal(podeLiberarEmergencia({ role: "", loadingId: 1 }), false);
-});
+import { work } from "../interface/telas/operacao/operacao.js";
 
 test("renderiza a operação quando há pedido pendente de liberação de emergência", () => {
   const html = work({
@@ -33,24 +27,20 @@ test("renderiza a operação quando há pedido pendente de liberação de emerg�
   });
 
   assert.match(html, /work-operation-screen/);
-  assert.match(html, /Aguardando confirmação do gateway para o desbloqueio/);
-  assert.match(html, /<dialog id="work-stop-dialog" class="work-stop-dialog"/);
-  assert.match(html, /Liberação solicitada\. Aguarde o retorno do CLP\./);
+  assert.doesNotMatch(html, /data-action="(?:unlock|emergency)"/);
+  assert.doesNotMatch(html, /work-emergency-title/);
+  assert.doesNotMatch(html, /Liberação solicitada/);
   assert.doesNotMatch(html, /class="emergency emergency-compact"/);
 });
 
-test("aviso de emergência permite liberação pelo operador e mostra falha dentro do diálogo", () => {
+test("registros antigos não reativam comandos de emergência no Trace", () => {
   const html = work({ state: {
     selectedLoadingId: 1, loadingId: 1, activeLoadings: [], loadingItems: [],
     operationalState: "EMERGENCIA", emergency: true, userRole: "USUARIO",
     equipmentId: 1, planned: 4, detectedBags: 0, loaded: 0,
-    commandFeedback: "Falha <CLP>",
   } });
-  const dialog = html.match(/<dialog[\s\S]*?<\/dialog>/)?.[0] || "";
-  assert.match(dialog, /data-action="unlock"/);
-  assert.match(dialog, /Falha &lt;CLP&gt;/);
-  assert.match(dialog, /A liberação não liga a esteira/);
-  assert.doesNotMatch(dialog, /confirm-stop-removal-form/);
+  assert.doesNotMatch(html, /data-action="(?:unlock|emergency)"/);
+  assert.doesNotMatch(html, /work-emergency-title/);
 });
 
 test("renderiza a finalização após a pausa confirmada na cota sem erro de inicialização", () => {
