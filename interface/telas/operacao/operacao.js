@@ -1,9 +1,9 @@
 import { button, esc } from "../../js/funcoes/html.js";
-import { numero } from "../../js/funcoes/formato.js?v=202611170001";
-import { rotuloComando, rotuloEstado } from "../../js/funcoes/rotulos.js?v=202611170001";
-import { resolverComandoAtual } from "../../js/funcoes/estado-comando.js?v=202611170001";
-import { emergencyPanel, pageHeader } from "../../js/funcoes/view.js?v=202611170001";
-import { motivoBloqueioFinalizacao, podeFinalizarCarregamento } from "../../js/funcoes/regras-carregamento.js?v=202611170001";
+import { numero } from "../../js/funcoes/formato.js?v=202611170002";
+import { rotuloComando, rotuloEstado } from "../../js/funcoes/rotulos.js?v=202611170002";
+import { resolverComandoAtual } from "../../js/funcoes/estado-comando.js?v=202611170002";
+import { pageHeader } from "../../js/funcoes/view.js?v=202611170002";
+import { motivoBloqueioFinalizacao, podeFinalizarCarregamento } from "../../js/funcoes/regras-carregamento.js?v=202611170002";
 
 function equipmentLabel(store) {
   if (store.state.equipmentCode && store.state.equipmentCode !== "—") {
@@ -353,16 +353,7 @@ function workControls(store) {
     ? { disabled: true, "aria-disabled": "true", title: "Aguardando confirmação do gateway para o desbloqueio." }
     : "";
   const emergencySection = estadoOperacional === "EMERGENCIA"
-    ? emergencyPanel({
-        loading: store.state.romaneio && store.state.romaneio !== "—"
-          ? `Romaneio #${esc(store.state.romaneio)} · caminhão ${esc(store.state.truck || "—")}`
-          : "Carregamento em emergência.",
-        canUnlock: podeLiberarEmergencia({ role: store.state.userRole, loadingId: store.state.loadingId }),
-        buttonAttributes: unlockButtonAttributes,
-        commandStatus: store.state.plcCommand,
-        compact: true,
-        showStartButton: false,
-      })
+    ? `<dialog id="work-stop-dialog" class="work-stop-dialog" role="alertdialog" aria-modal="true" aria-labelledby="work-emergency-title" aria-describedby="work-emergency-message"><section class="work-stop-confirmation"><span class="kicker">Emergência</span><h2 id="work-emergency-title">Operação bloqueada</h2><p id="work-emergency-message" class="work-stop-confirmation-alert">${pendingUnlock ? "Liberação solicitada. Aguarde o retorno do CLP." : "Partida e reversão bloqueadas. Confira a parada e a condição segura da máquina antes de liberar."}</p><p>A liberação não liga a esteira. Para retomar, será necessário acionar Ligar esteira.</p>${store.state.commandFeedback ? `<p class="work-selection-error" role="alert">${esc(store.state.commandFeedback)}</p>` : ""}<div class="work-stop-emergency-action">${podeLiberarEmergencia({ role: store.state.userRole, loadingId: store.state.loadingId }) ? button("Solicitar liberação da emergência", "unlock", "secondary", unlockButtonAttributes) : "<p>Solicite a liberação a um usuário autorizado.</p>"}</div></section></dialog>`
     : "";
   const finishReady = podeFinalizarCarregamento(store.state);
   const targetReached = plannedTotal > 0 && detectedBags >= plannedTotal;

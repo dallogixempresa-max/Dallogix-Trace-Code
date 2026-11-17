@@ -1,5 +1,5 @@
-const CACHE_NAME = "trace-shell-20261117-emergency-01";
-const APPLICATION_ASSET_VERSION = "202611170001";
+const CACHE_NAME = "trace-shell-20261117-emergency-02";
+const APPLICATION_ASSET_VERSION = "202611170002";
 const PRECACHE_CONCURRENCY = 4;
 const SHELL = [
   "/",
