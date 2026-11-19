@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { link, mkdir, readFile, readdir, rename, stat, unlink, writeFile } from "node:fs/promises";
+import { link, lstat, mkdir, readFile, readdir, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -57,6 +57,36 @@ function isJpeg(bytes) {
     && bytes.length <= MAX_IMAGE_BYTES
     && bytes[0] === 0xff && bytes[1] === 0xd8
     && bytes[bytes.length - 2] === 0xff && bytes[bytes.length - 1] === 0xd9;
+}
+
+/** Consulta os originais para uma recuperação, sem alimentar a fila ao vivo. */
+export async function scanArchiveForRecovery(sourceDirectory, onCandidate) {
+  let files;
+  try {
+    files = await listJpegFiles(sourceDirectory);
+  } catch (error) {
+    if (error.code === "ENOENT") return false;
+    throw error;
+  }
+  for (const source of files) {
+    try {
+      const file = await lstat(source.path);
+      if (!file.isFile() || file.size < 100 || file.size > MAX_IMAGE_BYTES) continue;
+      await onCandidate({ ...source, capturedAt: Math.round(file.mtimeMs) });
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+  }
+  return true;
+}
+
+export async function readRecoveryImage({ path, capturedAt }) {
+  const before = await lstat(path);
+  if (!before.isFile() || before.size > MAX_IMAGE_BYTES || Math.round(before.mtimeMs) !== capturedAt) return null;
+  const bytes = await readFile(path);
+  const after = await lstat(path);
+  return after.isFile() && before.ino === after.ino && before.mtimeMs === after.mtimeMs
+    && before.size === after.size && bytes.length === after.size && isJpeg(bytes) ? bytes : null;
 }
 
 /**

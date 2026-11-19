@@ -6,6 +6,7 @@ define("TRACE_SKIP_SESSION", true);
 require_once __DIR__ . "/../configuracao/bootstrap.php";
 require_once __DIR__ . "/../../scripts/image_storage_path.php";
 require_once __DIR__ . "/operacoes/temporizacao_leitor.php";
+require_once __DIR__ . "/operacoes/janela_foto_keyence.php";
 
 exigir_metodo_http(["POST"]);
 $device = require_device_token(["SCANNER"]);
@@ -13,6 +14,53 @@ $isMultipart = str_starts_with(strtolower((string) ($_SERVER["CONTENT_TYPE"] ?? 
 $payload = $isMultipart ? $_POST : request_json();
 $action = strtoupper(trim((string) ($payload["action"] ?? "")));
 $pdo = db();
+
+if ($action === "ARCHIVE_RECOVERY_TASKS") {
+    $pending = $pdo->prepare(
+        "SELECT r.id, r.sensor_event_id, c.id AS carregamento_id
+         FROM solicitacoes_imagens_evidencia r
+         JOIN carregamentos c ON c.id = r.carregamento_id AND c.equipment_id = r.equipment_id
+         JOIN romaneios rm ON rm.id = c.romaneio_id AND rm.company_id = c.company_id
+         WHERE r.equipment_id = ? AND c.company_id = ? AND r.reason = 'SEM_LEITURA'
+           AND r.status IN ('PENDENTE', 'ERRO') AND r.archive_checked_at IS NULL
+           AND c.state = 'FINALIZADO' AND c.finished_at < DATE_SUB(NOW(3), INTERVAL 2 SECOND)
+           AND rm.status = 'FINALIZADO'
+         ORDER BY r.id DESC LIMIT 25",
+    );
+    $pending->execute([(int) $device["equipment_id"], (int) $device["company_id"]]);
+    $windows = [];
+    $tasks = [];
+    foreach ($pending->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $loadingId = (int) $row["carregamento_id"];
+        $windows[$loadingId] ??= trace_janelas_recuperacao_keyence($pdo, $device, $loadingId);
+        $eventId = (int) $row["sensor_event_id"];
+        $tasks[] = [
+            "id" => (int) $row["id"],
+            "sensor_event_id" => $eventId,
+            "window" => $windows[$loadingId][$eventId] ?? null,
+        ];
+    }
+    json_response(["data" => $tasks]);
+}
+
+if ($action === "ARCHIVE_RECOVERY_CHECKED") {
+    $ids = $payload["request_ids"] ?? null;
+    if (!is_array($ids) || !array_is_list($ids) || $ids === [] || count($ids) > 25
+        || array_filter($ids, static fn($id): bool => !is_int($id) || $id < 1) !== []) {
+        json_response(["error" => "Informe as solicitações de evidência conferidas."], 422);
+    }
+    $placeholders = implode(",", array_fill(0, count($ids), "?"));
+    $checked = $pdo->prepare(
+        "UPDATE solicitacoes_imagens_evidencia r
+         JOIN carregamentos c ON c.id = r.carregamento_id AND c.equipment_id = r.equipment_id
+         JOIN romaneios rm ON rm.id = c.romaneio_id AND rm.company_id = c.company_id
+         SET r.archive_checked_at = NOW(3)
+         WHERE r.equipment_id = ? AND c.company_id = ? AND c.state = 'FINALIZADO' AND rm.status = 'FINALIZADO'
+           AND r.reason = 'SEM_LEITURA' AND r.archive_checked_at IS NULL AND r.id IN ({$placeholders})",
+    );
+    $checked->execute([(int) $device["equipment_id"], (int) $device["company_id"], ...$ids]);
+    json_response(["data" => ["checked" => $checked->rowCount()]]);
+}
 
 if ($action === "STATUS") {
     try {
@@ -104,7 +152,8 @@ if ($action === "PENDING_IMAGES") {
     ]);
 }
 
-if ($action !== "UPLOAD_IMAGE") {
+$archiveRecovery = $action === "ARCHIVE_RECOVERY_UPLOAD";
+if ($action !== "UPLOAD_IMAGE" && !$archiveRecovery) {
     json_response(["error" => "Ação Keyence inválida."], 422);
 }
 
@@ -174,6 +223,38 @@ try {
     if (!$capture || !in_array($capture["reason"], ["SEM_LEITURA", "PRODUTO_INCORRETO", "EXCESSO"], true)) {
         $pdo->rollBack();
         json_response(["error" => "Solicitação de evidência não encontrada para esta Dala."], 404);
+    }
+    if ($archiveRecovery) {
+        $windows = trace_janelas_recuperacao_keyence($pdo, $device, (int) $capture["carregamento_id"]);
+        $window = $windows[(int) $capture["sensor_event_id"]] ?? null;
+        if ($capture["reason"] !== "SEM_LEITURA" || $window === null || $capturedAtEpochMs === null
+            || $capturedAtEpochMs < $window["from_ms"] || $capturedAtEpochMs >= $window["until_ms"]) {
+            $pdo->rollBack();
+            json_response(["error" => "A foto não está no intervalo desta falha em romaneio encerrado."], 409);
+        }
+        if ($capture["status"] === "CAPTURADA") {
+            $pdo->commit();
+            json_response(["data" => ["request_id" => (int) $requestId, "duplicate" => true]]);
+        }
+        $existing = $pdo->prepare(
+            "SELECT 1 FROM imagens i
+             LEFT JOIN leituras l ON l.id = i.reading_id AND l.carregamento_id = i.carregamento_id
+             WHERE i.company_id = ? AND i.equipment_id = ? AND (
+                 (i.carregamento_id = ? AND i.reason = 'SEM_LEITURA'
+                  AND (l.sensor_event_id = ? OR i.path LIKE CONCAT('%keyence-', ?, '-%')))
+                 OR (i.path LIKE CONCAT('%-', ?, '.jpg')
+                     AND (i.carregamento_id = ? OR i.captured_at = FROM_UNIXTIME(? / 1000.0)))
+             ) LIMIT 1",
+        );
+        $existing->execute([
+            (int) $capture["company_id"], (int) $capture["equipment_id"], (int) $capture["carregamento_id"],
+            (int) $capture["sensor_event_id"], (int) $requestId, $sha256,
+            (int) $capture["carregamento_id"], $capturedAtEpochMs,
+        ]);
+        if ($existing->fetchColumn() !== false) {
+            $pdo->commit();
+            json_response(["data" => ["request_id" => (int) $requestId, "duplicate" => true]]);
+        }
     }
     $additionalCapture = $capture["status"] === "CAPTURADA";
     if (!$additionalCapture && !in_array($capture["status"], ["PENDENTE", "ERRO"], true)) {
@@ -313,6 +394,7 @@ try {
             "source" => "KEYENCE_SR_X100W",
             "reason" => (string) $capture["reason"],
             ...($sourceFileName !== "" ? ["source_file_name" => $sourceFileName] : []),
+            ...($archiveRecovery ? ["archive_recovery" => true] : []),
             "sha256" => $sha256,
             "bytes" => $bytes,
             ...($capturedAtEpochMs !== null ? ["captured_at_epoch_ms" => $capturedAtEpochMs] : []),
