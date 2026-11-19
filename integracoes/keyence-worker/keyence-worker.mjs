@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { createFtpReceiver } from "./ftp-receiver.mjs";
 import { isAllowedSourceAddress, isKeyenceNoReadFrame, loadPendingImagePages, matchUniquePendingImage, nextUnreservedSensorEventId, parseBarcodeFrame, parseLinuxDefaultGateway, scanEventId, sha256 } from "./keyence-core.mjs";
-import { importArchivedImages } from "./image-archive.mjs";
+import { importArchivedImages, readRecoveryImage, scanArchiveForRecovery } from "./image-archive.mjs";
 
 const SERVICE_NAME = "keyence-worker";
 const boundedInteger = (rawValue, fallback, minimum, maximum) => {
@@ -45,6 +45,7 @@ const IMAGE_ARCHIVE_MATCH_WINDOW_MS = boundedInteger(process.env.KEYENCE_IMAGE_A
 const IMAGE_SETTLE_MS = boundedInteger(process.env.KEYENCE_IMAGE_SETTLE_MS, 800, 0, 10000);
 const IMAGE_PROCESS_POLL_MS = 1000;
 const IMAGE_ARCHIVE_POLL_MS = boundedInteger(process.env.KEYENCE_IMAGE_ARCHIVE_POLL_MS, 2000, 500, 10000);
+const ARCHIVE_RECOVERY_ENABLED = process.env.KEYENCE_ARCHIVE_RECOVERY_ENABLED === "1";
 const IMAGE_MAX_AGE_MS = boundedInteger(process.env.KEYENCE_IMAGE_MAX_AGE_MS, 300000, 30000, 86400000);
 const POLL_MS = boundedInteger(process.env.KEYENCE_POLL_MS, 500, 100, 5000);
 const HEARTBEAT_MS = boundedInteger(process.env.KEYENCE_HEARTBEAT_MS, 5000, 1000, 60000);
@@ -329,6 +330,97 @@ async function uploadImage(file, request, capturedAtEpochMs) {
     captured_at_epoch_ms: Math.round(capturedAtEpochMs),
     duplicate: Boolean(result.data.duplicate),
   });
+}
+
+let recoveringArchive = false;
+let lastArchiveRecoveryAt = 0;
+
+async function recoverFinalizedArchive() {
+  const now = Date.now();
+  if (!ARCHIVE_RECOVERY_ENABLED || recoveringArchive || processingImages || shuttingDown || IMAGE_ARCHIVE_DIRS.length === 0
+    || now - lastArchiveRecoveryAt < 10000) return;
+  recoveringArchive = true;
+  lastArchiveRecoveryAt = now;
+  try {
+    const result = await apiRequest("/api/keyence_worker.php", {
+      jsonBody: { action: "ARCHIVE_RECOVERY_TASKS" },
+    });
+    if (!Array.isArray(result?.data)) throw new Error("Lista de recuperação do Keyence inválida.");
+    const tasks = result.data;
+    if (tasks.length === 0) return;
+
+    const candidates = new Map();
+    const ambiguous = new Set();
+    const retry = new Set();
+    let available = false;
+    for (const directory of IMAGE_ARCHIVE_DIRS) {
+      available = await scanArchiveForRecovery(directory, async (file) => {
+        const owners = tasks.filter(({ window }) => window
+          && file.capturedAt >= window.from_ms && file.capturedAt < window.until_ms);
+        if (owners.length === 0) return;
+        const stable = now - file.capturedAt >= IMAGE_SETTLE_MS;
+        if (!stable) {
+          for (const owner of owners) retry.add(owner.id);
+          return;
+        }
+        const bytes = await readRecoveryImage(file);
+        if (!bytes) return;
+        if (owners.length > 1) {
+          for (const owner of owners) ambiguous.add(owner.id);
+          return;
+        }
+        const id = owners[0].id;
+        const hash = sha256(bytes);
+        const existing = candidates.get(id);
+        if (existing && existing.hash !== hash) ambiguous.add(id);
+        else if (!existing) candidates.set(id, { ...file, hash });
+      }) || available;
+    }
+    if (!available) return;
+
+    const checked = [];
+    for (const task of tasks) {
+      if (retry.has(task.id)) continue;
+      const file = candidates.get(task.id);
+      if (file && !ambiguous.has(task.id)) {
+        try {
+          const bytes = await readRecoveryImage(file);
+          if (!bytes || sha256(bytes) !== file.hash) continue;
+          const form = new FormData();
+          form.append("action", "ARCHIVE_RECOVERY_UPLOAD");
+          form.append("request_id", String(task.id));
+          form.append("captured_at_epoch_ms", String(file.capturedAt));
+          const sourceName = file.relativePath.split("/").at(-1).replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 120);
+          form.append("source_file_name", sourceName);
+          form.append("file", new Blob([bytes], { type: "image/jpeg" }), "keyence-evidence.jpg");
+          const upload = await apiRequest("/api/keyence_worker.php", { formBody: form, timeoutMs: 20000 });
+          if (upload?.data?.request_id !== task.id) throw new Error("Trace não confirmou a foto recuperada.");
+          log("info", "Evidência do romaneio conferida no arquivo do Keyence.", {
+            request_id: task.id, sensor_event_id: task.sensor_event_id, source_file_name: sourceName,
+            duplicate: Boolean(upload.data.duplicate),
+          });
+        } catch (error) {
+          log("warn", "Falha ao enviar uma foto recuperada do Keyence.", { request_id: task.id, reason: error.message });
+          continue;
+        }
+      } else {
+        log("info", "Busca encerrada sem foto atribuível à passagem.", {
+          request_id: task.id, sensor_event_id: task.sensor_event_id,
+          reason: !task.window ? "intervalo_indisponivel" : ambiguous.has(task.id) ? "foto_ambigua" : "arquivo_nao_encontrado",
+        });
+      }
+      checked.push(task.id);
+    }
+    if (checked.length > 0) {
+      await apiRequest("/api/keyence_worker.php", {
+        jsonBody: { action: "ARCHIVE_RECOVERY_CHECKED", request_ids: checked },
+      });
+    }
+  } catch (error) {
+    log("warn", "Não foi possível conferir o arquivo Keyence dos romaneios encerrados.", { reason: error.message });
+  } finally {
+    recoveringArchive = false;
+  }
 }
 
 async function removeImageFile(name) {
@@ -796,6 +888,7 @@ async function start() {
       await refreshActiveLoading();
       await processScanQueue();
       await processImageQueue();
+      void recoverFinalizedArchive();
     } catch (error) {
       setError(error);
     }
