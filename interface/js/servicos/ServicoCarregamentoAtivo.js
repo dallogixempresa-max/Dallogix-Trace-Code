@@ -178,11 +178,13 @@ export class ServicoCarregamentoAtivo {
       this.state.commandFeedback = "";
       this.state.loadingItems = [];
       this.state.latestScannerReading = null;
+      this.state.scannerUnmatchedCount = 0;
       return null;
     }
 
     const selectionChanged = Number(this.state.loadingId) !== Number(loading.id);
     if (selectionChanged) {
+      this.state.scannerUnmatchedCount = 0;
       this.state.commandFeedback = "";
       this.state.commandIntent = null;
       this.state.plcCommand = null;
@@ -207,25 +209,27 @@ export class ServicoCarregamentoAtivo {
     this.state.excessEvidenceCaptured = Number(loading.excess_evidence_captured) || 0;
     this.state.excessEvidencePending = Number(loading.excess_evidence_pending) || 0;
     this.state.excessEvidenceFailed = Number(loading.excess_evidence_failed) || 0;
-    this.state.latestScannerReading = loading.last_scanner_read_at
-      ? (() => {
-          const barcode = String(loading.last_scanner_barcode || "");
-          const result = String(loading.last_scanner_result || "");
-          const value = result === "SEM_LEITURA"
-            ? barcode ? `Falha na leitura do código: ${barcode}` : "Falha na leitura (sem código)"
-            : result === "PRODUTO_INCORRETO"
-              ? loading.last_scanner_product_id == null
-                ? `Código válido não cadastrado: ${barcode || "sem identificação"}`
-                : `Produto fora do romaneio: ${barcode || "código sem identificação"}`
-              : barcode || "Leitura sem código";
-          return {
-            barcode,
-            result,
-            readAt: String(loading.last_scanner_read_at),
-            value,
-          };
-        })()
-      : null;
+    if (selectionChanged || this.state.latestScannerReading?.result !== "SEM_PASSAGEM") {
+      this.state.latestScannerReading = loading.last_scanner_read_at
+        ? (() => {
+            const barcode = String(loading.last_scanner_barcode || "");
+            const result = String(loading.last_scanner_result || "");
+            const value = result === "SEM_LEITURA"
+              ? barcode ? `Falha na leitura do código: ${barcode}` : "Falha na leitura (sem código)"
+              : result === "PRODUTO_INCORRETO"
+                ? loading.last_scanner_product_id == null
+                  ? `Código válido não cadastrado: ${barcode || "sem identificação"}`
+                  : `Produto fora do romaneio: ${barcode || "código sem identificação"}`
+                : barcode || "Leitura sem código";
+            return {
+              barcode,
+              result,
+              readAt: String(loading.last_scanner_read_at),
+              value,
+            };
+          })()
+        : null;
+    }
     this.state.truck = loading.plate || "—";
     this.state.romaneio = loading.romaneio_number || "—";
     this.state.equipmentCode = loading.equipment_code || "—";

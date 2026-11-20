@@ -48,8 +48,8 @@ export function manifestView(store) {
     : "";
   const finishManifestPanel = canFinishManifest
     ? `<section class="panel manifest-finish-panel" aria-labelledby="manifest-finish-title"><div><span class="kicker">Carregamentos concluídos</span><h3 id="manifest-finish-title">Encerrar romaneio</h3><p>${pendingEvidenceCount > 0
-      ? `Aguarde o leitor enviar ${numero(pendingEvidenceCount)} imagem(ns) de falha para liberar o encerramento.`
-      : "Todos os carregamentos terminaram. Encerre o romaneio para fechar a operação e liberar o relatório final."}</p></div><button class="button primary" data-action="finish-manifest" data-id="${Number(manifest.id)}" type="button"${pendingEvidenceCount > 0 || store.state.manifestActionPending ? " disabled" : ""}>${store.state.manifestActionPending ? "Encerrando…" : "Encerrar romaneio"}</button></section>`
+      ? `${numero(pendingEvidenceCount)} ${pendingEvidenceCount === 1 ? "foto de falha segue pendente" : "fotos de falha seguem pendentes"} para o relatório. Você já pode encerrar o romaneio.`
+      : "Todos os carregamentos terminaram. Encerre o romaneio para fechar a operação e liberar o relatório final."}</p></div><button class="button primary" data-action="finish-manifest" data-id="${Number(manifest.id)}" type="button"${store.state.manifestActionPending ? " disabled" : ""}>${store.state.manifestActionPending ? "Encerrando…" : "Encerrar romaneio"}</button></section>`
     : "";
   const returnButton = `<button class="button secondary" data-action="goto-manifests" type="button">← Voltar</button>`;
   const quantitySummary = `<div class="manifest-detail-quantity"><span><small>Programado</small><strong>${numero(manifest.planned_quantity)}</strong></span><span><small>Sacas detectadas</small><strong>${numero(manifest.detected_quantity)}</strong></span><span><small>Itens válidos após retornos</small><strong>${numero(manifest.loaded_quantity)}</strong></span><span><small>Sacas retornadas</small><strong>${numero(manifest.returned_quantity || 0)}</strong></span></div>`;

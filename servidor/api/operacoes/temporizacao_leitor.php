@@ -87,6 +87,31 @@ function trace_scanner_observed_at_ms(mixed $value): int
 }
 
 /**
+ * Protege uma passagem candidata enquanto uma leitura HID anterior, ainda em
+ * processamento na mesma aba, estiver pelo menos tão próxima desse evento.
+ * O código seguinte pode continuar quando o evento que encontrou for mais
+ * compatível com ele.
+ */
+function trace_passagem_aguarda_leitura_anterior(array $candidate, mixed $earlierTimes, int $observedAtMs): bool
+{
+    if (!is_array($earlierTimes) || !array_is_list($earlierTimes)) {
+        return false;
+    }
+    $timing = trace_scanner_timing();
+    foreach (array_slice($earlierTimes, 0, 32) as $earlierAtMs) {
+        if (!is_int($earlierAtMs) || $earlierAtMs < 1 || $earlierAtMs > $observedAtMs) {
+            continue;
+        }
+        $delta = $earlierAtMs - $candidate["expected_read_at_epoch_ms"];
+        if ($delta >= -$timing["early_tolerance_ms"] && $delta <= $timing["grace_ms"]
+            && abs($delta) <= abs($candidate["delta_ms"])) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
  * Return pending M2052 events whose predicted reader-arrival window contains
  * the scan time. Candidates are ordered by distance from the predicted arrival;
  * near ties are deliberately rejected instead of attaching a code to the wrong sack.

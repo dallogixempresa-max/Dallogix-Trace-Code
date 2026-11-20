@@ -1,7 +1,6 @@
 import { button, esc } from "../../js/funcoes/html.js";
 
 const DEVICE_TYPES = [
-  ["SENSOR", "Sensor", "Sinal de passagem no CLP"],
   ["SCANNER", "Leitor", "Rede do leitor; código HID no visor"],
   ["CLP", "CLP", "Controle da esteira"],
   ["SERVER", "Servidor", "API desta instalação"],
@@ -10,33 +9,6 @@ const DEVICE_TYPES = [
 export function apresentacaoStatusDispositivo(value, type = "", device = {}) {
   const normalized = String(value || "NAO_REGISTRADO").trim().toUpperCase();
   const deviceType = String(type).toUpperCase();
-  if (deviceType === "SENSOR") {
-    if (normalized === "ONLINE") {
-      return {
-        monitored: true,
-        online: true,
-        tone: "online",
-        label: "LEITURA OK",
-        detail: "O CLP respondeu à leitura Modbus de M2052; isso não significa que houve passagem.",
-      };
-    }
-    if (["OFFLINE", "ERRO"].includes(normalized)) {
-      return {
-        monitored: true,
-        online: false,
-        tone: "error",
-        label: "SEM LEITURA",
-        detail: "O CLP não respondeu à leitura Modbus de M2052; isso não diagnostica o sensor físico.",
-      };
-    }
-    return {
-      monitored: false,
-      online: false,
-      tone: "unknown",
-      label: "NÃO VALIDADO",
-      detail: "Conexão física do sensor não validada.",
-    };
-  }
   if (deviceType === "SCANNER") {
     if (!device?.equipment_id && normalized === "NAO_REGISTRADO") {
       return {
@@ -190,7 +162,7 @@ function deviceStatusPanel(store) {
     <div class="settings-device-status-heading"><div><span class="kicker">Status da máquina</span><h3>Dispositivos e serviços</h3><p>Atualização automática enquanto esta tela estiver aberta.</p></div></div>
     <div class="settings-device-status-summary"><div><strong data-device-summary="online-count">${onlineCount}</strong><span>online</span></div><div><strong data-device-summary="attention-count">${attentionCount}</strong><span data-device-summary="attention-label">com alerta</span></div><div><strong data-device-summary="unmonitored-count">${unmonitoredCount}</strong><span>não confirmado</span></div></div>
     <div class="settings-device-status-grid">${cards}</div>
-    <p class="settings-device-status-note">Os totais de online e com alerta são independentes e podem se sobrepor. Sensor: leitura Modbus de M2052 e evento de passagem são estados distintos; M2052 em zero não indica defeito físico. Leitor: o ping confirma resposta na rede; a leitura do código é confirmada no visor da operação, pelo fluxo HID. A fila FTP de fotos de falha é monitorada separadamente.</p>
+    <p class="settings-device-status-note">Os totais de online e com alerta são independentes e podem se sobrepor. Leitor: o ping confirma resposta na rede; a leitura do código é confirmada no visor da operação, pelo fluxo HID. A fila FTP de fotos de falha é monitorada separadamente.</p>
   </section><br>`;
 }
 

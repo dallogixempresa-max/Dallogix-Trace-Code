@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { ServicoLeiturasOperacionais } from "../interface/js/servicos/ServicoLeiturasOperacionais.js";
@@ -245,7 +246,7 @@ test("marcador ERROR do AutoID é tratado como falha, não como código de produ
   assert.equal(isScannerNoReadMarker("7898538751531"), false);
   assert.equal(isScannerNoReadMarker("ERRORABC"), false);
   assert.match(application, /isScannerNoReadMarker\(barcode\)/);
-  assert.match(application, /value: "Falha na leitura \(sem código\)"/);
+  assert.match(application, /noRead \? "Falha na leitura \(sem código\)" : barcode/);
 });
 
 test("HID ignora teclas fora da operação e não captura campos editáveis", () => {
@@ -476,4 +477,72 @@ test("leitura já vinculada ao M2052 ainda é registrada após ACK de parada", a
   const result = await service.registerScannerReading("7898538751531", 1793314343924);
   assert.equal(result.id, 42);
   assert.equal(requests.length, 1);
+});
+
+
+test("uma leitura aguardando M2052 não impede o registro do código seguinte", async () => {
+  let firstAttempts = 0;
+  const payloads = [];
+  const service = new ServicoLeiturasOperacionais({
+    api: {
+      fetch: async (_url, options) => {
+        const payload = JSON.parse(options.body);
+        payloads.push(payload);
+        const { barcode } = payload;
+        if (barcode === "7898538751531" && ++firstAttempts === 1) {
+          const data = { code: "M2052_PASSAGE_PENDING" };
+          return { status: 409, clone: () => ({ json: async () => data }) };
+        }
+        return { status: 201, json: async () => ({ data: { result: "VALIDO", barcode } }) };
+      },
+    },
+    state: { loadingId: 7, operationalState: "CARREGANDO" },
+    jsonHeaders: () => ({}),
+    jsonResponse: async (response) => response.json(),
+    loadActiveLoading: async () => {},
+  });
+
+  const observedAt = Date.now();
+  const first = service.registerScannerReading("7898538751531", observedAt);
+  const second = await service.registerScannerReading("7898250782479", observedAt + 150);
+  assert.deepEqual(payloads[1].earlier_pending_scanner_times_ms, [observedAt]);
+  assert.equal(second.barcode, "7898250782479");
+  assert.equal(firstAttempts, 1);
+  assert.equal((await first).barcode, "7898538751531");
+  assert.equal(firstAttempts, 2);
+});
+
+
+test("uma passagem mais próxima da leitura anterior fica protegida até a decisão", () => {
+  const file = new URL("../servidor/api/operacoes/temporizacao_leitor.php", import.meta.url);
+  const php = spawnSync("php", ["-r", `
+    require $argv[1];
+    $older = 1795116546500;
+    $newer = 1795116547100;
+    $firstPassage = ["expected_read_at_epoch_ms" => 1795116546450, "delta_ms" => 650];
+    $secondPassage = ["expected_read_at_epoch_ms" => 1795116547060, "delta_ms" => 40];
+    echo json_encode([
+      trace_passagem_aguarda_leitura_anterior($firstPassage, [$older], $newer),
+      trace_passagem_aguarda_leitura_anterior($secondPassage, [$older], $newer),
+      trace_passagem_aguarda_leitura_anterior($firstPassage, [], $newer),
+    ]);
+  `, file.pathname], { encoding: "utf8" });
+  assert.equal(php.status, 0, php.stderr);
+  assert.deepEqual(JSON.parse(php.stdout), [true, false, false]);
+});
+
+test("erro ao atualizar a tela preserva o resultado já registrado pelo leitor", async () => {
+  const refreshError = new Error("Falha ao consultar o carregamento.");
+  const reported = [];
+  const service = new ServicoLeiturasOperacionais({
+    api: { fetch: async () => ({ status: 201, json: async () => ({ data: { result: "PRODUTO_INCORRETO" } }) }) },
+    state: { loadingId: 7, operationalState: "CARREGANDO" },
+    jsonHeaders: () => ({}),
+    jsonResponse: async (response) => response.json(),
+    loadActiveLoading: async () => { throw refreshError; },
+    onScannerRefreshError: (error) => reported.push(error),
+  });
+
+  assert.equal((await service.registerScannerReading("7898538751531")).result, "PRODUTO_INCORRETO");
+  assert.deepEqual(reported, [refreshError]);
 });

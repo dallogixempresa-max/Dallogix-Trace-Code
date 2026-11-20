@@ -1,11 +1,12 @@
 import { OfflineOperationBuffer, secureRandomId } from "./OfflineOperationBuffer.js?v=202611170006";
 import { ClienteApi, erroRespostaHttp } from "../api/ClienteApi.js?v=202611170006";
 import { ServicoSincronizacao } from "../servicos/ServicoSincronizacao.js?v=202611170006";
-import { ServicoDalas } from "../servicos/ServicoDalas.js?v=202611170006";
+import { ServicoDalas } from "../servicos/ServicoDalas.js?v=202611200001";
 import { ServicoObservabilidade } from "../servicos/ServicoObservabilidade.js?v=202611170006";
-import { ServicoCarregamentoAtivo } from "../servicos/ServicoCarregamentoAtivo.js?v=202611170006";
+import { ServicoCarregamentoAtivo } from "../servicos/ServicoCarregamentoAtivo.js?v=202611200001";
 import { ServicoComandosMaquina } from "../servicos/ServicoComandosMaquina.js?v=202611170006";
-import { ServicoLeiturasOperacionais } from "../servicos/ServicoLeiturasOperacionais.js?v=202611170006";
+import { ServicoLeiturasOperacionais } from "../servicos/ServicoLeiturasOperacionais.js?v=202611200001";
+import { logFrontend } from "../utilitarios/LogFrontend.js?v=202611170006";
 import { resolverComandoAtual } from "../funcoes/estado-comando.js?v=202611170006";
 import {
   buscarTodasPaginas,
@@ -26,6 +27,7 @@ export class ArmazenamentoTrace {
       excessEvidencePending: 0,
       excessEvidenceFailed: 0,
       latestScannerReading: null,
+      scannerUnmatchedCount: 0,
       planned: 0,
       running: false,
       emergency: false,
@@ -126,6 +128,7 @@ export class ArmazenamentoTrace {
     this.sincronizacao = new ServicoSincronizacao({
       api: this.api,
       offlineBuffer: this.offlineBuffer,
+      onScannerRefreshError: (error) => logFrontend.aviso("leitor.hid.atualizar-carregamento", error),
       createEventId: secureRandomId,
       onOfflineQueueChanged: (count) => { this.state.offlineQueueSize = count; },
     });
@@ -208,7 +211,7 @@ export class ArmazenamentoTrace {
   obterServicoRomaneios() {
     return this.obterServicoSobDemanda(
       "servicoRomaneios",
-      () => import("../servicos/ServicoRomaneios.js?v=202611170006"),
+      () => import("../servicos/ServicoRomaneios.js?v=202611200001"),
       ({ ServicoRomaneios }) => new ServicoRomaneios({
         api: this.api,
         state: this.state,
@@ -222,7 +225,7 @@ export class ArmazenamentoTrace {
   obterServicoCatalogoProdutos() {
     return this.obterServicoSobDemanda(
       "servicoCatalogoProdutos",
-      () => import("../servicos/ServicoCatalogoProdutos.js?v=202611170006"),
+      () => import("../servicos/ServicoCatalogoProdutos.js?v=202611200001"),
       ({ ServicoCatalogoProdutos }) => new ServicoCatalogoProdutos({
         api: this.api,
         state: this.state,
@@ -473,10 +476,12 @@ export class ArmazenamentoTrace {
   deleteProduct(id) {
     return this.delegarParaServico(this.obterServicoCatalogoProdutos, "delete", id);
   }
-  async loadActiveLoading(selectedId = this.state.selectedLoadingId) {
+  async loadActiveLoading(selectedId = this.state.selectedLoadingId, { onlyIfCurrent = false } = {}) {
     return this.servicoCarregamentoAtivo.load(
       selectedId,
-      () => this._loadActiveLoading(selectedId),
+      () => onlyIfCurrent && Number(this.state.loadingId) !== Number(selectedId)
+        ? null
+        : this._loadActiveLoading(selectedId),
     );
   }
   async _loadActiveLoading(selectedId = this.state.selectedLoadingId) {

@@ -5,7 +5,7 @@ import { ClienteApi } from "./api/ClienteApi.js?v=202611170006";
 import { confirmarAcao, limparNotificacao, notificar, solicitarTexto } from "./componentes/notificacoes.js?v=202611170006";
 import { setFormFeedback } from "./componentes/form-feedback.js?v=202611170006";
 import { ServicoOperacao } from "./servicos/ServicoOperacao.js?v=202611170006";
-import { ArmazenamentoTrace } from "./classes/ArmazenamentoTrace.js?v=202611170006";
+import { ArmazenamentoTrace } from "./classes/ArmazenamentoTrace.js?v=202611200001";
 import { FORM_ACTIONS } from "./constantes/acoes.js?v=202611170006";
 import { changeOperationLoading, linhaItemRomaneio } from "./controladores/operacao.js?v=202611170006";
 import { createOperationalRealtimeController } from "./controladores/tempo-real.js?v=202611170006";
@@ -22,8 +22,8 @@ import { criarTratadorAcoesInterface, instalarInteracoesGlobaisInterface } from 
 import { criarTratadorAcoesRelatorios } from "./controladores/acoes-relatorios.js?v=202611170006";
 import { criarDelegacaoAcoes, criarDespachanteAcoes } from "./controladores/despachante-acoes.js?v=202611170006";
 import { criarCarregadorPaginas } from "./controladores/carregador-paginas.js?v=202611170006";
-import { createLiveViewController } from "./controladores/estado-visualizacao.js?v=202611170006";
-import { createHidScannerCapture, isScannerNoReadMarker } from "./controladores/captura-leitor-hid.js?v=202611170006";
+import { createLiveViewController } from "./controladores/estado-visualizacao.js?v=202611200001";
+import { createHidScannerCapture, isScannerNoReadMarker } from "./controladores/captura-leitor-hid.js?v=202611200001";
 import { createLocalConnectivityController } from "./controladores/conectividade-local.js?v=202611170006";
 import { bindManifestCreationForm, bindManifestEditForm } from "./controladores/formulario-romaneio.js?v=202611170006";
 import { bindProductForm } from "./controladores/formulario-produto.js?v=202611170006";
@@ -77,7 +77,7 @@ const registroTelas = criarRegistroTelas({
   division: () =>
     import("../telas/divisao-carga/divisao-carga.js?v=202611170006").then(({ division }) => division),
   work: () =>
-    import("../telas/operacao/operacao.js?v=202611170006").then(({ work }) => work),
+    import("../telas/operacao/operacao.js?v=202611200001").then(({ work }) => work),
   occurrences: () =>
     import("../telas/ocorrencias/ocorrencias.js?v=202611170006").then(({ occurrences }) => occurrences),
   products: () =>
@@ -85,7 +85,7 @@ const registroTelas = criarRegistroTelas({
   alerts: () =>
     import("../telas/alertas/alertas.js?v=202611170006").then(({ alerts }) => alerts),
   settings: () =>
-    import("../telas/configuracoes/configuracoes.js?v=202611170006").then(({ settings }) => settings),
+    import("../telas/configuracoes/configuracoes.js?v=202611200001").then(({ settings }) => settings),
   dalas: () =>
     import("../telas/dalas/dalas.js?v=202611170006").then(({ dalas }) => dalas),
   dala: () =>
@@ -93,7 +93,7 @@ const registroTelas = criarRegistroTelas({
   "dala-edit": () =>
     import("../telas/editar-dala/editar-dala.js?v=202611170006").then(({ dalaEdit }) => dalaEdit),
   manifest: () =>
-    import("../telas/romaneio/romaneio.js?v=202611170006").then(({ manifestView }) => manifestView),
+    import("../telas/romaneio/romaneio.js?v=202611200001").then(({ manifestView }) => manifestView),
   "manifest-edit": () =>
     import("../telas/editar-romaneio/editar-romaneio.js?v=202611170006").then(({ manifestEdit }) => manifestEdit),
   companies: () =>
@@ -402,7 +402,7 @@ const conectividadeLocal = createLocalConnectivityController({
   refreshSettingsView: () => refreshSettingsStatusView(),
   render: () => render(),
   logWarning: (...args) => logFrontend.aviso(...args),
-  serviceWorkerUrl: "/service-worker.js?v=202611170006",
+  serviceWorkerUrl: "/service-worker.js?v=202611200001",
 });
 
 function waitForDocumentStyles() {
@@ -423,7 +423,7 @@ function waitForDocumentStyles() {
 // tela que tem CSS próprio precisa garantir seu arquivo e sua versão antes do
 // primeiro render, inclusive quando a rota inicial veio de outra página.
 const SCREEN_STYLES = {
-  work: "/telas/operacao/operacao.css?v=202611170006",
+  work: "/telas/operacao/operacao.css?v=202611200001",
   import: "/telas/importar-romaneio/importar-romaneio.css?v=202611170006",
   settings: "/telas/configuracoes/configuracoes.css?v=202611170006",
   dalas: "/telas/dalas/dalas.css?v=202611170006",
@@ -531,7 +531,7 @@ function startWorkPolling() {
 function installScannerHidReceiver() {
   if (document.body.dataset.hidScannerReceiverInstalled === "1") return;
   document.body.dataset.hidScannerReceiverInstalled = "1";
-  let queue = Promise.resolve();
+  let latestScan = 0;
   const operationActive = () => currentPage === "work"
     && Boolean(document.querySelector(".work-operation-screen"))
     && Boolean(store.state.loadingId)
@@ -543,90 +543,79 @@ function installScannerHidReceiver() {
     display.textContent = value || store.state.latestScannerReading?.value || "Aguardando leitura…";
     display.classList.toggle(
       "is-error",
-      error || (!value && store.state.latestScannerReading?.result === "SEM_LEITURA"),
+      error || (!value && ["SEM_LEITURA", "SEM_PASSAGEM", "PRODUTO_INCORRETO"].includes(store.state.latestScannerReading?.result)),
     );
   };
   const capture = createHidScannerCapture({
     isEnabled: operationActive,
     onBufferChange: (value) => displayBarcode(value),
-    onBarcode: (barcode, capturedAtEpochMs) => {
-      queue = queue.then(async () => {
-        if (!operationActive()) return;
-        if (isScannerNoReadMarker(barcode)) {
-          store.state.latestScannerReading = {
-            barcode,
-            result: "SEM_LEITURA",
-            readAt: new Date(capturedAtEpochMs).toISOString(),
-            value: "Falha na leitura (sem código)",
-          };
-          displayBarcode("Falha na leitura (sem código)", { error: true });
-          if (currentPage === "work") renderScreen();
-          // Registra a falha de leitura no backend para que o evento de
-          // passagem do sensor seja vinculado a um registro SEM_LEITURA.
-          // Sem esse envio, a saca ficava contada pelo M2052 mas sem
-          // nenhuma leitura associada, gerando o descompasso
-          // "1 / 5 previstas · 0 códigos válidos".
-          // O backend (SolicitacaoLeitura::fromPayload) já detecta o padrão
-          // ERROR e converte para noRead = true automaticamente.
-          try {
-            await store.registerScannerReading(barcode, capturedAtEpochMs);
-            if (currentPage === "work") renderScreen();
-          } catch (error) {
-            // A falha já está visível no visor; não duplicar com notificação.
-            logFrontend.aviso("leitor.hid.sem-leitura", error);
-          }
-          return;
-        }
+    onBarcode: async (barcode, capturedAtEpochMs) => {
+      if (!operationActive()) return;
+      const loadingId = Number(store.state.loadingId);
+      const scan = ++latestScan;
+      const isCurrentLoading = () => currentPage === "work" && Number(store.state.loadingId) === loadingId;
+      const noRead = isScannerNoReadMarker(barcode);
+      const updateScanner = (result, value, error = false) => {
+        if (scan !== latestScan || !isCurrentLoading()) return;
         store.state.latestScannerReading = {
           barcode,
-          result: "RECEBIDO",
+          result,
           readAt: new Date(capturedAtEpochMs).toISOString(),
-          value: barcode,
+          value,
         };
-        displayBarcode(barcode);
+        displayBarcode(value, { error });
+      };
+      updateScanner(
+        noRead ? "SEM_LEITURA" : "RECEBIDO",
+        noRead ? "Falha na leitura (sem código)" : barcode,
+        noRead,
+      );
 
-        try {
-          const reading = await store.registerScannerReading(barcode, capturedAtEpochMs);
-          if (reading?.result === "PRODUTO_INCORRETO") {
-            const value = reading.unregistered_product_detected
-              ? `Código válido não cadastrado: ${barcode}`
-              : `Produto fora do romaneio: ${barcode}`;
-            store.state.latestScannerReading = {
-              ...store.state.latestScannerReading,
-              result: reading.result,
-              value,
-            };
-            displayBarcode(value, { error: true });
-            notificar(
-              reading.operator_alert || "Produto fora do romaneio. Remova a unidade e confirme a parada física antes de continuar.",
-              "erro",
-            );
+      try {
+        // Cada leitura espera pela própria passagem. Uma espera do M2052
+        // não segura a próxima leitura. A API arbitra o vínculo por passagem.
+        const reading = await store.registerScannerReading(barcode, capturedAtEpochMs);
+        if (!reading) return;
+        if (reading.result === "SEM_PASSAGEM") {
+          if (Number(store.state.loadingId) === loadingId) {
+            store.state.scannerUnmatchedCount++;
+            updateScanner("SEM_PASSAGEM", "Leitura sem passagem M2052 correspondente.", true);
+            if (isCurrentLoading()) refreshWorkLiveView();
           }
-          if (reading?.result === "EXCESSO") {
-            store.state.latestScannerReading = { ...store.state.latestScannerReading, result: reading.result };
-            // O servidor grava a pausa lógica e solicita PAUSAR_CARREGAMENTO
-            // pelo gateway. O alerta diferencia comando pendente de parada não
-            // solicitada; a tela bloqueante exige confirmação física do operador.
-            notificar(
-              reading.operator_alert || "Quantidade excedida. O carregamento foi pausado. Remova a unidade e confirme.",
-              "erro",
-            );
-          }
-          if (reading?.product_quota_reached) {
-            notificar(
-              "Quantidade prevista deste produto atingida. Continue somente com o próximo item do romaneio.",
-              "aviso",
-            );
-          }
-          if (currentPage === "work") renderScreen();
-        } catch (error) {
-          logFrontend.aviso("leitor.hid.registro", error);
+          logFrontend.aviso("leitor.hid.sem-passagem", new Error("Leitura sem passagem M2052 correspondente."));
+          return;
+        }
+        if (!isCurrentLoading()) return;
+        if (reading.result === "PRODUTO_INCORRETO") {
+          const value = reading.unregistered_product_detected
+            ? `Código válido não cadastrado: ${barcode}`
+            : `Produto fora do romaneio: ${barcode}`;
+          updateScanner(reading.result, value, true);
+          notificar(
+            reading.operator_alert || "Produto fora do romaneio. Remova a unidade e confirme a parada física antes de continuar.",
+            "erro",
+          );
+        }
+        if (reading.result === "EXCESSO") {
+          updateScanner(reading.result, barcode);
+          notificar(
+            reading.operator_alert || "Quantidade excedida. O carregamento foi pausado. Remova a unidade e confirme.",
+            "erro",
+          );
+        }
+        if (reading.product_quota_reached) {
+          notificar(
+            "Quantidade prevista deste produto atingida. Continue somente com o próximo item do romaneio.",
+            "aviso",
+          );
+        }
+        renderScreen();
+      } catch (error) {
+        logFrontend.aviso(noRead ? "leitor.hid.sem-leitura" : "leitor.hid.registro", error);
+        if (!noRead && scan === latestScan && isCurrentLoading()) {
           notificar(error.message || "Não foi possível associar a leitura ao saco detectado.", "erro");
         }
-      }).catch((error) => {
-        logFrontend.erro("leitor.hid.processamento", error);
-      });
-      return queue;
+      }
     },
     onError: (error) => logFrontend.erro("leitor.hid.captura", error),
   });

@@ -175,18 +175,32 @@ if (($barcode !== "" || $noRead) && ($dispositivoScanner !== null || !$sensorEve
 // Sensor upstream: só associe o código ao evento cuja chegada prevista ao
 // início da área de leitura mais se aproxima do horário recebido pelo leitor.
 if (!$sensorEventId && ($barcode !== "" || $noRead)) {
+    $earlierPendingTimes = $dispositivoScanner === null ? ($payload["earlier_pending_scanner_times_ms"] ?? []) : [];
     if ($scannerMatch["ambiguous"]) {
-        $pdo->rollBack();
-        responder_json(["error" => "Leitura ambígua entre passagens do sensor; o código não foi associado."], 409);
+        $waitingForEarlierScan = false;
+        foreach ($scannerMatch["candidates"] as $candidate) {
+            if (trace_passagem_aguarda_leitura_anterior($candidate, $earlierPendingTimes, $scannerObservedAtMs)) {
+                $waitingForEarlierScan = true;
+                break;
+            }
+        }
+        if (!$waitingForEarlierScan) {
+            $pdo->rollBack();
+            responder_json(["error" => "Leitura ambígua entre passagens do sensor; o código não foi associado."], 409);
+        }
     }
-    if ($scannerMatch["best"] !== null) {
-        $sensorEventId = $scannerMatch["best"]["sensor_event_id"];
+    $candidate = $scannerMatch["best"];
+    if ($candidate !== null && !trace_passagem_aguarda_leitura_anterior($candidate, $earlierPendingTimes, $scannerObservedAtMs)) {
+        $sensorEventId = $candidate["sensor_event_id"];
     }
 }
 if (($barcode !== "" || $noRead) && !$sensorEventId) {
     $pdo->rollBack();
     responder_json(
-        ["error" => "Leitura aguardando o evento de passagem do sensor M2052."],
+        [
+            "error" => "Leitura aguardando o evento de passagem do sensor M2052.",
+            "code" => "M2052_PASSAGE_PENDING",
+        ],
         409,
     );
 }

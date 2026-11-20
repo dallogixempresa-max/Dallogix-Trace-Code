@@ -94,14 +94,21 @@ export function matchUniquePendingImage(receivedAt, requests, windowMs, timestam
       request,
       distance: Math.abs(Number(receivedAt) - Number(request[timestampField])),
     }))
-    .filter((candidate) => Number.isFinite(candidate.distance) && candidate.distance <= windowMs);
+    .filter(({ request, distance }) => {
+      if (!Number.isFinite(distance) || distance > windowMs) return false;
+      if (timestampField !== "image_expected_at_epoch_ms") return true;
+      const from = request.image_valid_from_epoch_ms;
+      const until = request.image_valid_until_epoch_ms;
+      return (from == null || receivedAt >= Number(from))
+        && (until == null || receivedAt < Number(until));
+    });
 
-  if (candidates.length === 0) return { request: null, reason: "sem_solicitacao_compativel" };
-  if (candidates.length !== 1) return { request: null, reason: "solicitacoes_ambiguas" };
+  if (candidates.length === 0) return { request: null, reason: "sem_solicitacao_compativel", candidateCount: 0 };
+  if (candidates.length !== 1) return { request: null, reason: "solicitacoes_ambiguas", candidateCount: candidates.length };
   // Uma solicitação capturada continua elegível quando a imagem nova tem uma
   // única passagem compatível; o servidor deduplica o mesmo arquivo e guarda
   // cada foto diferente sob a identidade da mesma passagem.
-  return { request: candidates[0].request, reason: null };
+  return { request: candidates[0].request, reason: null, candidateCount: 1 };
 }
 
 export function groupImageFrames(frames, burstWindowMs) {

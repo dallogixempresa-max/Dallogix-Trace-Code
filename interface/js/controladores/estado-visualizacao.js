@@ -1,4 +1,4 @@
-import { apresentacaoConectividadePc, apresentacaoStatusDispositivo, renderStatusDalaBinario, resumoStatusDispositivos } from "../../telas/configuracoes/configuracoes.js?v=202611170006";
+import { apresentacaoConectividadePc, apresentacaoStatusDispositivo, renderStatusDalaBinario, resumoStatusDispositivos } from "../../telas/configuracoes/configuracoes.js?v=202611200001";
 import { operationStructureSignature, renderDalaStatuses } from "./operacao.js?v=202611170006";
 import { numero, relativo, dataHora } from "../funcoes/formato.js?v=202611170006";
 import { el } from "../funcoes/html.js";
@@ -64,15 +64,21 @@ export function createLiveViewController({
     values["scanner-value"] = leitorPodeConcluirPassagens
       ? (store.state.latestScannerReading?.value || "Aguardando leitura…")
       : "Aguardando leitura…";
+    const scannerUnmatchedCount = Number(store.state.scannerUnmatchedCount) || 0;
+    values["scanner-unmatched-count"] = numero(scannerUnmatchedCount);
+    const scannerUnmatchedNotice = document.querySelector('[data-live="scanner-unmatched-notice"]');
+    if (scannerUnmatchedNotice) scannerUnmatchedNotice.hidden = scannerUnmatchedCount === 0;
+
     Object.entries(values).forEach(([key, value]) => {
       document.querySelectorAll(`[data-live="${key}"]`).forEach((node) => {
-        node.textContent = String(value);
+        if (node.textContent !== String(value)) node.textContent = String(value);
       });
     });
     const scannerValue = document.querySelector('[data-live="scanner-value"]');
     scannerValue?.classList.toggle(
       "is-error",
-      leitorPodeConcluirPassagens && store.state.latestScannerReading?.result === "SEM_LEITURA",
+      leitorPodeConcluirPassagens &&
+        ["SEM_LEITURA", "SEM_PASSAGEM", "PRODUTO_INCORRETO"].includes(store.state.latestScannerReading?.result),
     );
     const progressBar = document.querySelector('[data-live="progress-bar"]');
     if (progressBar) {
@@ -139,7 +145,7 @@ export function createLiveViewController({
     const presentations = [];
     document.querySelectorAll("[data-device-status-card]").forEach((card) => {
       const type = card.dataset.deviceStatusCard;
-      if (!["SENSOR", "SCANNER", "CLP", "SERVER"].includes(type)) {
+      if (!["SCANNER", "CLP", "SERVER"].includes(type)) {
         card.remove();
         return;
       }

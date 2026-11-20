@@ -309,12 +309,13 @@ async function pendingImages() {
   }));
 }
 
-async function uploadImage(file, request, capturedAtEpochMs) {
+async function uploadImage(file, request, capturedAtEpochMs, archived) {
   const bytes = await readFile(file);
   const form = new FormData();
   form.append("action", "UPLOAD_IMAGE");
   form.append("request_id", String(request.id));
   form.append("captured_at_epoch_ms", String(Math.round(capturedAtEpochMs)));
+  if (archived) form.append("capture_clock", "KEYENCE_ARCHIVE");
   const basename = file.split(/[\\/]/).at(-1) || "";
   const sourceName = basename.match(/-archive-([A-Za-z0-9._-]{1,120})$/i)?.[1]
     || basename.match(/-ftp-([A-Za-z0-9._-]{1,120})\.jpg$/i)?.[1];
@@ -420,15 +421,6 @@ async function recoverFinalizedArchive() {
     log("warn", "Não foi possível conferir o arquivo Keyence dos romaneios encerrados.", { reason: error.message });
   } finally {
     recoveringArchive = false;
-  }
-}
-
-async function removeImageFile(name) {
-  try {
-    await unlink(join(INBOX_DIR, name));
-    unmatchedImageCount = Math.max(0, unmatchedImageCount - 1);
-  } catch (error) {
-    if (error.code !== "ENOENT") throw error;
   }
 }
 
@@ -596,31 +588,13 @@ async function processImageQueue() {
       const imageHash = name.slice(15, 79).toLowerCase();
       const groupKey = name;
       if (!match.request) {
-        const capturedDuplicate = match.reason === "sem_solicitacao_compativel"
-          ? requests.find((request) => request.status === "CAPTURADA"
-          && String(request.image_sha256 || "").toLowerCase() === imageHash
-          && Number.isFinite(Number(request[timestampField]))
-          && Math.abs(receivedAt - Number(request[timestampField])) <= matchWindowMs)
-          : null;
-        if (capturedDuplicate) {
-          await removeImageFile(name);
-          loggedUnmatchedImages.delete(groupKey);
-          log("info", "Reenvio FTP idêntico confirmado pela impressão digital; cópia redundante removida.", {
-            sensor_event_id: Number(capturedDuplicate.sensor_event_id),
-          });
-          continue;
-        }
         const ageMs = Math.max(0, Date.now() - receivedAt);
         if (ageMs >= IMAGE_UNMATCHED_GRACE_MS && !loggedUnmatchedImages.has(groupKey)) {
           loggedUnmatchedImages.add(groupKey);
-          const candidateCount = requests.filter((request) => {
-            const timestamp = Number(request[timestampField]);
-            return Number.isFinite(timestamp) && Math.abs(receivedAt - timestamp) <= matchWindowMs;
-          }).length;
           log("warn", "Imagem Keyence mantida na fila: não há correspondência única e segura.", {
             age_ms: ageMs,
             reason: match.reason,
-            candidate_requests: candidateCount,
+            candidate_requests: match.candidateCount,
             image_sha256: imageHash,
           });
         }
@@ -637,7 +611,7 @@ async function processImageQueue() {
       }
       reserved.add(Number(match.request.id));
       try {
-        await uploadImage(join(INBOX_DIR, name), match.request, receivedAt);
+        await uploadImage(join(INBOX_DIR, name), match.request, receivedAt, archived);
         unmatchedImageCount = Math.max(0, unmatchedImageCount - 1);
         loggedUnmatchedImages.delete(groupKey);
       } catch (error) {
