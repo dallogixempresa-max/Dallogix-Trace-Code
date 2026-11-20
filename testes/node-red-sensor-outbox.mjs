@@ -25,6 +25,7 @@ test("fila do sensor persiste somente o evento e o recupera após recriar o serv
     carregamento_id: 34,
     event_uuid: "d4a00000-0000-4000-8000-000000000041",
     detected_at_epoch_ms: 1793314343923,
+    modbus_passage_from_epoch_ms: 1793314343723,
     traceToken: "segredo-que-nao-deve-ser-gravado",
   };
   try {
@@ -37,6 +38,7 @@ test("fila do sensor persiste somente o evento e o recupera após recriar o serv
       carregamento_id: 34,
       event_uuid: "d4a00000-0000-4000-8000-000000000041",
       detected_at_epoch_ms: 1793314343923,
+      modbus_passage_from_epoch_ms: 1793314343723,
     }]);
     assert.equal(await restartedProcess.count(), 1);
     const files = await readdir(directory);

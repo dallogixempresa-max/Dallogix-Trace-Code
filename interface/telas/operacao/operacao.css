@@ -1183,7 +1183,7 @@ body.work-page:has(.work-operation-screen) .work-reader-monitor-heading p {
   body.work-page:has(.work-operation-screen) .work-machine-controls .work-routine-controls {
     min-height: 0;
     flex: 1 1 auto;
-    grid-template-rows: repeat(4, minmax(clamp(112px, 13vh, 148px), 1fr));
+    grid-template-rows: repeat(2, minmax(clamp(112px, 13vh, 148px), 1fr));
   }
 }
 
@@ -1244,5 +1244,25 @@ body.work-page:has(.work-operation-screen) .work-reader-monitor-heading p {
     max-width: 100%;
     overflow-wrap: anywhere;
     word-break: normal;
+  }
+}
+
+
+body.work-page:has(.work-operation-screen) .work-operation-layout.is-monitoring {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "status";
+}
+
+body.work-page:has(.work-operation-screen) .work-item-identity strong {
+  font-size: clamp(16px, 1.3vw, 20px);
+}
+
+body.work-page:has(.work-operation-screen) .work-item-progress-values > strong {
+  font-size: clamp(20px, 1.5vw, 24px);
+}
+
+@media (min-width: 960px) and (min-height: 680px) {
+  body.work-page:has(.work-operation-screen) .work-operation-layout.has-machine-controls {
+    grid-template-columns: minmax(0, 1fr) clamp(230px, 24vw, 310px);
   }
 }

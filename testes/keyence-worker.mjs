@@ -5,9 +5,10 @@ import { join } from "node:path";
 import { createConnection, createServer } from "node:net";
 import test from "node:test";
 import { createFtpReceiver } from "../integracoes/keyence-worker/ftp-receiver.mjs";
-import { groupImageFrames, isAllowedSourceAddress, matchPendingImage, nextUnreservedSensorEventId, parseBarcodeFrame, parseLinuxDefaultGateway } from "../integracoes/keyence-worker/keyence-core.mjs";
+import { groupImageFrames, isAllowedSourceAddress, matchPendingImage, matchUniquePendingImage, nextUnreservedSensorEventId, parseBarcodeFrame, parseLinuxDefaultGateway } from "../integracoes/keyence-worker/keyence-core.mjs";
 import { importArchivedImages } from "../integracoes/keyence-worker/image-archive.mjs";
 
+const environment = await readFile(new URL("../servidor/configuracao/ambiente.php", import.meta.url), "utf8");
 const worker = await readFile(new URL("../integracoes/keyence-worker/keyence-worker.mjs", import.meta.url), "utf8");
 const imageEndpoint = await readFile(new URL("../servidor/api/keyence_worker.php", import.meta.url), "utf8");
 const readingsEndpoint = await readFile(new URL("../servidor/api/operacoes/leituras.php", import.meta.url), "utf8");
@@ -270,4 +271,41 @@ test("integra SCANNER, fila SEM_LEITURA e preserva a origem para regenerar o PDF
   assert.match(compose, /KEYENCE_IMAGE_ARCHIVE_HOST_DIR:-C:\/Keyence\/Falhas/);
   assert.match(compose, /target: \/var\/lib\/trace\/keyence-falhas\s+read_only: true/);
   assert.match(compose, /health\?\.running === true && \(health\?\.enabled === false \|\| \(health\?\.tcp_output_listening === true && health\?\.ftp_image_receiver_listening === true && health\?\.image_archive_directory_available === true\)\)/);
+});
+
+
+test("a chegada prevista do saco seguinte separa fotos próximas do arquivo Keyence", () => {
+  const requests = [
+    { id: 1, image_expected_at_epoch_ms: 1179, image_valid_from_epoch_ms: 1179, image_valid_until_epoch_ms: 1579 },
+    { id: 2, image_expected_at_epoch_ms: 1579, image_valid_from_epoch_ms: 1579, image_valid_until_epoch_ms: 1979 },
+  ];
+  const match = (at) => matchUniquePendingImage(at, requests, 1500, "image_expected_at_epoch_ms");
+
+  assert.equal(match(1578).request.id, 1);
+  assert.equal(match(1579).request.id, 2);
+  assert.equal(match(1980).request, null);
+});
+
+
+test("a foto real com duas passagens próximas usa o intervalo de captura, e FTP ambíguo permanece pendente", () => {
+  const photoAt = 1795116546864;
+  const requests = [
+    { id: 366, requested_at_epoch_ms: 1795116548654, image_expected_at_epoch_ms: 1795116546267,
+      image_valid_from_epoch_ms: 1795116546267, image_valid_until_epoch_ms: 1795116547081 },
+    { id: 365, requested_at_epoch_ms: 1795116547141, image_expected_at_epoch_ms: 1795116547081,
+      image_valid_from_epoch_ms: 1795116547081, image_valid_until_epoch_ms: 1795116549000 },
+  ];
+  assert.equal(matchUniquePendingImage(photoAt, requests, 1500, "image_expected_at_epoch_ms").request.id, 366);
+  const ftp = matchUniquePendingImage(photoAt, requests, 3000, "requested_at_epoch_ms");
+  assert.equal(ftp.request, null);
+  assert.equal(ftp.candidateCount, 2);
+});
+
+
+test("o prazo Keyence marca foto de produto incorreto como indisponível sem impedir envio posterior", () => {
+  const expiry = environment.slice(environment.indexOf("function expirar_solicitacoes_imagem_keyence"));
+  assert.match(expiry, /reason IN \('SEM_LEITURA', 'PRODUTO_INCORRETO', 'EXCESSO'\)/);
+  assert.match(expiry, /status IN \('PENDENTE', 'CAPTURANDO'\)/);
+  assert.match(expiry, /SET status = 'ERRO', error_message = 'Imagem do Keyence não recebida no prazo configurado\.'/);
+  assert.match(imageEndpoint, /!in_array\(\$capture\["status"\], \["PENDENTE", "ERRO"\], true\)/);
 });

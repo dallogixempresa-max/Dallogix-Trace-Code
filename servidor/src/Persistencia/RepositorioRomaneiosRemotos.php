@@ -19,26 +19,31 @@ final class RepositorioRomaneiosRemotos
     }
 
     /** @param array<string,mixed> $remote */
-    public function salvarOuAtualizarRomaneio(int $companyId, int $remoteId, array $remote): int
+    public function salvarOuAtualizarRomaneio(int $companyId, int $remoteId, array $remote): ?int
     {
         $number = trim((string) ($remote["romaneio_number"] ?? ""));
         if ($remoteId < 1 || $number === "") {
             throw new RuntimeException("Romaneio remoto sem identificador válido.");
         }
+        // A importação do snapshot e o encerramento disputam a mesma linha.
+        $lock = $this->connection->getAttribute(PDO::ATTR_DRIVER_NAME) === "sqlite" ? "" : " FOR UPDATE";
         $find = $this->connection->prepare(
-            "SELECT id FROM romaneios WHERE company_id = :company_id
-             AND remote_romaneio_id = :remote_id LIMIT 1",
+            "SELECT id, status FROM romaneios WHERE company_id = :company_id
+             AND remote_romaneio_id = :remote_id LIMIT 1" . $lock,
         );
         $find->execute(["company_id" => $companyId, "remote_id" => $remoteId]);
-        $localId = (int) ($find->fetchColumn() ?: 0);
-        if ($localId === 0) {
+        $local = $find->fetch(PDO::FETCH_ASSOC);
+        if (!$local) {
             $find = $this->connection->prepare(
-                "SELECT id FROM romaneios WHERE company_id = :company_id
-                 AND number = :number LIMIT 1",
+                "SELECT id, status FROM romaneios WHERE company_id = :company_id
+                 AND number = :number LIMIT 1" . $lock,
             );
             $find->execute(["company_id" => $companyId, "number" => $number]);
-            $localId = (int) ($find->fetchColumn() ?: 0);
+            $local = $find->fetch(PDO::FETCH_ASSOC);
         }
+        $localId = (int) ($local["id"] ?? 0);
+        $localEncerrado = in_array($local["status"] ?? null, ["FINALIZADO", "CANCELADO"], true);
+
         $remoteStatus = strtoupper(trim((string) (
             $remote["romaneio_status"]
                 ?? (is_array($remote["romaneio"] ?? null) ? ($remote["romaneio"]["status"] ?? "") : "")
@@ -47,13 +52,14 @@ final class RepositorioRomaneiosRemotos
         $status = in_array($remoteStatus, $allowedStatuses, true)
             ? $remoteStatus
             : ((string) ($remote["state"] ?? "PREPARANDO") === "FINALIZADO" ? "FINALIZADO" : "EM_ANDAMENTO");
+        $remotoEncerrado = in_array($status, ["FINALIZADO", "CANCELADO"], true);
         if ($localId) {
-            if ($this->fila->possuiEventoPendente($companyId, "romaneio", $localId)) {
+            if ($localEncerrado || $this->fila->possuiEventoPendente($companyId, "romaneio", $localId)) {
                 $this->connection->prepare(
                     "UPDATE romaneios SET remote_romaneio_id = :remote_id
-                     WHERE id = :id AND company_id = :company_id",
+                     WHERE id = :id AND company_id = :company_id AND remote_romaneio_id IS NULL",
                 )->execute(["remote_id" => $remoteId, "id" => $localId, "company_id" => $companyId]);
-                return $localId;
+                return $localEncerrado ? null : $localId;
             }
             $update = $this->connection->prepare(
                 "UPDATE romaneios SET remote_romaneio_id = :remote_id, number = :number,
@@ -69,7 +75,7 @@ final class RepositorioRomaneiosRemotos
                 "id" => $localId,
                 "company_id" => $companyId,
             ]);
-            return $localId;
+            return $remotoEncerrado ? null : $localId;
         }
         $insert = $this->connection->prepare(
             "INSERT INTO romaneios
@@ -84,7 +90,7 @@ final class RepositorioRomaneiosRemotos
             "scheduled_date" => $remote["scheduled_date"] ?? date("Y-m-d"),
             "status" => $status,
         ]);
-        return (int) $this->connection->lastInsertId();
+        return $remotoEncerrado ? null : (int) $this->connection->lastInsertId();
     }
 
     /** @param list<array<string,mixed>> $cancelledManifests */
@@ -143,6 +149,7 @@ final class RepositorioRomaneiosRemotos
     /** @param list<array<string,mixed>> $manifests */
     public function sincronizarRomaneiosDisponiveis(int $companyId, array $manifests): int
     {
+        $lock = $this->connection->getAttribute(PDO::ATTR_DRIVER_NAME) === "sqlite" ? "" : " FOR UPDATE";
         $findByRemoteId = $this->connection->prepare(
             "SELECT id FROM romaneios
              WHERE company_id = :company_id AND remote_romaneio_id = :remote_id LIMIT 1",
@@ -203,7 +210,7 @@ final class RepositorioRomaneiosRemotos
                 ]);
             } else {
                 $current = $this->connection->prepare(
-                    "SELECT status FROM romaneios WHERE id = :id AND company_id = :company_id LIMIT 1",
+                    "SELECT status FROM romaneios WHERE id = :id AND company_id = :company_id LIMIT 1" . $lock,
                 );
                 $current->execute(["id" => $localId, "company_id" => $companyId]);
                 $currentStatus = strtoupper(trim((string) ($current->fetchColumn() ?: "")));

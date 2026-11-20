@@ -18,7 +18,7 @@ final class RepositorioCarregamentosRemotos
     }
 
     /** @param array<string,mixed> $remote */
-    public function salvarOuAtualizar(int $companyId, ?int $equipmentId, array $remote): int
+    public function salvarOuAtualizar(int $companyId, ?int $equipmentId, array $remote): ?int
     {
         $remoteLoadingId = (int) ($remote["id"] ?? 0);
         $remoteManifestId = (int) ($remote["romaneio_id"] ?? 0);
@@ -27,18 +27,27 @@ final class RepositorioCarregamentosRemotos
         }
 
         $manifestId = $this->romaneios->salvarOuAtualizarRomaneio($companyId, $remoteManifestId, $remote);
+        if ($manifestId === null) {
+            return null;
+        }
+
+        $lock = $this->connection->getAttribute(PDO::ATTR_DRIVER_NAME) === "sqlite" ? "" : " FOR UPDATE";
+        $find = $this->connection->prepare(
+            "SELECT id, state FROM carregamentos
+             WHERE company_id = :company_id AND remote_carregamento_id = :remote_id LIMIT 1" . $lock,
+        );
+        $find->execute(["company_id" => $companyId, "remote_id" => $remoteLoadingId]);
+        $local = $find->fetch(PDO::FETCH_ASSOC);
+        if (($local["state"] ?? null) === "FINALIZADO") {
+            return null;
+        }
+        $localId = (int) ($local["id"] ?? 0);
         $truckId = $this->romaneios->salvarOuAtualizarCaminhao(
             $companyId,
             $manifestId,
             (int) ($remote["truck_id"] ?? 0),
             $remote,
         );
-        $find = $this->connection->prepare(
-            "SELECT id FROM carregamentos
-             WHERE company_id = :company_id AND remote_carregamento_id = :remote_id LIMIT 1",
-        );
-        $find->execute(["company_id" => $companyId, "remote_id" => $remoteLoadingId]);
-        $localId = (int) ($find->fetchColumn() ?: 0);
         $state = $this->normalizarEstado((string) ($remote["state"] ?? "PREPARANDO"));
         $hasPendingLoadingEvent = false;
 
@@ -94,8 +103,11 @@ final class RepositorioCarregamentosRemotos
         }
 
         $statement = $this->connection->prepare(
-            "SELECT id FROM carregamentos
-             WHERE company_id = :company_id AND remote_carregamento_id = :remote_id LIMIT 1",
+            "SELECT c.id FROM carregamentos c
+             JOIN romaneios r ON r.id = c.romaneio_id AND r.company_id = c.company_id
+             WHERE c.company_id = :company_id AND c.remote_carregamento_id = :remote_id
+               AND c.state <> 'FINALIZADO' AND r.status NOT IN ('FINALIZADO', 'CANCELADO')
+             LIMIT 1",
         );
         $statement->execute(["company_id" => $companyId, "remote_id" => $remoteLoadingId]);
         $id = $statement->fetchColumn();

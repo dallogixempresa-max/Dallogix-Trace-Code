@@ -345,6 +345,9 @@ try {
     $eventAtEpochMs = $deviceDetectedAt !== null
         ? (int) round(((float) $parsedDeviceDate->format("U.u")) * 1000)
         : (int) round(microtime(true) * 1000);
+    $modbusPassageFromMs = $deviceDetectedAt !== null && $detectedAtEpochMs !== null
+        ? trace_modbus_passage_from_ms($payload["modbus_passage_from_epoch_ms"] ?? null, $eventAtEpochMs)
+        : null;
     $countsTowardPlan = !ServicoPausasCarregamento::estaNaPausa(
         $pdo,
         (int) $loadingId,
@@ -389,9 +392,9 @@ try {
     $insert = $pdo->prepare(
         "INSERT INTO eventos_sensor
             (carregamento_id, equipment_id, event_uuid, detected_at, device_detected_at,
-             event_at_epoch_ms, conta_na_meta_origem, conta_na_meta, debounce_ms)
+             event_at_epoch_ms, modbus_passage_from_epoch_ms, conta_na_meta_origem, conta_na_meta, debounce_ms)
          VALUES (:carregamento_id, :equipment_id, :event_uuid, NOW(3), :device_detected_at,
-                 :event_at_epoch_ms, :conta_na_meta_origem, :conta_na_meta, :debounce_ms)",
+                 :event_at_epoch_ms, :modbus_passage_from_epoch_ms, :conta_na_meta_origem, :conta_na_meta, :debounce_ms)",
     );
     $insert->execute([
         "carregamento_id" => $loadingId,
@@ -399,6 +402,7 @@ try {
         "event_uuid" => $eventUuid,
         "device_detected_at" => $deviceDetectedAt,
         "event_at_epoch_ms" => $eventAtEpochMs,
+        "modbus_passage_from_epoch_ms" => $modbusPassageFromMs,
         "conta_na_meta_origem" => $countsTowardPlan ? 1 : 0,
         "conta_na_meta" => $countsTowardPlan ? 1 : 0,
         "debounce_ms" => $debounceMs,
@@ -416,6 +420,7 @@ try {
             "device_id" => $device["id"],
             "device_code" => $device["device_code"],
             "event_at_epoch_ms" => $eventAtEpochMs,
+            ...($modbusPassageFromMs !== null ? ["modbus_passage_from_epoch_ms" => $modbusPassageFromMs] : []),
             "conta_na_meta" => $countsTowardPlan,
             "scanner_correlated_reading_id" => null,
         ],

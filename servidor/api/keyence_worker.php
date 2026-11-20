@@ -106,6 +106,13 @@ if ($action === "STATUS") {
     ]]);
 }
 
+$proximaPassagem = "(SELECT MIN(next_event.event_at_epoch_ms)
+    FROM eventos_sensor next_event
+    WHERE next_event.carregamento_id = s.carregamento_id
+      AND next_event.equipment_id = s.equipment_id
+      AND next_event.event_at_epoch_ms >= s.event_at_epoch_ms
+      AND next_event.id <> s.id)";
+
 if ($action === "PENDING_IMAGES") {
     $afterId = filter_var($payload["after_request_id"] ?? 0, FILTER_VALIDATE_INT);
     if ($afterId === false || $afterId < 0) {
@@ -115,7 +122,8 @@ if ($action === "PENDING_IMAGES") {
     $statement = $pdo->prepare(
         "SELECT r.id, r.sensor_event_id, r.status, r.reason, r.image_sha256,
                 CAST(ROUND(UNIX_TIMESTAMP(r.requested_at) * 1000) AS UNSIGNED) AS requested_at_epoch_ms,
-                s.device_detected_at,
+                s.event_at_epoch_ms, s.device_detected_at,
+                {$proximaPassagem} AS next_event_at_epoch_ms,
                 CAST(ROUND(UNIX_TIMESTAMP(s.detected_at) * 1000) AS UNSIGNED) AS server_detected_at_epoch_ms
          FROM solicitacoes_imagens_evidencia r
          JOIN carregamentos c ON c.id = r.carregamento_id
@@ -131,10 +139,13 @@ if ($action === "PENDING_IMAGES") {
         "equipment_id" => $device["equipment_id"],
         "company_id" => $device["company_id"],
     ]);
-    $requests = array_map(static function (array $row): array {
+    $travelMs = trace_scanner_timing()["travel_ms"];
+    $requests = array_map(static function (array $row) use ($travelMs): array {
         $sensorDetectedAtMs = $row["device_detected_at"] !== null
             ? trace_sql_datetime_to_epoch_ms((string) $row["device_detected_at"])
             : (int) $row["server_detected_at_epoch_ms"];
+        $eventAtMs = (int) ($row["event_at_epoch_ms"] ?? 0);
+        $nextAtMs = (int) ($row["next_event_at_epoch_ms"] ?? 0);
         $imageHash = strtolower((string) ($row["image_sha256"] ?? ""));
         return [
             "id" => (int) $row["id"],
@@ -143,7 +154,9 @@ if ($action === "PENDING_IMAGES") {
             "image_sha256" => preg_match('/^[a-f0-9]{64}$/', $imageHash) === 1 ? $imageHash : null,
             "requested_at_epoch_ms" => (int) $row["requested_at_epoch_ms"],
             "sensor_detected_at_epoch_ms" => $sensorDetectedAtMs,
-            "image_expected_at_epoch_ms" => $sensorDetectedAtMs + trace_scanner_timing()["travel_ms"],
+            "image_expected_at_epoch_ms" => ($eventAtMs ?: $sensorDetectedAtMs) + $travelMs,
+            "image_valid_from_epoch_ms" => $eventAtMs > 0 ? $eventAtMs + $travelMs : null,
+            "image_valid_until_epoch_ms" => $nextAtMs > 0 ? $nextAtMs + $travelMs : null,
         ];
     }, $statement->fetchAll(PDO::FETCH_ASSOC));
     json_response([
@@ -223,6 +236,23 @@ try {
     if (!$capture || !in_array($capture["reason"], ["SEM_LEITURA", "PRODUTO_INCORRETO", "EXCESSO"], true)) {
         $pdo->rollBack();
         json_response(["error" => "Solicitação de evidência não encontrada para esta Dala."], 404);
+    }
+    if (!$archiveRecovery && ($payload["capture_clock"] ?? null) === "KEYENCE_ARCHIVE") {
+        $timing = $pdo->prepare(
+            "SELECT s.event_at_epoch_ms, {$proximaPassagem} AS next_event_at_epoch_ms
+             FROM eventos_sensor s
+             WHERE s.id = ? AND s.carregamento_id = ? AND s.equipment_id = ?",
+        );
+        $timing->execute([(int) $capture["sensor_event_id"], (int) $capture["carregamento_id"], (int) $capture["equipment_id"]]);
+        $passage = $timing->fetch(PDO::FETCH_ASSOC) ?: [];
+        $from = (int) ($passage["event_at_epoch_ms"] ?? 0);
+        $until = (int) ($passage["next_event_at_epoch_ms"] ?? 0);
+        $travelMs = trace_scanner_timing()["travel_ms"];
+        if ($capturedAtEpochMs === null || ($from > 0 && $capturedAtEpochMs < $from + $travelMs)
+            || ($until > 0 && $capturedAtEpochMs >= $until + $travelMs)) {
+            $pdo->rollBack();
+            json_response(["error" => "A foto do arquivo Keyence está fora do intervalo desta passagem."], 409);
+        }
     }
     if ($archiveRecovery) {
         $windows = trace_janelas_recuperacao_keyence($pdo, $device, (int) $capture["carregamento_id"]);

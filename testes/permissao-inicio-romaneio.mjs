@@ -3,7 +3,13 @@ import test from "node:test";
 import { ROLE_PAGES } from "../interface/js/configuracaoAplicacao.js";
 import { manifestView } from "../interface/telas/romaneio/romaneio.js";
 
-function renderManifest({ role = "USUARIO", status = "AGUARDANDO", activeLoadingId = null } = {}) {
+function renderManifest({
+  role = "USUARIO",
+  status = "AGUARDANDO",
+  activeLoadingId = null,
+  loadingCount = 0,
+  pendingEvidenceCount = 0,
+} = {}) {
   return manifestView({
     state: {
       userRole: role,
@@ -12,8 +18,8 @@ function renderManifest({ role = "USUARIO", status = "AGUARDANDO", activeLoading
         number: "0511",
         status,
         active_loading_id: activeLoadingId,
-        loading_count: 0,
-        pending_evidence_count: 0,
+        loading_count: loadingCount,
+        pending_evidence_count: pendingEvidenceCount,
         planned_quantity: 15,
         detected_quantity: 0,
         loaded_quantity: 0,
@@ -36,4 +42,13 @@ test("Operador pode abrir a preparação e iniciar um romaneio aguardando", () =
 test("Operador não vê preparação se o romaneio já está ativo ou encerrado", () => {
   assert.doesNotMatch(renderManifest({ status: "EM_ANDAMENTO", activeLoadingId: 7 }), /data-action="prepare-manifest"/);
   assert.doesNotMatch(renderManifest({ status: "FINALIZADO" }), /data-action="prepare-manifest"/);
+});
+
+
+test("foto pendente fica visível e o operador pode encerrar após concluir os carregamentos", () => {
+  const html = renderManifest({ status: "EM_ANDAMENTO", loadingCount: 1, pendingEvidenceCount: 1 });
+  assert.match(html, /1 foto de falha segue pendente para o relatório/);
+  const button = html.match(/<button[^>]+data-action="finish-manifest"[^>]*>/)?.[0];
+  assert.ok(button);
+  assert.doesNotMatch(button, /disabled/);
 });

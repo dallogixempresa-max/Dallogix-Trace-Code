@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { work } from "../interface/telas/operacao/operacao.js";
 
-const ACOES_ESTEIRA = ["run", "stop", "reverse-on", "reverse-off"];
+const ACOES_ESTEIRA = ["run", "stop"];
 
 function botoesDeEsteira(markup) {
   return [...markup.matchAll(/<button\b[^>]*data-action="(run|stop|reverse-on|reverse-off)"[^>]*>/g)]
@@ -56,7 +56,7 @@ function assertTodosVisiveis(markup) {
   assert.doesNotMatch(botoes.map(({ html }) => html).join(" "), /\shidden(?:\s|=|>)/);
 }
 
-test("mantém os quatro botões de esteira visíveis em todos os estados", () => {
+test("mantém os dois comandos do operador visíveis em todos os estados", () => {
   for (const operationalState of ["PREPARANDO", "PAUSADO", "CARREGANDO", "FINALIZANDO", "AGUARDANDO", "FINALIZADO", "EMERGENCIA"]) {
     assertTodosVisiveis(render({
       operationalState,
@@ -123,21 +123,21 @@ test("estado PREPARANDO com indicador de movimento não libera comandos normais"
   assert.match(botao(markup, "stop"), /data-block-reason=/);
 });
 
-test("esteira parada habilita partida e apenas a reversão aplicável", () => {
+test("esteira parada oferece partida ao operador e indica o estado da reversão", () => {
   for (const operationalState of ["PREPARANDO", "PAUSADO"]) {
     const normal = render({
       operationalState,
       reversalCommand: "REVERSAO_DESATIVAR",
     });
     assertTodosVisiveis(normal);
-    assert.deepEqual(habilitadas(normal), ["run", "reverse-on"]);
+    assert.deepEqual(habilitadas(normal), ["run"]);
 
     const reversa = render({
       operationalState,
       reversalCommand: "REVERSAO_ATIVAR",
     });
     assertTodosVisiveis(reversa);
-    assert.deepEqual(habilitadas(reversa), ["run", "reverse-off"]);
+    assert.deepEqual(habilitadas(reversa), ["run"]);
     const run = botao(reversa, "run");
     assert.match(run, /title="Confirme a reversão desligada antes de ligar a esteira para frente\./);
     assert.match(run, /data-action-notice="Confirme a reversão desligada antes de ligar a esteira para frente\./);
@@ -150,7 +150,7 @@ test("motivo de parada desabilita Ligar esteira sem ocultar o motivo", () => {
   const run = botao(markup, "run");
 
   assertTodosVisiveis(markup);
-  assert.deepEqual(habilitadas(markup), ["reverse-on"]);
+  assert.deepEqual(habilitadas(markup), []);
   assert.match(run, /\sdisabled(?:\s|=|>)/);
   assert.match(run, /data-block-reason="Confirme a parada física e finalize o romaneio/);
 });
@@ -160,18 +160,17 @@ test("meta atingida bloqueia nova partida mesmo sem stopReason", () => {
   const run = botao(markup, "run");
 
   assertTodosVisiveis(markup);
-  assert.deepEqual(habilitadas(markup), ["reverse-on"]);
+  assert.deepEqual(habilitadas(markup), []);
   assert.match(run, /\sdisabled(?:\s|=|>)/);
   assert.match(run, /data-block-reason="A quantidade prevista do romaneio foi atingida/);
 });
 
-test("estado desconhecido da reversão impede trocar o sentido", () => {
+test("estado desconhecido da reversão orienta o operador na partida", () => {
   const markup = render({ operationalState: "PAUSADO", reversalCommand: "DESCONHECIDO" });
 
   assertTodosVisiveis(markup);
   assert.deepEqual(habilitadas(markup), ["run"]);
-  assert.match(botao(markup, "reverse-on"), /data-block-reason="Confirme o estado da reversão/);
-  assert.match(botao(markup, "reverse-off"), /data-block-reason="Confirme o estado da reversão/);
+  assert.match(botao(markup, "run"), /data-action-notice="Confirme a reversão desligada/);
 });
 
 test("reversão pendente bloqueia novos comandos e explica a espera", () => {
@@ -184,8 +183,8 @@ test("reversão pendente bloqueia novos comandos e explica a espera", () => {
 
     assertTodosVisiveis(markup);
     assert.deepEqual(habilitadas(markup), []);
-    assert.match(botao(markup, "reverse-off"), /data-block-reason=/);
-    assert.match(botao(markup, "reverse-off"), /title="Aguarde/);
+    assert.match(botao(markup, "run"), /data-block-reason=/);
+    assert.match(botao(markup, "run"), /title="Aguarde/);
   }
 });
 
@@ -275,10 +274,29 @@ test("gateway sem liberação bloqueia comandos normais e não oferece emergênc
   assert.doesNotMatch(botao(markup, "run"), /data-action-notice=/);
 });
 
-test("perfil sem permissão bloqueia os comandos operacionais com motivo claro", () => {
+test("perfil de leitura acompanha a operação sem comandos", () => {
   const markup = render({ userRole: "LEITURA" });
 
-  assertTodosVisiveis(markup);
-  assert.deepEqual(habilitadas(markup), []);
-  assert.match(botao(markup, "run"), /data-block-reason="Seu perfil não pode enviar comandos para a máquina\./);
+  assert.deepEqual(botoesDeEsteira(markup), []);
+  assert.match(markup, /Sacas detectadas pelo sensor/);
+});
+
+test("admin e supervisor acompanham os produtos sem comandos da esteira", () => {
+  for (const userRole of ["ADMIN_EMPRESA", "SUPERVISOR"]) {
+    const markup = render({ userRole, loadingItems: [{ name: "Produto do romaneio" }] });
+    assert.deepEqual(botoesDeEsteira(markup), []);
+    assert.match(markup, /Produto do romaneio/);
+  }
+});
+
+
+test("uma passagem ausente permanece sinalizada quando chega um código válido", () => {
+  const markup = render({
+    operationalState: "CARREGANDO",
+    scannerUnmatchedCount: 1,
+    latestScannerReading: { result: "VALIDO", value: "7898538751531" },
+  });
+  assert.match(markup, /data-live="scanner-unmatched-notice" role="status">Leituras sem passagem nesta tela/);
+  assert.match(markup, /data-live="scanner-unmatched-count">1<\/strong>/);
+  assert.match(markup, /7898538751531/);
 });

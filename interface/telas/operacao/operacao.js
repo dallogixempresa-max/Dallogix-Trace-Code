@@ -103,7 +103,7 @@ function estadoControles(state) {
     emergency,
     hasLoading: Boolean(state.loadingId),
     manifestTargetReached: planned > 0 && detected >= planned,
-    canOperate: ["ADMIN_EMPRESA", "SUPERVISOR", "USUARIO"].includes(String(state.userRole || "").toUpperCase()),
+    canOperate: String(state.userRole || "").toUpperCase() === "USUARIO",
     reversalKnown: ["REVERSAO_ATIVAR", "REVERSAO_DESATIVAR"].includes(reversalCommand),
     reversalOn: reversalCommand === "REVERSAO_ATIVAR" ||
       (commandPending && pendingCommand === "REVERSAO_ATIVAR"),
@@ -279,11 +279,8 @@ function workControls(store) {
   };
   const estadoOperacional = controlState.operationalState;
   const esteiraEmMovimentoOuIniciando = controlState.stopAvailable;
-  const estadoReversaoConhecido = controlState.reversalKnown;
-  const reversaoDesligarPermitida = controlState.reversalOffPermitted;
   const metaOuParadaFisicaBloqueiaInicio = Boolean(store.state.stopReason) ||
     controlState.manifestTargetReached;
-  const motivoEstadoReversao = "Confirme o estado da reversão antes de alterar o sentido.";
   const atributosLigarEsteira = atributosAcao(
     motivosAcao.run,
     !comandosDisponiveis || comandoPendente || esteiraEmMovimentoOuIniciando ||
@@ -299,18 +296,6 @@ function workControls(store) {
     motivosAcao.stop || (esteiraEmMovimentoOuIniciando ? "" : motivoParadaIndisponivel),
     !comandosDisponiveis || !esteiraEmMovimentoOuIniciando || Boolean(motivosAcao.stop),
   );
-  const atributosLigarReversao = esteiraEmMovimentoOuIniciando
-    ? atributosAcao(motivosAcao["reverse-on"] || "A esteira precisa estar parada para alterar a reversão.", true)
-    : atributosAcao(
-      motivosAcao["reverse-on"] || (!estadoReversaoConhecido ? motivoEstadoReversao : ""),
-      !comandosDisponiveis || comandoPendente || !estadoReversaoConhecido || Boolean(motivosAcao["reverse-on"]),
-    );
-  const atributosDesligarReversao = esteiraEmMovimentoOuIniciando
-    ? atributosAcao(motivosAcao["reverse-off"] || "A esteira precisa estar parada para alterar a reversão.", true)
-    : atributosAcao(
-      motivosAcao["reverse-off"] || (!reversaoDesligarPermitida ? motivoEstadoReversao : ""),
-      !comandosDisponiveis || comandoPendente || !reversaoDesligarPermitida || Boolean(motivosAcao["reverse-off"]),
-    );
   const rotuloPararEsteira = esteiraEmMovimentoOuIniciando
     ? controlState.reversalCommand === "REVERSAO_ATIVAR"
       ? "Desligar esteira · sentido reversa"
@@ -324,13 +309,15 @@ function workControls(store) {
     ? (latestScannerReading?.value || "Aguardando leitura…")
     : "Aguardando leitura…";
   const scannerValueClass = leitorPodeConcluirPassagens &&
-    ["SEM_LEITURA", "PRODUTO_INCORRETO"].includes(latestScannerReading?.result)
+    ["SEM_LEITURA", "SEM_PASSAGEM", "PRODUTO_INCORRETO"].includes(latestScannerReading?.result)
     ? " is-error"
     : "";
+  const scannerUnmatchedCount = Number(store.state.scannerUnmatchedCount) || 0;
+  const scannerUnmatchedNotice = `<p class="work-completion-notice excess" data-live="scanner-unmatched-notice" role="status"${scannerUnmatchedCount > 0 ? "" : " hidden"}>Leituras sem passagem nesta tela: <strong data-live="scanner-unmatched-count">${numero(scannerUnmatchedCount)}</strong>. Confira a contagem antes de continuar.</p>`;
   const scannerMonitor = store.state.loadingId
     ? `<div class="work-reader-monitor"><div class="work-reader-monitor-heading"><span class="kicker">Visor do leitor</span><small>Último código recebido automaticamente do leitor.</small></div><div class="work-scanner-display"><span class="work-scanner-display-label">Código de barras</span><output id="automatic-scanner-barcode" class="work-scanner-display-value${scannerValueClass}" data-live="scanner-value" role="status" aria-live="polite" aria-atomic="true">${esc(scannerValue)}</output></div></div>`
     : "";
-  const controls = `<div class="work-controls"><div class="work-routine-controls">${button("Ligar esteira", "run", "primary", atributosLigarEsteira)}${button(rotuloPararEsteira, "stop", "ghost", atributosPararEsteira)}${button("Ligar reversão", "reverse-on", "secondary", atributosLigarReversao)}${button("Desligar reversão", "reverse-off", "secondary", atributosDesligarReversao)}</div></div>`;
+  const controls = `<div class="work-controls"><div class="work-routine-controls">${button("Ligar esteira", "run", "primary", atributosLigarEsteira)}${button(rotuloPararEsteira, "stop", "ghost", atributosPararEsteira)}</div></div>`;
   const finishReady = podeFinalizarCarregamento(store.state);
   const targetReached = plannedTotal > 0 && detectedBags >= plannedTotal;
   const finishBlockReason = motivoBloqueioFinalizacao(store.state);
@@ -446,17 +433,19 @@ function workControls(store) {
     : remainingTotal === 0
       ? `Quantidade física atingida · ${numero(validReadings)} códigos válidos`
       : `Falta${remainingTotal === 1 ? "" : "m"} ${numero(remainingTotal)} saca${remainingTotal === 1 ? "" : "s"} para a quantidade prevista`;
-  const totalSummary = `<section class="work-live-summary" aria-label="Contagem e progresso do carregamento"><div class="work-live-summary-heading"><strong>Sacas detectadas pelo sensor</strong><span><b data-live="detected">${numero(detectedBags)}</b> / <b data-live="planned">${numero(plannedTotal)}</b> previstas · <span data-live="progress-percent">${totalPercent}%</span></span></div><div class="work-live-summary-foot"><span>Scanner: <b data-live="scanner-readings">${numero(store.state.scannerReadings || 0)}</b> sacas com código</span></div><div class="progress work-live-progress" role="progressbar" aria-label="Progresso de sacas detectadas pelo sensor M2052" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${totalPercent}"><i data-live="progress-bar" style="width:${totalPercent}%"></i></div><div class="work-live-summary-foot"><span data-live="remaining-label">${remainingLabel}</span> · <b>${numero(validReadings)}</b> leituras válidas</div><p class="work-completion-notice ${endNoticeTone}" data-live="end-notice"${endNotice ? "" : " hidden"}>${endNotice}</p>${finishBlockNotice}${scannerMonitor}</section>`;
+  const totalSummary = `<section class="work-live-summary" aria-label="Contagem e progresso do carregamento"><div class="work-live-summary-heading"><strong>Sacas detectadas pelo sensor</strong><span><b data-live="detected">${numero(detectedBags)}</b> / <b data-live="planned">${numero(plannedTotal)}</b> previstas · <span data-live="progress-percent">${totalPercent}%</span></span></div><div class="work-live-summary-foot"><span>Scanner: <b data-live="scanner-readings">${numero(store.state.scannerReadings || 0)}</b> sacas com código</span></div><div class="progress work-live-progress" role="progressbar" aria-label="Progresso de sacas detectadas pelo sensor M2052" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${totalPercent}"><i data-live="progress-bar" style="width:${totalPercent}%"></i></div><div class="work-live-summary-foot"><span data-live="remaining-label">${remainingLabel}</span> · <b>${numero(validReadings)}</b> leituras válidas</div><p class="work-completion-notice ${endNoticeTone}" data-live="end-notice"${endNotice ? "" : " hidden"}>${endNotice}</p>${finishBlockNotice}${scannerMonitor}${scannerUnmatchedNotice}</section>`;
   const panelHeading = estadoOperacional === "EMERGENCIA"
     ? ""
     : `<div class="panel-heading"><div><span class="kicker">Comandos da máquina</span><h3>Operar Dala</h3></div></div>`;
   const commandFeedback = store.state.commandFeedback
     ? `<p class="work-selection-error" role="alert" aria-live="assertive">${esc(store.state.commandFeedback)}</p>`
     : "";
-  const machinePanel = `<section class="panel work-machine-panel">${panelHeading}${commandFeedback}<div class="work-machine-controls">${stopConfirmation}${controls}</div></section>`;
+  const machinePanel = controlState.canOperate
+    ? `<section class="panel work-machine-panel">${panelHeading}${commandFeedback}<div class="work-machine-controls">${controls}</div></section>`
+    : commandFeedback;
   const statusColumn = `<section class="work-status-column">${totalSummary}${itemProgress}</section>`;
   const workHeader = `<header class="work-screen-header">${loadingPicker}<div class="work-screen-heading"><h2>${esc(workTitle)}</h2><p>Dala ${esc(equipmentLabel(store))} · Caminhão ${esc(store.state.truck || "—")} <span class="work-header-state">${badge}</span></p></div>${finishAction}</header>`;
-  return `<div class="work-operation-screen">${workHeader}<div class="work-operation-layout">${statusColumn}${machinePanel}</div></div>`;
+  return `<div class="work-operation-screen">${workHeader}<div class="work-operation-layout${controlState.canOperate ? " has-machine-controls" : " is-monitoring"}">${statusColumn}${machinePanel}</div>${stopConfirmation}</div>`;
 }
 export function work(store) {
   if (

@@ -282,12 +282,15 @@ final class ServicoSincronizacaoRemota
                 if ($remoteEquipmentId !== false && $remoteEquipmentId !== null && $remoteEquipmentId > 0 && !$equipmentId) {
                     continue;
                 }
-                $loadingIds[(int) $remoteLoading["id"]] = $this->repositorioCarregamentos->salvarOuAtualizar(
+                $loadingId = $this->repositorioCarregamentos->salvarOuAtualizar(
                     $companyId,
                     $equipmentId,
                     $remoteLoading,
                 );
-                $updated++;
+                if ($loadingId !== null) {
+                    $loadingIds[(int) $remoteLoading["id"]] = $loadingId;
+                    $updated++;
+                }
             }
 
             $this->repositorioCarregamentos->finalizarAusentes($companyId, array_keys($loadingIds));

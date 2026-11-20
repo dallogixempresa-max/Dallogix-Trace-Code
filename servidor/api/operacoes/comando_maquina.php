@@ -26,6 +26,7 @@ $loadingId = filter_var(
     FILTER_VALIDATE_INT,
 );
 $command = strtoupper(trim((string) ($payload["command"] ?? "")));
+$operationCommand = in_array($command, ["INICIAR_CARREGAMENTO", "PAUSAR_CARREGAMENTO"], true);
 if (!$loadingId) {
     json_response(
         [
@@ -38,8 +39,8 @@ if (!$loadingId) {
 try {
     $service = new ServicoComandoClp(db());
     $data = match (true) {
-        in_array($command, ["INICIAR_CARREGAMENTO", "PAUSAR_CARREGAMENTO"], true)
-            => $service->solicitarOperacao($user, (int) $loadingId, $command),
+        $operationCommand
+            => $service->solicitarOperacaoManual($user, (int) $loadingId, $command),
         $command === "EMERGENCIA"
             => $service->solicitarEmergencia($user, (int) $loadingId),
         default

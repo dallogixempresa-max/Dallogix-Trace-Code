@@ -175,7 +175,7 @@ function expirar_solicitacoes_imagem_keyence(PDO $pdo, ?int $equipmentId = null,
     $configured = filter_var(getenv("KEYENCE_IMAGE_RECEIVE_TIMEOUT_MS") ?: 120000, FILTER_VALIDATE_INT);
     $timeoutMicroseconds = max(1000, min(120000, $configured === false ? 120000 : (int) $configured)) * 1000;
     $conditions = [
-        "reason IN ('SEM_LEITURA', 'EXCESSO')",
+        "reason IN ('SEM_LEITURA', 'PRODUTO_INCORRETO', 'EXCESSO')",
         "status IN ('PENDENTE', 'CAPTURANDO')",
         "requested_at <= NOW(3) - INTERVAL {$timeoutMicroseconds} MICROSECOND",
     ];

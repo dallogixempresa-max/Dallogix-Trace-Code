@@ -40,6 +40,15 @@ final class ServicoComandoClp
         );
     }
 
+    /** @param array{id:int|string|null, company_id:int|string|null, role?:string} $user */
+    public function solicitarOperacaoManual(array $user, int $loadingId, string $command): array
+    {
+        if (($user["role"] ?? null) !== "USUARIO") {
+            throw new ExcecaoComandoClp("Somente o operador pode ligar ou desligar a esteira.", 403);
+        }
+        return $this->solicitarOperacao($user, $loadingId, $command);
+    }
+
     /** @param array{id:int|string|null, company_id:int|string|null} $user */
     public function solicitarOperacao(
         array $user,
