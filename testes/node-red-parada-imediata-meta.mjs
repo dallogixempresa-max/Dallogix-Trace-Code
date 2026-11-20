@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
@@ -18,7 +19,9 @@ test("a quota do sensor dispara claim imediato pelo mesmo gateway físico", asyn
   );
 
   const now = Date.now();
-  const sensorState = new Map([["trace_sensor_last_value_17", false]]);
+  const sensorState = new Map([[
+    "trace_sensor_sample_17", { source: "10.0.0.10|502|1|2052|rising_edge|1", active: false, requestSentAt: now - 200 },
+  ]]);
   const processModbusResult = new Function("msg", "env", "flow", modbusResultNode.func);
   const sensorOutputs = processModbusResult(
     {
@@ -33,7 +36,9 @@ test("a quota do sensor dispara claim imediato pelo mesmo gateway físico", asyn
       modbusRegister: 2052,
       modbusPurpose: "sensor",
       modbusTransaction: 1,
-      modbusStartedAt: now,
+      modbusStartedAt: now - 100,
+      modbusRequestSentAt: now - 90,
+      modbusResponseAt: now,
       activeLoadingId: 42,
     },
     { get: (name) => ({ TRACE_API_URL: "http://trace.local/", TRACE_SENSOR_ACTIVE_LEVEL: "1", TRACE_SENSOR_SIGNAL_MODE: "rising_edge" })[name] },
@@ -46,6 +51,8 @@ test("a quota do sensor dispara claim imediato pelo mesmo gateway físico", asyn
   assert.equal(modbusResultNode.wires[2][0], "sensor-event-outbox-enqueue");
   const sensorEvent = sensorOutputs[2];
   assert.ok(sensorEvent);
+  assert.equal(sensorEvent.payload.detected_at_epoch_ms, now);
+  assert.equal(sensorEvent.payload.modbus_passage_from_epoch_ms, now - 200);
   assert.deepEqual(sensorEvent.traceEquipment, { id: 17, plc_connect_ip: "10.0.0.10", plc_port: 502, plc_protocol: "MODBUS_TCP" });
   assert.equal(sensorEvent.modbusHost, "10.0.0.10");
   assert.equal(sensorEvent.modbusPort, 502);
@@ -121,4 +128,36 @@ test("evento duplicado ou sem pausa pendente não cria claim de máquina", async
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(outputs.some((value) => value?.[2]), false);
   }
+});
+
+
+test("uma consulta M2052 sem resposta libera a próxima amostra no limite aceito", () => {
+  const now = 1795116546200;
+  const fixedDate = { now: () => now };
+  let timer;
+  let timerDelay;
+  let destroyed = false;
+  const errors = [];
+  const socket = new EventEmitter();
+  socket.connect = () => {};
+  socket.destroy = () => { destroyed = true; };
+  const frame = Buffer.from([0, 1, 0, 0, 0, 6, 1, 1, 8, 4, 0, 1]);
+  const state = new Map([["modbus_sensor_inflight_17", true]]);
+  const request = new Function("msg", "global", "node", "setTimeout", "clearTimeout", "Date", byId("modbus-request").func);
+  request(
+    { payload: frame, host: "10.0.0.10", port: 502, modbusPurpose: "sensor", equipmentId: 17, modbusStartedAt: now },
+    { get: () => () => socket },
+    { error: (error, msg) => errors.push({ error, msg }) },
+    (callback, delay) => { timer = callback; timerDelay = delay; return 1; },
+    () => {},
+    fixedDate,
+  );
+  assert.equal(timerDelay, 2000);
+  timer();
+  assert.equal(destroyed, true);
+  assert.equal(errors.length, 1);
+  const fail = new Function("msg", "env", "flow", "Date", byId("heartbeat-request-failed").func);
+  const failureOutputs = fail(errors[0].msg, new Map(), state, fixedDate);
+  assert.deepEqual(failureOutputs, [null, null]);
+  assert.equal(state.get("modbus_sensor_inflight_17"), false);
 });

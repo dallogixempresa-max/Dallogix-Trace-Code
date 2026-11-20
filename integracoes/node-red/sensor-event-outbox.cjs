@@ -21,6 +21,11 @@ function normalizeEvent(value) {
         || !Number.isSafeInteger(event.detected_at_epoch_ms) || event.detected_at_epoch_ms < 1) {
         throw new TypeError("Evento do sensor sem identificador ou dados válidos.");
     }
+    const from = Number(value.modbus_passage_from_epoch_ms);
+    if (Number.isSafeInteger(from) && from > 0 && from <= event.detected_at_epoch_ms
+        && event.detected_at_epoch_ms - from <= 2000) {
+        event.modbus_passage_from_epoch_ms = from;
+    }
     return event;
 }
 

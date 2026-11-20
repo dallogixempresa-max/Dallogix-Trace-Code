@@ -71,7 +71,8 @@ export class ServicoLeiturasOperacionais {
     const reading = { loadingId, receivedAt: Number(scannerReceivedAtEpochMs) || Date.now() };
     this.pendingScannerReadings.add(reading);
     try {
-      const associationDeadline = Date.now() + 1500;
+      // Aguarde até o limite Modbus de 2 s mais o envio da passagem à API.
+      const associationDeadline = Date.now() + 3000;
       let transientRetryCount = 0;
       while (Number(this.state.loadingId) === loadingId) {
         const earlierTimes = [];
@@ -101,14 +102,14 @@ export class ServicoLeiturasOperacionais {
             || body.error === "Leitura aguardando o evento de passagem do sensor M2052.";
           if (waitingForPassage) {
             if (Date.now() >= associationDeadline) return { result: "SEM_PASSAGEM" };
-            await new Promise((resolve) => setTimeout(resolve, 150));
+            await new Promise((resolve) => setTimeout(resolve, 200));
             continue;
           }
         }
 
         // A janela de associação só limita espera por um evento M2052 ainda não
         // recebido. Deadlock/lock timeout é outra espera: a transação foi revertida
-        // e o mesmo identificador idempotente pode ser repetido mesmo após 1,5 s,
+        // e o mesmo identificador idempotente pode ser repetido mesmo após a espera de associação,
         // enquanto o finalizador ainda não tiver registrado SEM_LEITURA.
         if (response.status === 503 && transientRetryCount < 2) {
           const body = await response.clone().json().catch(() => ({}));
