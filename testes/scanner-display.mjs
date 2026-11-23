@@ -479,13 +479,49 @@ test("leitura já vinculada ao M2052 ainda é registrada após ACK de parada", a
 });
 
 
-test("o HID serializa as capturas e conserva o vínculo temporal histórico", async () => {
-  assert.match(application, /let queue = Promise\.resolve\(\);[\s\S]*?onBarcode: \(barcode, capturedAtEpochMs\) => \{\s*queue = queue\.then/);
+test("HID preserva a carga da primeira tecla durante a captura e na espera da fila", async () => {
+  const handlers = new Map();
+  const submitted = [];
+  const state = { loadingId: 41, operationalState: "CARREGANDO" };
+  let releaseFirst;
+  const blocked = new Promise(resolve => { releaseFirst = resolve; });
+  const store = { state, registerScannerReading: async barcode => {
+    submitted.push([barcode, state.loadingId]);
+    if (submitted.length === 1) await blocked;
+  } };
+  const document = {
+    body: { dataset: {} }, visibilityState: "visible",
+    querySelector: selector => selector === ".work-operation-screen" ? {} : null,
+    addEventListener: (event, handler) => handlers.set(event, handler),
+  };
+  const scans = [];
+  const install = application.slice(application.indexOf("function installScannerHidReceiver()"), application.indexOf("function installInteractionGuards()"));
+  new Function("store", "document", "window", "currentPage", "createHidScannerCapture", "isScannerNoReadMarker", "logFrontend",
+    install + "\ninstallScannerHidReceiver();")(store, document, { addEventListener() {} }, "work", options => createHidScannerCapture({
+      ...options, onBarcode: (...args) => { scans.push(options.onBarcode(...args)); },
+    }), isScannerNoReadMarker, { aviso() {}, erro(error) { throw error; } });
+
+  const key = key => handlers.get("keydown")({ key });
+  const scan = code => { for (const digit of code) key(digit); key("Enter"); };
+  scan("111");
+  await Promise.resolve();
+  scan("222"); // Captura completa, aguardando a primeira requisição.
+  key("3"); // Troca de carga enquanto o leitor ainda transmite o terceiro código.
+  state.loadingId = 42;
+  key("3"); key("3"); key("Enter");
+  scan("444");
+  releaseFirst();
+  await Promise.all(scans);
+  assert.deepEqual(submitted, [["111", 41], ["444", 42]]);
+});
+
+test("o HID serializa as capturas e mantém o horário original nos reenvios", async () => {
+  assert.match(application, /let queue = Promise\.resolve\(\);[\s\S]*?onBarcode: \(barcode, capturedAtEpochMs, loadingId\) => \{\s*queue = queue\.then/);
   assert.doesNotMatch(application, /let latestScan = 0;/);
   assert.doesNotMatch(readingsEndpoint, /trace_oldest_pending_passage/);
   const matcher = (await readFile(new URL("../servidor/api/operacoes/temporizacao_leitor.php", import.meta.url), "utf8"))
     .split("function trace_pending_scanner_event_match(")[1] || "";
-  assert.doesNotMatch(matcher, /modbus_passage_from_epoch_ms/);
+  assert.match(matcher, /trace_modbus_passage_from_ms/);
   assert.match(operationalReadingService, /associationDeadline = Date\.now\(\) \+ 1500/);
   assert.doesNotMatch(operationalReadingService, /return \{ result: "SEM_PASSAGEM" \}/);
 

@@ -1,6 +1,6 @@
 import { esc, button } from "../../js/funcoes/html.js";
-import { dataHora } from "../../js/funcoes/formato.js?v=202611230002";
-import { pageHeader } from "../../js/funcoes/view.js?v=202611230002";
+import { dataHora } from "../../js/funcoes/formato.js?v=202611230003";
+import { pageHeader } from "../../js/funcoes/view.js?v=202611230003";
 
 export function errorLogs(store) {
   const rows = store.state.errorLogs || [];

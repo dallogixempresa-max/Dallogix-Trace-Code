@@ -143,7 +143,7 @@ test("associa códigos às passagens em ordem e reserva um evento por quadro", (
   assert.match(scannerTiming, /\$expectedAtMs\s*=\s*\$detectedAtMs\s*\+\s*\$timing\["travel_ms"\]/);
   assert.match(scannerTiming, /ORDER BY s\.id ASC/);
   assert.match(scannerTiming, /FOR UPDATE/);
-  assert.match(scannerTiming, /ambiguity_margin_ms/);
+  assert.match(scannerTiming, /\$ambiguous = count\(\$candidates\) > 1/);
   assert.match(worker, /reservedSensorEventIds\.add\(sensorEventId\)/);
   assert.match(worker, /enqueueBarcodeFrame\(frame\)/);
 });
