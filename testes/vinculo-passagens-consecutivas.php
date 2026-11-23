@@ -30,8 +30,7 @@ foreach ([[-3000, null], [-100, null], [179, 1], [1179, 2], [2179, 3], [2179, nu
     }
 }
 
-// O vínculo histórico considera a previsão de chegada pelo horário de detecção,
-// sem alargar a janela com o início da consulta Modbus.
+// O leitor pode entregar o código antes da resposta Modbus da mesma passagem.
 $db->exec('DELETE FROM leituras; DELETE FROM eventos_sensor');
 $insert = $db->prepare('INSERT INTO eventos_sensor VALUES (?, 1, 1, ?, ?, ?)');
 $scan = $base + 5000;
@@ -39,8 +38,8 @@ $detected = $scan + 100;
 $time = trace_epoch_ms_to_sql_datetime($detected);
 $insert->execute([10, $time, $time, $scan - 160]);
 $match = trace_pending_scanner_event_match($db, 1, 1, $scan);
-if ($match['best'] !== null) {
-    throw new RuntimeException('A janela Modbus não deve ampliar o vínculo temporal histórico.');
+if (($match['best']['sensor_event_id'] ?? null) !== 10) {
+    throw new RuntimeException('Leitura 100 ms antes da resposta deveria identificar a passagem 10.');
 }
 // O mesmo horário continua rejeitado quando o início do intervalo não existe.
 $db->exec('UPDATE eventos_sensor SET modbus_passage_from_epoch_ms = NULL');
@@ -58,4 +57,32 @@ $insert->execute([11, $time, $time, null]);
 $match = trace_pending_scanner_event_match($db, 1, 1, $scan);
 if (!$match['ambiguous'] || $match['best'] !== null) {
     throw new RuntimeException('Passagens ambíguas foram associadas automaticamente.');
+}
+
+// A resposta pode chegar além do limite de busca antigo (+250 ms). Uma
+// passagem de outra carga ou Dala com o mesmo horário não causa ambiguidade.
+$db->exec('DELETE FROM eventos_sensor');
+$detected = $scan + 800;
+$time = trace_epoch_ms_to_sql_datetime($detected);
+$insert->execute([20, $time, $time, $scan - 200]);
+$other = $db->prepare('INSERT INTO eventos_sensor VALUES (?, ?, ?, ?, ?, ?)');
+$other->execute([21, 2, 1, $time, $time, $scan - 200]);
+$other->execute([22, 1, 2, $time, $time, $scan - 200]);
+if ((trace_pending_scanner_event_match($db, 1, 1, $scan)['best']['sensor_event_id'] ?? null) !== 20) {
+    throw new RuntimeException('A busca deve alcançar uma resposta atrasada da mesma carga e Dala.');
+}
+
+// A passagem 23 é mais próxima pelo horário de resposta, mas ambas comportam a leitura.
+$nearTime = trace_epoch_ms_to_sql_datetime($scan - 179);
+$insert->execute([23, $nearTime, $nearTime, null]);
+$match = trace_pending_scanner_event_match($db, 1, 1, $scan);
+if (!$match['ambiguous'] || $match['best'] !== null) {
+    throw new RuntimeException('Duas passagens compatíveis não podem receber vínculo por proximidade.');
+}
+$record->execute([23]);
+foreach ([$detected + 1, $detected - 2001] as $invalidStart) {
+    $db->prepare('UPDATE eventos_sensor SET modbus_passage_from_epoch_ms = ? WHERE id = 20')->execute([$invalidStart]);
+    if (trace_pending_scanner_event_match($db, 1, 1, $scan)['best'] !== null) {
+        throw new RuntimeException('Intervalo Modbus inválido ampliou o vínculo.');
+    }
 }

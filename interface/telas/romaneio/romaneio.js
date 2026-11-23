@@ -1,12 +1,12 @@
 import { button, esc } from "../../js/funcoes/html.js";
-import { data, numero } from "../../js/funcoes/formato.js?v=202611230002";
-import { agora } from "../../js/funcoes/relogio.js?v=202611230002";
-import { rotuloComando, rotuloEstado, rotuloStatusComando, rotuloStatusRomaneio } from "../../js/funcoes/rotulos.js?v=202611230002";
+import { data, numero } from "../../js/funcoes/formato.js?v=202611230003";
+import { agora } from "../../js/funcoes/relogio.js?v=202611230003";
+import { rotuloComando, rotuloEstado, rotuloStatusComando, rotuloStatusRomaneio } from "../../js/funcoes/rotulos.js?v=202611230003";
 import {
   pageHeader,
   manifestsTable,
   statuses,
-} from "../../js/funcoes/view.js?v=202611230002";
+} from "../../js/funcoes/view.js?v=202611230003";
 
 export function manifestView(store) {
   const manifest = store.state.manifestDetail;

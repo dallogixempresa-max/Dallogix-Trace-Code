@@ -39,7 +39,6 @@ function trace_scanner_timing(): array
         "grace_ms" => $graceMs,
         "no_read_deadline_ms" => $travelMs + $graceMs,
         "early_tolerance_ms" => 250,
-        "ambiguity_margin_ms" => 250,
     ];
     return $timing;
 }
@@ -101,7 +100,7 @@ function trace_modbus_passage_from_ms(mixed $from, int $observedAtMs): ?int
 /**
  * Return pending M2052 events whose predicted reader-arrival window contains
  * the scan time. Candidates are ordered by distance from the predicted arrival;
- * near ties are deliberately rejected instead of attaching a code to the wrong sack.
+ * only a single compatible passage may be linked automatically.
  *
  * @return array{candidates:list<array{sensor_event_id:int,expected_read_at_epoch_ms:int,delta_ms:int}>,best:?array,ambiguous:bool}
  */
@@ -125,7 +124,7 @@ function trace_pending_scanner_event_match(
         : "NOT EXISTS (SELECT 1 FROM leituras l WHERE l.sensor_event_id = s.id)";
     $statement = $pdo->prepare(
         "SELECT s.id,
-                s.device_detected_at,
+                s.device_detected_at, s.modbus_passage_from_epoch_ms,
                 CAST(ROUND(UNIX_TIMESTAMP(s.detected_at) * 1000) AS UNSIGNED) AS server_detected_at_epoch_ms
          FROM eventos_sensor s
          WHERE s.carregamento_id = :loading_id
@@ -137,14 +136,13 @@ function trace_pending_scanner_event_match(
                                      AND FROM_UNIXTIME(:server_scan_end_ms / 1000.0))
            )
            AND {$readingFilterSql}
-         ORDER BY s.id ASC
-         LIMIT 100{$lockSql}",
+         ORDER BY s.id ASC{$lockSql}",
     );
     $statement->execute([
         "loading_id" => $loadingId,
         "equipment_id" => $equipmentId,
         "device_scan_start" => trace_epoch_ms_to_sql_datetime($scanStartMs),
-        "device_scan_end" => trace_epoch_ms_to_sql_datetime($scanEndMs),
+        "device_scan_end" => trace_epoch_ms_to_sql_datetime($scanEndMs + TRACE_MODBUS_PASSAGE_WINDOW_MAX_MS),
         "server_scan_start_ms" => $scanStartMs,
         "server_scan_end_ms" => $scanEndMs,
     ]);
@@ -159,7 +157,12 @@ function trace_pending_scanner_event_match(
         }
         $expectedAtMs = $detectedAtMs + $timing["travel_ms"];
         $deltaMs = $scanObservedAtMs - $expectedAtMs;
-        if ($deltaMs < -$timing["early_tolerance_ms"] || $deltaMs > $timing["grace_ms"]) {
+        // O limite inferior vem do relógio do gateway, assim como device_detected_at.
+        $fromMs = $row["device_detected_at"] !== null
+            ? trace_modbus_passage_from_ms($row["modbus_passage_from_epoch_ms"], $detectedAtMs)
+            : null;
+        $earliestReadMs = ($fromMs ?? $detectedAtMs) + $timing["travel_ms"] - $timing["early_tolerance_ms"];
+        if ($scanObservedAtMs < $earliestReadMs || $deltaMs > $timing["grace_ms"]) {
             continue;
         }
         $candidates[] = [
@@ -175,9 +178,7 @@ function trace_pending_scanner_event_match(
             ? $distanceOrder
             : ($left["sensor_event_id"] <=> $right["sensor_event_id"]);
     });
-    $ambiguous = count($candidates) > 1
-        && abs(abs($candidates[1]["delta_ms"]) - abs($candidates[0]["delta_ms"]))
-            <= $timing["ambiguity_margin_ms"];
+    $ambiguous = count($candidates) > 1;
 
     return [
         "candidates" => $candidates,

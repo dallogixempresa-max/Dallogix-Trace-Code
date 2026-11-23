@@ -14,6 +14,7 @@ function isEditableTarget(target) {
 /** Captura sequências rápidas do AutoID HID sem tornar o visor editável. */
 export function createHidScannerCapture({
   isEnabled = () => false,
+  getLoadingId = () => null,
   onBarcode = () => {},
   onBufferChange = () => {},
   onError = (error) => console.error("Falha ao processar evento HID do leitor.", error),
@@ -27,6 +28,7 @@ export function createHidScannerCapture({
 } = {}) {
   let buffer = "";
   let startedAt = 0;
+  let loadingIdAtStart = null;
   let lastKeyAt = 0;
   let timer = null;
   let suppressTrailingEnterUntil = 0;
@@ -88,7 +90,7 @@ export function createHidScannerCapture({
 
     publishBuffer("", capturedAtEpochMs);
     try {
-      Promise.resolve(onBarcode(barcode, capturedAtEpochMs)).catch(onError);
+      Promise.resolve(onBarcode(barcode, capturedAtEpochMs, loadingIdAtStart)).catch(onError);
     } catch (error) {
       onError(error);
     }
@@ -131,7 +133,10 @@ export function createHidScannerCapture({
       return false;
     }
     if (lastKeyAt && timestamp - lastKeyAt > maxInterKeyMs) reset();
-    if (!buffer) startedAt = timestamp;
+    if (!buffer) {
+      startedAt = timestamp;
+      loadingIdAtStart = getLoadingId();
+    }
     buffer += event.key;
     lastKeyAt = timestamp;
     event.preventDefault?.();
