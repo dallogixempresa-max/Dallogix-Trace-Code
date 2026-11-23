@@ -1,5 +1,5 @@
-const CACHE_NAME = "trace-shell-20261120-operacao-02";
-const APPLICATION_ASSET_VERSION = "202611200002";
+const CACHE_NAME = "trace-shell-20261123-leitor-01";
+const APPLICATION_ASSET_VERSION = "202611230001";
 const PRECACHE_CONCURRENCY = 4;
 const SHELL = [
   "/",

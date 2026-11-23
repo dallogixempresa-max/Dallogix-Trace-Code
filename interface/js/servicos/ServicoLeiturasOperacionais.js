@@ -23,7 +23,6 @@ export class ServicoLeiturasOperacionais {
     this.reloadPendingReadings = loadPendingReadings;
     this.createEventId = createEventId;
     this.onScannerRefreshError = onScannerRefreshError;
-    this.pendingScannerReadings = new Set();
   }
 
   async loadPendingReadings(page = this.state.pendingReadingsPage) {
@@ -68,73 +67,58 @@ export class ServicoLeiturasOperacionais {
       throw new Error("Não foi possível identificar esta leitura automática.");
     }
 
-    const reading = { loadingId, receivedAt: Number(scannerReceivedAtEpochMs) || Date.now() };
-    this.pendingScannerReadings.add(reading);
-    try {
-      // Aguarde até o limite Modbus de 2 s mais o envio da passagem à API.
-      const associationDeadline = Date.now() + 3000;
-      let transientRetryCount = 0;
-      while (Number(this.state.loadingId) === loadingId) {
-        const earlierTimes = [];
-        for (const pending of this.pendingScannerReadings) {
-          if (pending === reading) break;
-          if (pending.loadingId === loadingId && pending.receivedAt <= reading.receivedAt) {
-            earlierTimes.push(pending.receivedAt);
-          }
-        }
-        const response = await this.api.fetch("/api/leituras.php", {
-          method: "POST",
-          headers: {
-            ...this.jsonHeaders(),
-            "X-Trace-Offline-ID": offlineEventId,
-          },
-          body: JSON.stringify({
-            carregamento_id: loadingId,
-            barcode,
-            scanner_received_at_epoch_ms: reading.receivedAt,
-            ...(earlierTimes.length ? { earlier_pending_scanner_times_ms: earlierTimes.slice(-32) } : {}),
-          }),
-        });
+    const receivedAt = Number(scannerReceivedAtEpochMs) || Date.now();
+    const associationDeadline = Date.now() + 3000;
+    let transientRetryCount = 0;
+    while (Number(this.state.loadingId) === loadingId) {
+      const response = await this.api.fetch("/api/leituras.php", {
+        method: "POST",
+        headers: {
+          ...this.jsonHeaders(),
+          "X-Trace-Offline-ID": offlineEventId,
+        },
+        body: JSON.stringify({
+          carregamento_id: loadingId,
+          barcode,
+          scanner_received_at_epoch_ms: receivedAt,
+        }),
+      });
 
-        if (response.status === 409) {
-          const body = await response.clone().json().catch(() => ({}));
-          const waitingForPassage = body.code === "M2052_PASSAGE_PENDING"
-            || body.error === "Leitura aguardando o evento de passagem do sensor M2052.";
-          if (waitingForPassage) {
-            if (Date.now() >= associationDeadline) return { result: "SEM_PASSAGEM" };
-            await new Promise((resolve) => setTimeout(resolve, 200));
-            continue;
-          }
+      if (response.status === 409) {
+        const body = await response.clone().json().catch(() => ({}));
+        const waitingForPassage = body.code === "M2052_PASSAGE_PENDING"
+          || body.error === "Leitura aguardando o evento de passagem do sensor M2052.";
+        if (waitingForPassage) {
+          if (Date.now() >= associationDeadline) return { result: "SEM_PASSAGEM" };
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          continue;
         }
-
-        // A janela de associação só limita espera por um evento M2052 ainda não
-        // recebido. Deadlock/lock timeout é outra espera: a transação foi revertida
-        // e o mesmo identificador idempotente pode ser repetido mesmo após a espera de associação,
-        // enquanto o finalizador ainda não tiver registrado SEM_LEITURA.
-        if (response.status === 503 && transientRetryCount < 2) {
-          const body = await response.clone().json().catch(() => ({}));
-          if (body.retryable === true) {
-            transientRetryCount++;
-            await new Promise((resolve) => setTimeout(resolve, 75 * transientRetryCount));
-            continue;
-          }
-        }
-
-        const result = await this.jsonResponse(response, "Não foi possível registrar a leitura do leitor.");
-        this.pendingScannerReadings.delete(reading);
-        if (Number(this.state.loadingId) === loadingId) {
-          try {
-            await this.loadActiveLoading(loadingId, { onlyIfCurrent: true });
-          } catch (error) {
-            this.onScannerRefreshError(error);
-          }
-        }
-        return result.data;
       }
-      return null;
-    } finally {
-      this.pendingScannerReadings.delete(reading);
+
+      // A janela de associação só limita espera por um evento M2052 ainda não
+      // recebido. Deadlock/lock timeout é outra espera: a transação foi revertida
+      // e o mesmo identificador idempotente pode ser repetido mesmo após a janela de associação,
+      // enquanto o finalizador ainda não tiver registrado SEM_LEITURA.
+      if (response.status === 503 && transientRetryCount < 2) {
+        const body = await response.clone().json().catch(() => ({}));
+        if (body.retryable === true) {
+          transientRetryCount++;
+          await new Promise((resolve) => setTimeout(resolve, 75 * transientRetryCount));
+          continue;
+        }
+      }
+
+      const result = await this.jsonResponse(response, "Não foi possível registrar a leitura do leitor.");
+      if (Number(this.state.loadingId) === loadingId) {
+        try {
+          await this.loadActiveLoading(loadingId, { onlyIfCurrent: true });
+        } catch (error) {
+          this.onScannerRefreshError(error);
+        }
+      }
+      return result.data;
     }
+    return null;
   }
 
   async confirmStopRemoval(loadingId = this.state.loadingId) {

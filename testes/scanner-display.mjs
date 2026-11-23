@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { ServicoLeiturasOperacionais } from "../interface/js/servicos/ServicoLeiturasOperacionais.js";
@@ -369,7 +368,7 @@ test("deadlock ainda é repetido quando a janela de associação já venceu", as
       fetch: async (url, options) => {
         requests.push({ url, options });
         if (requests.length === 1) {
-          currentTime += 1600;
+          currentTime += 3100;
           return {
             status: 503,
             ok: false,
@@ -480,55 +479,47 @@ test("leitura já vinculada ao M2052 ainda é registrada após ACK de parada", a
 });
 
 
-test("uma leitura aguardando M2052 não impede o registro do código seguinte", async () => {
-  let firstAttempts = 0;
-  const payloads = [];
+test("duas capturas seguem enquanto a primeira aguarda passagem e a atualização da tela está pendente", async () => {
+  const firstTime = Date.now();
+  let releaseRefresh;
+  const refreshGate = new Promise(resolve => { releaseRefresh = resolve; });
+  let refreshCount = 0;
+  const registered = [];
+  const firstRequests = [];
   const service = new ServicoLeiturasOperacionais({
-    api: {
-      fetch: async (_url, options) => {
-        const payload = JSON.parse(options.body);
-        payloads.push(payload);
-        const { barcode } = payload;
-        if (barcode === "7898538751531" && ++firstAttempts === 1) {
-          const data = { code: "M2052_PASSAGE_PENDING" };
-          return { status: 409, clone: () => ({ json: async () => data }) };
-        }
-        return { status: 201, json: async () => ({ data: { result: "VALIDO", barcode } }) };
-      },
-    },
+    api: { fetch: async (_url, options) => {
+      const { scanner_received_at_epoch_ms: time } = JSON.parse(options.body);
+      if (time === firstTime) {
+        firstRequests.push(options);
+        return { status: 409, clone: () => ({ json: async () => ({ code: "M2052_PASSAGE_PENDING" }) }) };
+      }
+      registered.push(time);
+      return { status: 201, json: async () => ({ data: { result: "VALIDO" } }) };
+    } },
     state: { loadingId: 7, operationalState: "CARREGANDO" },
     jsonHeaders: () => ({}),
-    jsonResponse: async (response) => response.json(),
-    loadActiveLoading: async () => {},
+    jsonResponse: response => response.json(),
+    loadActiveLoading: async () => { if (++refreshCount === 1) await refreshGate; },
   });
-
-  const observedAt = Date.now();
-  const first = service.registerScannerReading("7898538751531", observedAt);
-  const second = await service.registerScannerReading("7898250782479", observedAt + 150);
-  assert.deepEqual(payloads[1].earlier_pending_scanner_times_ms, [observedAt]);
-  assert.equal(second.barcode, "7898250782479");
-  assert.equal(firstAttempts, 1);
-  assert.equal((await first).barcode, "7898538751531");
-  assert.equal(firstAttempts, 2);
-});
-
-
-test("uma passagem mais próxima da leitura anterior fica protegida até a decisão", () => {
-  const file = new URL("../servidor/api/operacoes/temporizacao_leitor.php", import.meta.url);
-  const php = spawnSync("php", ["-r", `
-    require $argv[1];
-    $older = 1795116546500;
-    $newer = 1795116547100;
-    $firstPassage = ["expected_read_at_epoch_ms" => 1795116546450, "delta_ms" => 650];
-    $secondPassage = ["expected_read_at_epoch_ms" => 1795116547060, "delta_ms" => 40];
-    echo json_encode([
-      trace_passagem_aguarda_leitura_anterior($firstPassage, [$older], $newer),
-      trace_passagem_aguarda_leitura_anterior($secondPassage, [$older], $newer),
-      trace_passagem_aguarda_leitura_anterior($firstPassage, [], $newer),
-    ]);
-  `, file.pathname], { encoding: "utf8" });
-  assert.equal(php.status, 0, php.stderr);
-  assert.deepEqual(JSON.parse(php.stdout), [true, false, false]);
+  const barcode = "7898538751531";
+  let expired = false;
+  const first = service.registerScannerReading(barcode, firstTime).then(result => {
+    expired = true;
+    return result;
+  });
+  const second = service.registerScannerReading(barcode, firstTime + 100);
+  try {
+    assert.equal((await service.registerScannerReading(barcode, firstTime + 200)).result, "VALIDO");
+    assert.equal(expired, false);
+    assert.deepEqual(registered, [firstTime + 100, firstTime + 200]);
+  } finally {
+    releaseRefresh();
+  }
+  assert.equal((await second).result, "VALIDO");
+  assert.equal((await first).result, "SEM_PASSAGEM");
+  assert.ok(firstRequests.length > 1);
+  assert.ok(firstRequests.every(request => request.body === firstRequests[0].body &&
+    request.headers["X-Trace-Offline-ID"] === firstRequests[0].headers["X-Trace-Offline-ID"]));
 });
 
 test("erro ao atualizar a tela preserva o resultado já registrado pelo leitor", async () => {

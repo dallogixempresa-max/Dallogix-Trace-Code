@@ -5,7 +5,7 @@ import { ClienteApi } from "./api/ClienteApi.js?v=202611170006";
 import { confirmarAcao, limparNotificacao, notificar, solicitarTexto } from "./componentes/notificacoes.js?v=202611170006";
 import { setFormFeedback } from "./componentes/form-feedback.js?v=202611170006";
 import { ServicoOperacao } from "./servicos/ServicoOperacao.js?v=202611170006";
-import { ArmazenamentoTrace } from "./classes/ArmazenamentoTrace.js?v=202611200002";
+import { ArmazenamentoTrace } from "./classes/ArmazenamentoTrace.js?v=202611230001";
 import { FORM_ACTIONS } from "./constantes/acoes.js?v=202611170006";
 import { changeOperationLoading, linhaItemRomaneio } from "./controladores/operacao.js?v=202611170006";
 import { createOperationalRealtimeController } from "./controladores/tempo-real.js?v=202611170006";
@@ -22,8 +22,8 @@ import { criarTratadorAcoesInterface, instalarInteracoesGlobaisInterface } from 
 import { criarTratadorAcoesRelatorios } from "./controladores/acoes-relatorios.js?v=202611170006";
 import { criarDelegacaoAcoes, criarDespachanteAcoes } from "./controladores/despachante-acoes.js?v=202611170006";
 import { criarCarregadorPaginas } from "./controladores/carregador-paginas.js?v=202611170006";
-import { createLiveViewController } from "./controladores/estado-visualizacao.js?v=202611200002";
-import { createHidScannerCapture, isScannerNoReadMarker } from "./controladores/captura-leitor-hid.js?v=202611200002";
+import { createLiveViewController } from "./controladores/estado-visualizacao.js?v=202611230001";
+import { createHidScannerCapture, isScannerNoReadMarker } from "./controladores/captura-leitor-hid.js?v=202611230001";
 import { createLocalConnectivityController } from "./controladores/conectividade-local.js?v=202611170006";
 import { bindManifestCreationForm, bindManifestEditForm } from "./controladores/formulario-romaneio.js?v=202611170006";
 import { bindProductForm } from "./controladores/formulario-produto.js?v=202611170006";
@@ -77,7 +77,7 @@ const registroTelas = criarRegistroTelas({
   division: () =>
     import("../telas/divisao-carga/divisao-carga.js?v=202611170006").then(({ division }) => division),
   work: () =>
-    import("../telas/operacao/operacao.js?v=202611200002").then(({ work }) => work),
+    import("../telas/operacao/operacao.js?v=202611230001").then(({ work }) => work),
   occurrences: () =>
     import("../telas/ocorrencias/ocorrencias.js?v=202611170006").then(({ occurrences }) => occurrences),
   products: () =>
@@ -85,7 +85,7 @@ const registroTelas = criarRegistroTelas({
   alerts: () =>
     import("../telas/alertas/alertas.js?v=202611170006").then(({ alerts }) => alerts),
   settings: () =>
-    import("../telas/configuracoes/configuracoes.js?v=202611200002").then(({ settings }) => settings),
+    import("../telas/configuracoes/configuracoes.js?v=202611230001").then(({ settings }) => settings),
   dalas: () =>
     import("../telas/dalas/dalas.js?v=202611170006").then(({ dalas }) => dalas),
   dala: () =>
@@ -93,7 +93,7 @@ const registroTelas = criarRegistroTelas({
   "dala-edit": () =>
     import("../telas/editar-dala/editar-dala.js?v=202611170006").then(({ dalaEdit }) => dalaEdit),
   manifest: () =>
-    import("../telas/romaneio/romaneio.js?v=202611200002").then(({ manifestView }) => manifestView),
+    import("../telas/romaneio/romaneio.js?v=202611230001").then(({ manifestView }) => manifestView),
   "manifest-edit": () =>
     import("../telas/editar-romaneio/editar-romaneio.js?v=202611170006").then(({ manifestEdit }) => manifestEdit),
   companies: () =>
@@ -402,7 +402,7 @@ const conectividadeLocal = createLocalConnectivityController({
   refreshSettingsView: () => refreshSettingsStatusView(),
   render: () => render(),
   logWarning: (...args) => logFrontend.aviso(...args),
-  serviceWorkerUrl: "/service-worker.js?v=202611200002",
+  serviceWorkerUrl: "/service-worker.js?v=202611230001",
 });
 
 function waitForDocumentStyles() {
@@ -423,7 +423,7 @@ function waitForDocumentStyles() {
 // tela que tem CSS próprio precisa garantir seu arquivo e sua versão antes do
 // primeiro render, inclusive quando a rota inicial veio de outra página.
 const SCREEN_STYLES = {
-  work: "/telas/operacao/operacao.css?v=202611200002",
+  work: "/telas/operacao/operacao.css?v=202611230001",
   import: "/telas/importar-romaneio/importar-romaneio.css?v=202611170006",
   settings: "/telas/configuracoes/configuracoes.css?v=202611170006",
   dalas: "/telas/dalas/dalas.css?v=202611170006",
@@ -572,8 +572,6 @@ function installScannerHidReceiver() {
       );
 
       try {
-        // Cada leitura espera pela própria passagem. Uma espera do M2052
-        // não segura a próxima leitura. A API arbitra o vínculo por passagem.
         const reading = await store.registerScannerReading(barcode, capturedAtEpochMs);
         if (!reading) return;
         if (reading.result === "SEM_PASSAGEM") {
