@@ -20,7 +20,7 @@ if ($action === "FINALIZE_EXPIRED") {
     if ($device["device_type"] !== "CLP") {
         json_response(["error" => "Somente o gateway do CLP pode finalizar eventos sem leitura."], 403);
     }
-    $timeoutMs = trace_scanner_timing()["no_read_deadline_ms"];
+    $timeoutMs = trace_scanner_timing()["no_read_deadline_ms"] + 3000;
     $pdo = db();
     $pdo->beginTransaction();
     try {
