@@ -100,8 +100,8 @@ function trace_modbus_passage_from_ms(mixed $from, int $observedAtMs): ?int
 
 /**
  * O CLP só dispara o leitor com o M2052 ativo: cada leitura pertence à passagem
- * mais antiga ainda sem leitura. A idade usa só o relógio do servidor
- * (detected_at), para não depender do relógio do PC nem do gateway.
+ * mais antiga ainda sem leitura. A idade usa o relógio do servidor
+ * (detected_at); a ordem FIFO usa a ordem de inserção dos eventos.
  */
 function trace_oldest_pending_passage(PDO $pdo, int $loadingId, int $equipmentId, int $nowMs): ?int
 {
@@ -114,7 +114,7 @@ function trace_oldest_pending_passage(PDO $pdo, int $loadingId, int $equipmentId
            AND s.equipment_id = :equipment_id
            AND s.detected_at >= FROM_UNIXTIME(:cutoff_ms / 1000.0)
            AND NOT EXISTS (SELECT 1 FROM leituras l WHERE l.sensor_event_id = s.id)
-         ORDER BY COALESCE(s.device_detected_at, s.detected_at) ASC, s.id ASC
+         ORDER BY s.id ASC
          LIMIT 1",
     );
     $statement->execute([

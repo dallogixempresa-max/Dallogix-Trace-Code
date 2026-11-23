@@ -42,3 +42,16 @@ $insert->execute([7, 1, 1, $at(6000), $at(500)]);
 if (trace_oldest_pending_passage($db, 1, 1, $now + 600) !== 7) {
     throw new RuntimeException('Passagem seguinte a uma falha deveria receber a leitura.');
 }
+$record->execute([7]);
+
+// A ordem física segue a ordem de inserção no Trace, mesmo se horários de
+// dispositivo/servidor vierem invertidos ou com diferença entre si.
+$insert->execute([8, 1, 1, $at(12000), $at(2000)]);
+$insert->execute([9, 1, 1, $at(11000), $at(3000)]);
+foreach ([8, 9] as $expected) {
+    $actual = trace_oldest_pending_passage($db, 1, 1, $now + 4000);
+    if ($actual !== $expected) {
+        throw new RuntimeException('FIFO não pode depender dos horários: esperado ' . $expected . ', obtido ' . var_export($actual, true));
+    }
+    $record->execute([$actual]);
+}
