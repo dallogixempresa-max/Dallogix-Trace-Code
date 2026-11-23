@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { ServicoLeiturasOperacionais } from "../interface/js/servicos/ServicoLeiturasOperacionais.js";
@@ -480,7 +479,7 @@ test("leitura já vinculada ao M2052 ainda é registrada após ACK de parada", a
 });
 
 
-test("uma leitura aguardando M2052 não impede o registro do código seguinte", async () => {
+test("a fila HID termina a captura anterior antes de enviar a próxima", async () => {
   let firstAttempts = 0;
   const payloads = [];
   const service = new ServicoLeiturasOperacionais({
@@ -490,7 +489,7 @@ test("uma leitura aguardando M2052 não impede o registro do código seguinte", 
         payloads.push(payload);
         const { barcode } = payload;
         if (barcode === "7898538751531" && ++firstAttempts === 1) {
-          const data = { code: "M2052_PASSAGE_PENDING" };
+          const data = { error: "Leitura aguardando o evento de passagem do sensor M2052." };
           return { status: 409, clone: () => ({ json: async () => data }) };
         }
         return { status: 201, json: async () => ({ data: { result: "VALIDO", barcode } }) };
@@ -505,30 +504,9 @@ test("uma leitura aguardando M2052 não impede o registro do código seguinte", 
   const observedAt = Date.now();
   const first = service.registerScannerReading("7898538751531", observedAt);
   const second = await service.registerScannerReading("7898250782479", observedAt + 150);
-  assert.deepEqual(payloads[1].earlier_pending_scanner_times_ms, [observedAt]);
+  assert.deepEqual(payloads.map(p => p.scanner_received_at_epoch_ms), [observedAt, observedAt, observedAt + 150]);
   assert.equal(second.barcode, "7898250782479");
-  assert.equal(firstAttempts, 1);
   assert.equal((await first).barcode, "7898538751531");
-  assert.equal(firstAttempts, 2);
-});
-
-
-test("uma passagem mais próxima da leitura anterior fica protegida até a decisão", () => {
-  const file = new URL("../servidor/api/operacoes/temporizacao_leitor.php", import.meta.url);
-  const php = spawnSync("php", ["-r", `
-    require $argv[1];
-    $older = 1795116546500;
-    $newer = 1795116547100;
-    $firstPassage = ["expected_read_at_epoch_ms" => 1795116546450, "delta_ms" => 650];
-    $secondPassage = ["expected_read_at_epoch_ms" => 1795116547060, "delta_ms" => 40];
-    echo json_encode([
-      trace_passagem_aguarda_leitura_anterior($firstPassage, [$older], $newer),
-      trace_passagem_aguarda_leitura_anterior($secondPassage, [$older], $newer),
-      trace_passagem_aguarda_leitura_anterior($firstPassage, [], $newer),
-    ]);
-  `, file.pathname], { encoding: "utf8" });
-  assert.equal(php.status, 0, php.stderr);
-  assert.deepEqual(JSON.parse(php.stdout), [true, false, false]);
 });
 
 test("erro ao atualizar a tela preserva o resultado já registrado pelo leitor", async () => {

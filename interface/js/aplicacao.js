@@ -5,7 +5,7 @@ import { ClienteApi } from "./api/ClienteApi.js?v=202611170006";
 import { confirmarAcao, limparNotificacao, notificar, solicitarTexto } from "./componentes/notificacoes.js?v=202611170006";
 import { setFormFeedback } from "./componentes/form-feedback.js?v=202611170006";
 import { ServicoOperacao } from "./servicos/ServicoOperacao.js?v=202611170006";
-import { ArmazenamentoTrace } from "./classes/ArmazenamentoTrace.js?v=202611200002";
+import { ArmazenamentoTrace } from "./classes/ArmazenamentoTrace.js?v=202611230001";
 import { FORM_ACTIONS } from "./constantes/acoes.js?v=202611170006";
 import { changeOperationLoading, linhaItemRomaneio } from "./controladores/operacao.js?v=202611170006";
 import { createOperationalRealtimeController } from "./controladores/tempo-real.js?v=202611170006";
@@ -402,7 +402,7 @@ const conectividadeLocal = createLocalConnectivityController({
   refreshSettingsView: () => refreshSettingsStatusView(),
   render: () => render(),
   logWarning: (...args) => logFrontend.aviso(...args),
-  serviceWorkerUrl: "/service-worker.js?v=202611200002",
+  serviceWorkerUrl: "/service-worker.js?v=202611230001",
 });
 
 function waitForDocumentStyles() {
@@ -572,8 +572,6 @@ function installScannerHidReceiver() {
       );
 
       try {
-        // Cada leitura espera pela própria passagem. Uma espera do M2052
-        // não segura a próxima leitura. A API arbitra o vínculo por passagem.
         const reading = await store.registerScannerReading(barcode, capturedAtEpochMs);
         if (!reading) return;
         if (reading.result === "SEM_PASSAGEM") {

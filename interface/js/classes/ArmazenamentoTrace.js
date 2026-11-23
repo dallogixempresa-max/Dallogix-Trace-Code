@@ -5,7 +5,7 @@ import { ServicoDalas } from "../servicos/ServicoDalas.js?v=202611200002";
 import { ServicoObservabilidade } from "../servicos/ServicoObservabilidade.js?v=202611170006";
 import { ServicoCarregamentoAtivo } from "../servicos/ServicoCarregamentoAtivo.js?v=202611200002";
 import { ServicoComandosMaquina } from "../servicos/ServicoComandosMaquina.js?v=202611170006";
-import { ServicoLeiturasOperacionais } from "../servicos/ServicoLeiturasOperacionais.js?v=202611200002";
+import { ServicoLeiturasOperacionais } from "../servicos/ServicoLeiturasOperacionais.js?v=202611230001";
 import { logFrontend } from "../utilitarios/LogFrontend.js?v=202611170006";
 import { resolverComandoAtual } from "../funcoes/estado-comando.js?v=202611170006";
 import {

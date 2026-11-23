@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
@@ -38,53 +37,4 @@ test("a expiração de passagens sem leitura mantém a mesma separação", () =>
 
 test("a separação entre os dois relógios está documentada no código", () => {
   assert.match(sensorEvents, /eventos_sensor guarda dois relógios diferentes na mesma linha/);
-});
-
-
-test("o intervalo medido resgata uma resposta 100 ms após o código, mas dois vínculos geram ambiguidade", () => {
-  const file = new URL("../servidor/api/operacoes/temporizacao_leitor.php", import.meta.url);
-  const php = spawnSync("php", ["-r", `
-    putenv("TRACE_SENSOR_TO_READER_DISTANCE_M=0.125");
-    putenv("TRACE_SCANNER_NO_READ_TIMEOUT_MS=1500");
-    require $argv[1];
-    $scan = 1795116546300;
-    $response = $scan + 100;
-    $previousRequest = $scan - 160;
-    $modbus = trace_scanner_passage_candidate($scan, $response, $previousRequest);
-    $old = trace_scanner_passage_candidate($scan, $response, null);
-    $other = trace_scanner_passage_candidate($scan, $scan - 600, null);
-    $unique = trace_choose_scanner_passage([["sensor_event_id" => 1, ...$modbus]], 250);
-    $ambiguous = trace_choose_scanner_passage([["sensor_event_id" => 1, ...$modbus], ["sensor_event_id" => 2, ...$other]], 250);
-    echo json_encode([
-      $old === null, $unique["best"]["sensor_event_id"], $ambiguous["ambiguous"], $ambiguous["best"],
-      trace_scanner_passage_candidate($scan, $response, $scan - 3000) === null,
-      trace_scanner_passage_candidate($scan, $response, $scan + 101) === null,
-    ]);
-  `, file.pathname], { encoding: "utf8" });
-  assert.equal(php.status, 0, php.stderr);
-  assert.deepEqual(JSON.parse(php.stdout), [true, 1, true, null, true, true]);
-});
-
-test("passagens sucessivas com o mesmo código recuperam após uma leitura sem passagem", () => {
-  const file = new URL("../servidor/api/operacoes/temporizacao_leitor.php", import.meta.url);
-  const php = spawnSync("php", ["-r", `
-    putenv("TRACE_SENSOR_TO_READER_DISTANCE_M=0.125");
-    putenv("TRACE_SCANNER_NO_READ_TIMEOUT_MS=1500");
-    require $argv[1];
-    $pending = [1 => [10000, 9800], 2 => [11100, 10850], 3 => [12200, 11950]];
-    $ids = [];
-    foreach ([7000, 11000, 12100, 12100] as $scan) {
-      $matches = [];
-      foreach ($pending as $id => [$end, $start]) {
-        $match = trace_scanner_passage_candidate($scan, $end, $start);
-        if ($match !== null) $matches[] = ["sensor_event_id" => $id, ...$match];
-      }
-      $id = trace_choose_scanner_passage($matches, 250)["best"]["sensor_event_id"] ?? null;
-      $ids[] = $id;
-      unset($pending[$id]);
-    }
-    echo json_encode($ids);
-  `, file.pathname], { encoding: "utf8" });
-  assert.equal(php.status, 0, php.stderr);
-  assert.deepEqual(JSON.parse(php.stdout), [null, 2, 3, null]);
 });
