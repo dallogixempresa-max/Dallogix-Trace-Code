@@ -161,14 +161,6 @@ if (!in_array($loading["state"], ["CARREGANDO", "FINALIZANDO", "PAUSADO", "FINAL
 
 $loadingValidCount = 0;
 $scannerMatch = null;
-if ($dispositivoScanner === null && !$sensorEventId && ($barcode !== "" || $noRead)) {
-    $sensorEventId = trace_oldest_pending_passage(
-        $pdo,
-        (int) $loadingId,
-        (int) $loading["equipment_id"],
-        (int) round(microtime(true) * 1000),
-    );
-}
 if (($barcode !== "" || $noRead) && ($dispositivoScanner !== null || !$sensorEventId)) {
     $scannerMatch = trace_pending_scanner_event_match(
         $pdo,
@@ -194,7 +186,7 @@ if (!$sensorEventId && ($barcode !== "" || $noRead)) {
 if (($barcode !== "" || $noRead) && !$sensorEventId) {
     $pdo->rollBack();
     responder_json(
-        ["code" => "M2052_PASSAGE_PENDING", "error" => "Leitura aguardando o evento de passagem do sensor M2052."],
+        ["error" => "Leitura aguardando o evento de passagem do sensor M2052."],
         409,
     );
 }

@@ -1,15 +1,15 @@
-import { configurarSessaoPorAba } from "./sessao.js?v=202611170006";
-import { ClienteApi, erroRespostaHttp } from "./api/ClienteApi.js?v=202611170006";
-import { notificar } from "./componentes/notificacoes.js?v=202611170006";
-import { logFrontend, configurarTransporteLogs } from "./utilitarios/LogFrontend.js?v=202611170006";
-import { ServicoAtivacaoLocal } from "./servicos/ServicoAtivacaoLocal.js?v=202611170006";
-import { ServicoObservabilidade } from "./servicos/ServicoObservabilidade.js?v=202611170006";
+import { configurarSessaoPorAba } from "./sessao.js?v=202611230002";
+import { ClienteApi, erroRespostaHttp } from "./api/ClienteApi.js?v=202611230002";
+import { notificar } from "./componentes/notificacoes.js?v=202611230002";
+import { logFrontend, configurarTransporteLogs } from "./utilitarios/LogFrontend.js?v=202611230002";
+import { ServicoAtivacaoLocal } from "./servicos/ServicoAtivacaoLocal.js?v=202611230002";
+import { ServicoObservabilidade } from "./servicos/ServicoObservabilidade.js?v=202611230002";
 import {
   bindLoginForm,
   bindLocalActivationForm,
   renderLogin,
   renderLocalActivation,
-} from "../telas/acesso/acesso.js?v=202611170006";
+} from "../telas/acesso/acesso.js?v=202611230002";
 
 configurarSessaoPorAba();
 

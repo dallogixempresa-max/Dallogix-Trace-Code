@@ -1,12 +1,12 @@
 import { button, esc } from "../../js/funcoes/html.js";
-import { data, numero } from "../../js/funcoes/formato.js?v=202611170006";
-import { agora } from "../../js/funcoes/relogio.js?v=202611170006";
-import { rotuloComando, rotuloEstado, rotuloStatusComando, rotuloStatusRomaneio } from "../../js/funcoes/rotulos.js?v=202611170006";
+import { data, numero } from "../../js/funcoes/formato.js?v=202611230002";
+import { agora } from "../../js/funcoes/relogio.js?v=202611230002";
+import { rotuloComando, rotuloEstado, rotuloStatusComando, rotuloStatusRomaneio } from "../../js/funcoes/rotulos.js?v=202611230002";
 import {
   pageHeader,
   manifestsTable,
   statuses,
-} from "../../js/funcoes/view.js?v=202611170006";
+} from "../../js/funcoes/view.js?v=202611230002";
 
 const STATUS_OPTIONS = [
   ["", "Todos os status"],
