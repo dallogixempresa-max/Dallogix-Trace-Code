@@ -186,7 +186,7 @@ if (!$sensorEventId && ($barcode !== "" || $noRead)) {
 if (($barcode !== "" || $noRead) && !$sensorEventId) {
     $pdo->rollBack();
     responder_json(
-        ["error" => "Leitura aguardando o evento de passagem do sensor M2052."],
+        ["code" => "M2052_PASSAGE_PENDING", "error" => "Leitura aguardando o evento de passagem do sensor M2052."],
         409,
     );
 }

@@ -23,7 +23,6 @@ export class ServicoLeiturasOperacionais {
     this.reloadPendingReadings = loadPendingReadings;
     this.createEventId = createEventId;
     this.onScannerRefreshError = onScannerRefreshError;
-    this.scannerQueue = Promise.resolve();
   }
 
   async loadPendingReadings(page = this.state.pendingReadingsPage) {
@@ -68,15 +67,8 @@ export class ServicoLeiturasOperacionais {
       throw new Error("Não foi possível identificar esta leitura automática.");
     }
 
-    const task = this.scannerQueue.then(() =>
-      this.sendScannerReading(loadingId, barcode, scannerReceivedAtEpochMs, offlineEventId));
-    // A falha é entregue ao chamador. A fila continua com a próxima captura.
-    this.scannerQueue = task.then(() => undefined, () => undefined);
-    return task;
-  }
-
-  async sendScannerReading(loadingId, barcode, scannerReceivedAtEpochMs, offlineEventId) {
-    const associationDeadline = Date.now() + 1500;
+    const receivedAt = Number(scannerReceivedAtEpochMs) || Date.now();
+    const associationDeadline = Date.now() + 3000;
     let transientRetryCount = 0;
     while (Number(this.state.loadingId) === loadingId) {
       const response = await this.api.fetch("/api/leituras.php", {
@@ -88,13 +80,14 @@ export class ServicoLeiturasOperacionais {
         body: JSON.stringify({
           carregamento_id: loadingId,
           barcode,
-          scanner_received_at_epoch_ms: Number(scannerReceivedAtEpochMs) || Date.now(),
+          scanner_received_at_epoch_ms: receivedAt,
         }),
       });
 
       if (response.status === 409) {
         const body = await response.clone().json().catch(() => ({}));
-        const waitingForPassage = body.error === "Leitura aguardando o evento de passagem do sensor M2052.";
+        const waitingForPassage = body.code === "M2052_PASSAGE_PENDING"
+          || body.error === "Leitura aguardando o evento de passagem do sensor M2052.";
         if (waitingForPassage) {
           if (Date.now() >= associationDeadline) return { result: "SEM_PASSAGEM" };
           await new Promise((resolve) => setTimeout(resolve, 100));
@@ -104,7 +97,7 @@ export class ServicoLeiturasOperacionais {
 
       // A janela de associação só limita espera por um evento M2052 ainda não
       // recebido. Deadlock/lock timeout é outra espera: a transação foi revertida
-      // e o mesmo identificador idempotente pode ser repetido mesmo após 1,5 s,
+      // e o mesmo identificador idempotente pode ser repetido mesmo após a janela de associação,
       // enquanto o finalizador ainda não tiver registrado SEM_LEITURA.
       if (response.status === 503 && transientRetryCount < 2) {
         const body = await response.clone().json().catch(() => ({}));
