@@ -124,7 +124,12 @@ function trace_scanner_passage_candidate(int $scanAtMs, int $detectedAtMs, mixed
     if ($delta < -$timing["early_tolerance_ms"] || $delta > $timing["grace_ms"]) {
         return null;
     }
+    $from = trace_modbus_passage_from_ms($modbusFromMs, $detectedAtMs);
+    $firstDelta = $scanAtMs - (($from ?? $detectedAtMs) + $timing["travel_ms"]);
+    $lastDelta = $scanAtMs - $expectedAtMs;
     return [
+        "min_distance_ms" => max(0, -$firstDelta, $lastDelta),
+        "max_distance_ms" => max(abs($firstDelta), abs($lastDelta)),
         "expected_read_at_epoch_ms" => $expectedAtMs,
         "earliest_read_at_epoch_ms" => $earliestAtMs,
         "delta_ms" => $delta,
@@ -165,7 +170,7 @@ function trace_passagem_aguarda_leitura_anterior(array $candidate, mixed $earlie
  * the scan time. Candidates are ordered by distance from the predicted arrival;
  * near ties are deliberately rejected instead of attaching a code to the wrong sack.
  *
- * @return array{candidates:list<array{sensor_event_id:int,expected_read_at_epoch_ms:int,earliest_read_at_epoch_ms:?int,delta_ms:int}>,best:?array,ambiguous:bool}
+ * @return array{candidates:list<array{sensor_event_id:int,expected_read_at_epoch_ms:int,earliest_read_at_epoch_ms:?int,min_distance_ms:int,max_distance_ms:int,delta_ms:int}>,best:?array,ambiguous:bool}
  */
 function trace_pending_scanner_event_match(
     PDO $pdo,
@@ -228,7 +233,7 @@ function trace_pending_scanner_event_match(
     return trace_choose_scanner_passage($candidates, $timing["ambiguity_margin_ms"]);
 }
 
-/** Escolhe uma passagem. Um vínculo que depende do intervalo Modbus exige uma única candidata. */
+/** Escolhe uma passagem. Com intervalos Modbus, compare o pior caso da primeira com o melhor das demais. */
 function trace_choose_scanner_passage(array $candidates, int $ambiguityMarginMs): array
 {
     usort($candidates, static function (array $left, array $right): int {
@@ -237,9 +242,16 @@ function trace_choose_scanner_passage(array $candidates, int $ambiguityMarginMs)
             ? $distanceOrder
             : ($left["sensor_event_id"] <=> $right["sensor_event_id"]);
     });
-    $ambiguous = count($candidates) > 1
-        && (array_filter($candidates, static fn(array $candidate): bool => $candidate["earliest_read_at_epoch_ms"] !== null) !== []
-            || abs(abs($candidates[1]["delta_ms"]) - abs($candidates[0]["delta_ms"])) <= $ambiguityMarginMs);
+    $ambiguous = false;
+    if (count($candidates) > 1) {
+        $usesInterval = array_filter($candidates, static fn(array $candidate): bool => $candidate["earliest_read_at_epoch_ms"] !== null) !== [];
+        if ($usesInterval) {
+            usort($candidates, static fn(array $left, array $right): int => $left["min_distance_ms"] <=> $right["min_distance_ms"]);
+            $ambiguous = $candidates[1]["min_distance_ms"] - $candidates[0]["max_distance_ms"] <= $ambiguityMarginMs;
+        } else {
+            $ambiguous = abs($candidates[1]["delta_ms"]) - abs($candidates[0]["delta_ms"]) <= $ambiguityMarginMs;
+        }
+    }
 
     return [
         "candidates" => $candidates,

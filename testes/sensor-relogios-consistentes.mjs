@@ -64,3 +64,27 @@ test("o intervalo medido resgata uma resposta 100 ms após o código, mas dois v
   assert.equal(php.status, 0, php.stderr);
   assert.deepEqual(JSON.parse(php.stdout), [true, 1, true, null, true, true]);
 });
+
+test("passagens sucessivas com o mesmo código recuperam após uma leitura sem passagem", () => {
+  const file = new URL("../servidor/api/operacoes/temporizacao_leitor.php", import.meta.url);
+  const php = spawnSync("php", ["-r", `
+    putenv("TRACE_SENSOR_TO_READER_DISTANCE_M=0.125");
+    putenv("TRACE_SCANNER_NO_READ_TIMEOUT_MS=1500");
+    require $argv[1];
+    $pending = [1 => [10000, 9800], 2 => [11100, 10850], 3 => [12200, 11950]];
+    $ids = [];
+    foreach ([7000, 11000, 12100, 12100] as $scan) {
+      $matches = [];
+      foreach ($pending as $id => [$end, $start]) {
+        $match = trace_scanner_passage_candidate($scan, $end, $start);
+        if ($match !== null) $matches[] = ["sensor_event_id" => $id, ...$match];
+      }
+      $id = trace_choose_scanner_passage($matches, 250)["best"]["sensor_event_id"] ?? null;
+      $ids[] = $id;
+      unset($pending[$id]);
+    }
+    echo json_encode($ids);
+  `, file.pathname], { encoding: "utf8" });
+  assert.equal(php.status, 0, php.stderr);
+  assert.deepEqual(JSON.parse(php.stdout), [null, 2, 3, null]);
+});
