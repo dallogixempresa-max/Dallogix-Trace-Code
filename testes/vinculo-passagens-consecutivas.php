@@ -30,7 +30,8 @@ foreach ([[-3000, null], [-100, null], [179, 1], [1179, 2], [2179, 3], [2179, nu
     }
 }
 
-// Código chega 100 ms antes da resposta Modbus, dentro do intervalo de consulta.
+// O vínculo histórico considera a previsão de chegada pelo horário de detecção,
+// sem alargar a janela com o início da consulta Modbus.
 $db->exec('DELETE FROM leituras; DELETE FROM eventos_sensor');
 $insert = $db->prepare('INSERT INTO eventos_sensor VALUES (?, 1, 1, ?, ?, ?)');
 $scan = $base + 5000;
@@ -38,10 +39,10 @@ $detected = $scan + 100;
 $time = trace_epoch_ms_to_sql_datetime($detected);
 $insert->execute([10, $time, $time, $scan - 160]);
 $match = trace_pending_scanner_event_match($db, 1, 1, $scan);
-if (($match['best']['sensor_event_id'] ?? null) !== 10) {
-    throw new RuntimeException('Leitura anterior à resposta Modbus não foi associada.');
+if ($match['best'] !== null) {
+    throw new RuntimeException('A janela Modbus não deve ampliar o vínculo temporal histórico.');
 }
-// Sem o início de intervalo, o mesmo horário segue rejeitado.
+// O mesmo horário continua rejeitado quando o início do intervalo não existe.
 $db->exec('UPDATE eventos_sensor SET modbus_passage_from_epoch_ms = NULL');
 $match = trace_pending_scanner_event_match($db, 1, 1, $scan);
 if ($match['best'] !== null) {
@@ -50,9 +51,10 @@ if ($match['best'] !== null) {
 
 // Duas janelas igualmente compatíveis nunca devem produzir vínculo automático.
 $db->exec('DELETE FROM eventos_sensor');
-$time = trace_epoch_ms_to_sql_datetime($detected);
-$insert->execute([10, $time, $time, $scan - 160]);
-$insert->execute([11, $time, $time, $scan - 160]);
+$ambiguousDetected = $scan - 179;
+$time = trace_epoch_ms_to_sql_datetime($ambiguousDetected);
+$insert->execute([10, $time, $time, null]);
+$insert->execute([11, $time, $time, null]);
 $match = trace_pending_scanner_event_match($db, 1, 1, $scan);
 if (!$match['ambiguous'] || $match['best'] !== null) {
     throw new RuntimeException('Passagens ambíguas foram associadas automaticamente.');

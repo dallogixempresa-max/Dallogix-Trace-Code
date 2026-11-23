@@ -68,7 +68,7 @@ export class ServicoLeiturasOperacionais {
     }
 
     const receivedAt = Number(scannerReceivedAtEpochMs) || Date.now();
-    const associationDeadline = Date.now() + 3000;
+    const associationDeadline = Date.now() + 1500;
     let transientRetryCount = 0;
     while (Number(this.state.loadingId) === loadingId) {
       const response = await this.api.fetch("/api/leituras.php", {
@@ -86,10 +86,8 @@ export class ServicoLeiturasOperacionais {
 
       if (response.status === 409) {
         const body = await response.clone().json().catch(() => ({}));
-        const waitingForPassage = body.code === "M2052_PASSAGE_PENDING"
-          || body.error === "Leitura aguardando o evento de passagem do sensor M2052.";
-        if (waitingForPassage) {
-          if (Date.now() >= associationDeadline) return { result: "SEM_PASSAGEM" };
+        const waitingForPassage = body.error === "Leitura aguardando o evento de passagem do sensor M2052.";
+        if (waitingForPassage && Date.now() < associationDeadline) {
           await new Promise((resolve) => setTimeout(resolve, 100));
           continue;
         }

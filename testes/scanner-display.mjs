@@ -479,47 +479,65 @@ test("leitura já vinculada ao M2052 ainda é registrada após ACK de parada", a
 });
 
 
-test("duas capturas seguem enquanto a primeira aguarda passagem e a atualização da tela está pendente", async () => {
+test("o HID serializa as capturas e conserva o vínculo temporal histórico", async () => {
+  assert.match(application, /let queue = Promise\.resolve\(\);[\s\S]*?onBarcode: \(barcode, capturedAtEpochMs\) => \{\s*queue = queue\.then/);
+  assert.doesNotMatch(application, /let latestScan = 0;/);
+  assert.doesNotMatch(readingsEndpoint, /trace_oldest_pending_passage/);
+  const matcher = (await readFile(new URL("../servidor/api/operacoes/temporizacao_leitor.php", import.meta.url), "utf8"))
+    .split("function trace_pending_scanner_event_match(")[1] || "";
+  assert.doesNotMatch(matcher, /modbus_passage_from_epoch_ms/);
+  assert.match(operationalReadingService, /associationDeadline = Date\.now\(\) \+ 1500/);
+  assert.doesNotMatch(operationalReadingService, /return \{ result: "SEM_PASSAGEM" \}/);
+
   const firstTime = Date.now();
-  let releaseRefresh;
-  const refreshGate = new Promise(resolve => { releaseRefresh = resolve; });
-  let refreshCount = 0;
-  const registered = [];
-  const firstRequests = [];
+  const requests = [];
+  let attempts = 0;
   const service = new ServicoLeiturasOperacionais({
     api: { fetch: async (_url, options) => {
-      const { scanner_received_at_epoch_ms: time } = JSON.parse(options.body);
-      if (time === firstTime) {
-        firstRequests.push(options);
-        return { status: 409, clone: () => ({ json: async () => ({ code: "M2052_PASSAGE_PENDING" }) }) };
+      requests.push(options);
+      attempts++;
+      if (attempts < 3) {
+        return {
+          status: 409,
+          clone: () => ({ json: async () => ({ error: "Leitura aguardando o evento de passagem do sensor M2052." }) }),
+        };
       }
-      registered.push(time);
       return { status: 201, json: async () => ({ data: { result: "VALIDO" } }) };
     } },
     state: { loadingId: 7, operationalState: "CARREGANDO" },
     jsonHeaders: () => ({}),
     jsonResponse: response => response.json(),
-    loadActiveLoading: async () => { if (++refreshCount === 1) await refreshGate; },
+    loadActiveLoading: async () => {},
   });
-  const barcode = "7898538751531";
-  let expired = false;
-  const first = service.registerScannerReading(barcode, firstTime).then(result => {
-    expired = true;
-    return result;
+
+  const result = await service.registerScannerReading("7898538751531", firstTime);
+  assert.equal(result.result, "VALIDO");
+  assert.equal(requests.length, 3);
+  assert.ok(requests.every(request => request.body === requests[0].body &&
+    request.headers["X-Trace-Offline-ID"] === requests[0].headers["X-Trace-Offline-ID"]));
+});
+
+test("ao vencer os 1,5 s, a resposta original do servidor é propagada", async () => {
+  let attempts = 0;
+  const service = new ServicoLeiturasOperacionais({
+    api: { fetch: async () => {
+      attempts++;
+      return {
+        status: 409,
+        clone: () => ({ json: async () => ({ error: "Leitura aguardando o evento de passagem do sensor M2052." }) }),
+      };
+    } },
+    state: { loadingId: 7, operationalState: "CARREGANDO" },
+    jsonHeaders: () => ({}),
+    jsonResponse: async (_response, fallback) => { throw new Error(fallback); },
+    loadActiveLoading: async () => {},
   });
-  const second = service.registerScannerReading(barcode, firstTime + 100);
-  try {
-    assert.equal((await service.registerScannerReading(barcode, firstTime + 200)).result, "VALIDO");
-    assert.equal(expired, false);
-    assert.deepEqual(registered, [firstTime + 100, firstTime + 200]);
-  } finally {
-    releaseRefresh();
-  }
-  assert.equal((await second).result, "VALIDO");
-  assert.equal((await first).result, "SEM_PASSAGEM");
-  assert.ok(firstRequests.length > 1);
-  assert.ok(firstRequests.every(request => request.body === firstRequests[0].body &&
-    request.headers["X-Trace-Offline-ID"] === firstRequests[0].headers["X-Trace-Offline-ID"]));
+
+  await assert.rejects(
+    service.registerScannerReading("7898538751531", Date.now()),
+    /Não foi possível registrar a leitura do leitor\./,
+  );
+  assert.ok(attempts > 1);
 });
 
 test("erro ao atualizar a tela preserva o resultado já registrado pelo leitor", async () => {
