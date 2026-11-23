@@ -10,10 +10,10 @@ $db = class_exists(PDO\Sqlite::class) ? new PDO\Sqlite('sqlite::memory:') : new 
 $registerFunction = method_exists($db, 'createFunction') ? 'createFunction' : 'sqliteCreateFunction';
 $db->$registerFunction('UNIX_TIMESTAMP', static fn(string $date): int => strtotime($date));
 $db->$registerFunction('FROM_UNIXTIME', static fn(float $seconds): string => trace_epoch_ms_to_sql_datetime((int) round($seconds * 1000)));
-$db->exec('CREATE TABLE eventos_sensor (id INTEGER, carregamento_id INTEGER, equipment_id INTEGER, device_detected_at TEXT, detected_at TEXT)');
+$db->exec('CREATE TABLE eventos_sensor (id INTEGER, carregamento_id INTEGER, equipment_id INTEGER, device_detected_at TEXT, detected_at TEXT, modbus_passage_from_epoch_ms INTEGER)');
 $db->exec('CREATE TABLE leituras (sensor_event_id INTEGER UNIQUE, result TEXT)');
 $base = 1795116546000;
-$insert = $db->prepare('INSERT INTO eventos_sensor VALUES (?, 1, 1, ?, ?)');
+$insert = $db->prepare('INSERT INTO eventos_sensor VALUES (?, 1, 1, ?, ?, NULL)');
 foreach ([1 => 0, 2 => 1000, 3 => 2000] as $id => $offset) {
     $time = trace_epoch_ms_to_sql_datetime($base + $offset);
     $insert->execute([$id, $time, $time]);
@@ -28,4 +28,32 @@ foreach ([[-3000, null], [-100, null], [179, 1], [1179, 2], [2179, 3], [2179, nu
     if ($actual !== null) {
         $record->execute([$actual]);
     }
+}
+
+// Código chega 100 ms antes da resposta Modbus, dentro do intervalo de consulta.
+$db->exec('DELETE FROM leituras; DELETE FROM eventos_sensor');
+$insert = $db->prepare('INSERT INTO eventos_sensor VALUES (?, 1, 1, ?, ?, ?)');
+$scan = $base + 5000;
+$detected = $scan + 100;
+$time = trace_epoch_ms_to_sql_datetime($detected);
+$insert->execute([10, $time, $time, $scan - 160]);
+$match = trace_pending_scanner_event_match($db, 1, 1, $scan);
+if (($match['best']['sensor_event_id'] ?? null) !== 10) {
+    throw new RuntimeException('Leitura anterior à resposta Modbus não foi associada.');
+}
+// Sem o início de intervalo, o mesmo horário segue rejeitado.
+$db->exec('UPDATE eventos_sensor SET modbus_passage_from_epoch_ms = NULL');
+$match = trace_pending_scanner_event_match($db, 1, 1, $scan);
+if ($match['best'] !== null) {
+    throw new RuntimeException('Leitura sem intervalo foi indevidamente associada.');
+}
+
+// Duas janelas igualmente compatíveis nunca devem produzir vínculo automático.
+$db->exec('DELETE FROM eventos_sensor');
+$time = trace_epoch_ms_to_sql_datetime($detected);
+$insert->execute([10, $time, $time, $scan - 160]);
+$insert->execute([11, $time, $time, $scan - 160]);
+$match = trace_pending_scanner_event_match($db, 1, 1, $scan);
+if (!$match['ambiguous'] || $match['best'] !== null) {
+    throw new RuntimeException('Passagens ambíguas foram associadas automaticamente.');
 }

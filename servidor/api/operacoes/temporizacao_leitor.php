@@ -125,7 +125,7 @@ function trace_pending_scanner_event_match(
         : "NOT EXISTS (SELECT 1 FROM leituras l WHERE l.sensor_event_id = s.id)";
     $statement = $pdo->prepare(
         "SELECT s.id,
-                s.device_detected_at,
+                s.device_detected_at, s.modbus_passage_from_epoch_ms,
                 CAST(ROUND(UNIX_TIMESTAMP(s.detected_at) * 1000) AS UNSIGNED) AS server_detected_at_epoch_ms
          FROM eventos_sensor s
          WHERE s.carregamento_id = :loading_id
@@ -144,7 +144,7 @@ function trace_pending_scanner_event_match(
         "loading_id" => $loadingId,
         "equipment_id" => $equipmentId,
         "device_scan_start" => trace_epoch_ms_to_sql_datetime($scanStartMs),
-        "device_scan_end" => trace_epoch_ms_to_sql_datetime($scanEndMs),
+        "device_scan_end" => trace_epoch_ms_to_sql_datetime($scanEndMs + TRACE_MODBUS_PASSAGE_WINDOW_MAX_MS),
         "server_scan_start_ms" => $scanStartMs,
         "server_scan_end_ms" => $scanEndMs,
     ]);
@@ -157,27 +157,28 @@ function trace_pending_scanner_event_match(
         if ($detectedAtMs < 1) {
             continue;
         }
+        $fromMs = trace_modbus_passage_from_ms($row["modbus_passage_from_epoch_ms"], $detectedAtMs) ?? $detectedAtMs;
+        $earliest = $fromMs + $timing["travel_ms"];
         $expectedAtMs = $detectedAtMs + $timing["travel_ms"];
-        $deltaMs = $scanObservedAtMs - $expectedAtMs;
-        if ($deltaMs < -$timing["early_tolerance_ms"] || $deltaMs > $timing["grace_ms"]) {
+        if ($scanObservedAtMs < $earliest - $timing["early_tolerance_ms"]
+            || $scanObservedAtMs > $expectedAtMs + $timing["grace_ms"]) {
             continue;
         }
+        $minimumDistance = max(0, $earliest - $scanObservedAtMs, $scanObservedAtMs - $expectedAtMs);
+        $maximumDistance = max(abs($earliest - $scanObservedAtMs), abs($expectedAtMs - $scanObservedAtMs));
         $candidates[] = [
             "sensor_event_id" => (int) $row["id"],
-            "expected_read_at_epoch_ms" => $expectedAtMs,
-            "delta_ms" => $deltaMs,
+            "min_distance_ms" => $minimumDistance,
+            "max_distance_ms" => $maximumDistance,
         ];
     }
 
     usort($candidates, static function (array $left, array $right): int {
-        $distanceOrder = abs($left["delta_ms"]) <=> abs($right["delta_ms"]);
-        return $distanceOrder !== 0
-            ? $distanceOrder
-            : ($left["sensor_event_id"] <=> $right["sensor_event_id"]);
+        return ($left["min_distance_ms"] <=> $right["min_distance_ms"])
+            ?: ($left["sensor_event_id"] <=> $right["sensor_event_id"]);
     });
     $ambiguous = count($candidates) > 1
-        && abs(abs($candidates[1]["delta_ms"]) - abs($candidates[0]["delta_ms"]))
-            <= $timing["ambiguity_margin_ms"];
+        && $candidates[1]["min_distance_ms"] <= $candidates[0]["max_distance_ms"] + $timing["ambiguity_margin_ms"];
 
     return [
         "candidates" => $candidates,
