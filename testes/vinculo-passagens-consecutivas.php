@@ -6,7 +6,7 @@ date_default_timezone_set('UTC');
 putenv('TRACE_SENSOR_TO_READER_DISTANCE_M=0.125');
 putenv('TRACE_SCANNER_NO_READ_TIMEOUT_MS=1500');
 
-$db = new PDO('sqlite::memory:');
+$db = class_exists(PDO\Sqlite::class) ? new PDO\Sqlite('sqlite::memory:') : new PDO('sqlite::memory:');
 $registerFunction = method_exists($db, 'createFunction') ? 'createFunction' : 'sqliteCreateFunction';
 $db->$registerFunction('UNIX_TIMESTAMP', static fn(string $date): int => strtotime($date));
 $db->$registerFunction('FROM_UNIXTIME', static fn(float $seconds): string => trace_epoch_ms_to_sql_datetime((int) round($seconds * 1000)));
