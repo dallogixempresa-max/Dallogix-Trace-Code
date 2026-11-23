@@ -99,6 +99,34 @@ function trace_modbus_passage_from_ms(mixed $from, int $observedAtMs): ?int
 }
 
 /**
+ * O CLP só dispara o leitor com o M2052 ativo: cada leitura pertence à passagem
+ * mais antiga ainda sem leitura. A idade usa só o relógio do servidor
+ * (detected_at), para não depender do relógio do PC nem do gateway.
+ */
+function trace_oldest_pending_passage(PDO $pdo, int $loadingId, int $equipmentId, int $nowMs): ?int
+{
+    $timing = trace_scanner_timing();
+    $maxAgeMs = $timing["no_read_deadline_ms"] + 5000;
+    $statement = $pdo->prepare(
+        "SELECT s.id
+         FROM eventos_sensor s
+         WHERE s.carregamento_id = :loading_id
+           AND s.equipment_id = :equipment_id
+           AND s.detected_at >= FROM_UNIXTIME(:cutoff_ms / 1000.0)
+           AND NOT EXISTS (SELECT 1 FROM leituras l WHERE l.sensor_event_id = s.id)
+         ORDER BY COALESCE(s.device_detected_at, s.detected_at) ASC, s.id ASC
+         LIMIT 1",
+    );
+    $statement->execute([
+        "loading_id" => $loadingId,
+        "equipment_id" => $equipmentId,
+        "cutoff_ms" => $nowMs - $maxAgeMs,
+    ]);
+    $id = $statement->fetchColumn();
+    return $id === false ? null : (int) $id;
+}
+
+/**
  * Return pending M2052 events whose predicted reader-arrival window contains
  * the scan time. Candidates are ordered by distance from the predicted arrival;
  * near ties are deliberately rejected instead of attaching a code to the wrong sack.
