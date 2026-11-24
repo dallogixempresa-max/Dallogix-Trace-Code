@@ -41,7 +41,10 @@ function countEventsByLoading(events) {
     return counts;
 }
 
-function createSensorEventOutbox({ directory = process.env.TRACE_SENSOR_EVENT_OUTBOX_DIR || "/data/trace-sensor-outbox" } = {}) {
+function createSensorEventOutbox({
+    directory = process.env.TRACE_SENSOR_EVENT_OUTBOX_DIR || "/data/trace-sensor-outbox",
+    rejectedDirectory = `${directory}-recusadas`,
+} = {}) {
     let operationQueue = Promise.resolve();
 
     const serialize = (operation) => {
@@ -50,8 +53,8 @@ function createSensorEventOutbox({ directory = process.env.TRACE_SENSOR_EVENT_OU
         return result;
     };
 
-    async function syncDirectory() {
-        const handle = await fs.open(directory, "r");
+    async function syncDirectory(target = directory) {
+        const handle = await fs.open(target, "r");
         try {
             await handle.sync();
         } finally {
@@ -125,6 +128,59 @@ function createSensorEventOutbox({ directory = process.env.TRACE_SENSOR_EVENT_OU
                 await fs.mkdir(directory, { recursive: true, mode: 0o700 });
                 const names = await fs.readdir(directory);
                 return names.filter((name) => name.toLowerCase().endsWith(".json")).length;
+            });
+        },
+        // Retira da fila uma passagem que o servidor recusou de forma definitiva, sem
+        // apagá-la: o registro vai para a pasta de recusadas com o motivo da recusa.
+        archive(eventUuid, rejection = {}) {
+            const id = String(eventUuid || "").trim();
+            if (!EVENT_UUID.test(id)) throw new TypeError("UUID inválido para arquivar passagem do sensor.");
+            return serialize(async () => {
+                const source = path.join(directory, `${id}.json`);
+                let record;
+                try {
+                    record = JSON.parse(await fs.readFile(source, "utf8"));
+                } catch (error) {
+                    if (error?.code === "ENOENT") return false;
+                    throw error;
+                }
+                const event = normalizeEvent(record.event);
+                if (record.version !== 1 || event.event_uuid !== id) {
+                    throw new Error(`Registro inválido na fila local do sensor: ${id}.json.`);
+                }
+                const status = Number(rejection.status);
+                const archived = {
+                    version: 1,
+                    event,
+                    rejected: {
+                        at_epoch_ms: Date.now(),
+                        http_status: Number.isSafeInteger(status) ? status : null,
+                        reason: String(rejection.reason || "").slice(0, 300),
+                    },
+                };
+                await fs.mkdir(rejectedDirectory, { recursive: true, mode: 0o700 });
+                const target = path.join(rejectedDirectory, `${id}.json`);
+                const temporary = path.join(rejectedDirectory, `.${id}.${process.pid}.${Date.now()}.tmp`);
+                const handle = await fs.open(temporary, "wx", 0o600);
+                try {
+                    await handle.writeFile(`${JSON.stringify(archived)}\n`, "utf8");
+                    await handle.sync();
+                } catch (error) {
+                    await handle.close().catch(() => {});
+                    await fs.unlink(temporary).catch(() => {});
+                    throw error;
+                }
+                await handle.close();
+                try {
+                    await fs.rename(temporary, target);
+                    await syncDirectory(rejectedDirectory);
+                } catch (error) {
+                    await fs.unlink(temporary).catch(() => {});
+                    throw error;
+                }
+                await fs.unlink(source);
+                await syncDirectory();
+                return true;
             });
         },
         acknowledge(eventUuid) {
