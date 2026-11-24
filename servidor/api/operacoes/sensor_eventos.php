@@ -299,6 +299,13 @@ $configuredDebounce = filter_var(
     FILTER_VALIDATE_INT,
 );
 $debounceMs = max(0, min(5000, $configuredDebounce === false ? 400 : (int) $configuredDebounce));
+// O contador do CLP já conta uma vez por saca. Passagens recuperadas de uma
+// mesma consulta chegam próximas no tempo e não podem ser descartadas por debounce;
+// a duplicidade continua bloqueada pelo event_uuid.
+$counterPassage = ($payload["sensor_source"] ?? null) === "COUNTER";
+if ($counterPassage) {
+    $debounceMs = 0;
+}
 $pdo = db();
 $pdo->beginTransaction();
 try {
@@ -382,7 +389,7 @@ try {
         "server_debounce_start_ms" => $debounceStartMs,
         "server_debounce_end_ms" => $debounceReferenceMs,
     ]);
-    $debouncedId = $debounce->fetchColumn();
+    $debouncedId = $counterPassage ? false : $debounce->fetchColumn();
     if ($debouncedId !== false) {
         $pdo->rollBack();
         json_response([

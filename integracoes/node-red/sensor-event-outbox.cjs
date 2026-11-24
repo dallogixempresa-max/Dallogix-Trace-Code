@@ -26,6 +26,13 @@ function normalizeEvent(value) {
         && event.detected_at_epoch_ms - from <= 2000) {
         event.modbus_passage_from_epoch_ms = from;
     }
+    // Passagem vinda do contador do CLP: o servidor não aplica debounce por horário.
+    const counterValue = Number(value.sensor_counter_value);
+    if (value.sensor_source === "COUNTER" && Number.isSafeInteger(counterValue)
+        && counterValue >= 0 && counterValue <= 0xffff) {
+        event.sensor_source = "COUNTER";
+        event.sensor_counter_value = counterValue;
+    }
     return event;
 }
 

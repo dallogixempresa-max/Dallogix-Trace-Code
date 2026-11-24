@@ -231,3 +231,31 @@ seção anterior. O relatório continua disponível após finalizar/cancelar.
 A revisão independente ficou limitada por ausência de PHP na VM dela. Isso
 não representa execução das asserções PHP naquele ambiente. Neste Mac, PHP
 8.5.9 está disponível e os testes são executados, sem usar skip para falta de PHP.
+
+## Contador de passagens M2052 no CLP — 23/11/2026
+
+O Node-RED consultava o M2052 a cada 200 ms (50 ms desde a v1.0.281). Um pulso
+mais curto que esse intervalo pode ficar entre duas consultas e a passagem se perde: a tela mostra
+mais códigos do leitor do que sacas detectadas e acusa “Leitura sem passagem
+M2052 correspondente”. Na simulação do fluxo, pulsos de 60, 100 e 150 ms
+registraram 47, 90 e 144 de 200 passagens; a partir de 200 ms, todas.
+
+Para não depender da duração do pulso, o gateway aceita um contador no CLP:
+
+1. No Ladder, a cada borda de subida do M2052, somar 1 em um registrador D
+   (16 bits, sem zerar a cada romaneio). Exemplo: `LDP M2052` → `INC D100`.
+2. No `.env` do PC industrial, informar o endereço Modbus desse registrador
+   (holding register, FC3): `TRACE_MODBUS_SENSOR_COUNTER_REGISTER=100`.
+   O instalador preserva essa linha nas atualizações.
+3. Reiniciar o Trace. Sem a variável, o gateway continua lendo o bit M2052.
+
+Cada incremento vira uma passagem, mesmo que uma ou mais consultas falhem: a
+próxima resposta informa quantas sacas passaram. A virada 65535 → 0 é tratada.
+Um salto maior que `TRACE_SENSOR_COUNTER_MAX_JUMP` (padrão 20) é tratado como
+contador zerado: o gateway ressincroniza sem criar passagens e informa
+`counter_reset_detected` no estado do sensor. Passagens do contador não passam
+pelo debounce de 400 ms do servidor; a duplicidade continua bloqueada pelo
+`event_uuid`. Sacas que passam sem carregamento ativo atualizam a referência
+sem gerar passagem.
+
+Validação pendente: endereço real do registrador e teste com sacas na Dala.
