@@ -33,7 +33,9 @@ $pdo->exec("CREATE TABLE carregamentos (
     started_at TEXT,
     finished_at TEXT,
     truck_id INTEGER,
-    remote_carregamento_id INTEGER
+    remote_carregamento_id INTEGER,
+    stop_reason TEXT,
+    operator_alert TEXT
 )");
 
 $dalaRepository = new RepositorioDalasEventos($pdo);

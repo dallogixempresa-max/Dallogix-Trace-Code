@@ -383,8 +383,16 @@ try {
                     (int) ($data["source_carregamento_id"] ?? $entityId),
                 );
                 if ($loadingId !== null) {
-                    $loadingEventsRepository->atualizarEstado($companyId, $loadingId, $state);
-                    $manifestEventsRepository->sincronizarStatusCarregamento($companyId, $loadingId, $state);
+                    if (filter_var($data["local_state_unchanged"] ?? false, FILTER_VALIDATE_BOOLEAN)) {
+                        // Pausa remota sobre PC já pausado (ServicoGatewayClp):
+                        // só tira o central de CARREGANDO; não reabre carga encerrada.
+                        if ($state === "PAUSADO" && $loadingEventsRepository->pausarSeEmOperacao($companyId, $loadingId)) {
+                            $manifestEventsRepository->sincronizarStatusCarregamento($companyId, $loadingId, $state);
+                        }
+                    } else {
+                        $loadingEventsRepository->atualizarEstado($companyId, $loadingId, $state);
+                        $manifestEventsRepository->sincronizarStatusCarregamento($companyId, $loadingId, $state);
+                    }
                     $entityId = $loadingId;
                 }
             }
@@ -427,10 +435,16 @@ try {
             }
             $stopReason = strtoupper(trim((string) ($data["stop_reason"] ?? "")));
             if (in_array($stopReason, ["PRODUTO_INCORRETO", "EXCESSO", "COTA_PRODUTO_ATINGIDA", "COTA_ROMANEIO_ATINGIDA"], true)) {
+                // No PC, produto incorreto substitui cota e excesso e a
+                // confirmação limpa o único motivo guardado. Se o central ainda
+                // tiver o motivo substituído, ele também foi confirmado.
+                $supersededReasons = $stopReason === "PRODUTO_INCORRETO"
+                    ? " OR stop_reason IN ('EXCESSO', 'COTA_PRODUTO_ATINGIDA', 'COTA_ROMANEIO_ATINGIDA')"
+                    : "";
                 $clearStop = $pdo->prepare(
                     "UPDATE carregamentos SET stop_reason = NULL, operator_alert = NULL
                      WHERE id = :id AND company_id = :company_id AND state = 'PAUSADO'
-                       AND stop_reason = :stop_reason",
+                       AND (stop_reason = :stop_reason{$supersededReasons})",
                 );
                 $clearStop->execute([
                     "id" => $loadingId,
@@ -473,12 +487,19 @@ try {
                     default => "Quantidade excedida detectada pelo sensor. Verifique a parada física no PC industrial, remova a unidade excedente e confirme antes de retomar.",
                 };
             }
+            // Mesma prioridade do PC (ServicoComandoClp::solicitarParadaPorDivergencia):
+            // produto incorreto substitui cota e excesso. Sem ela o central
+            // guardava a cota antiga, recusava a parada seguinte e o instantâneo
+            // devolvia CARREGANDO ao PC com a esteira parada.
+            $supersededReasons = $stopReason === "PRODUTO_INCORRETO"
+                ? " OR stop_reason IN ('EXCESSO', 'COTA_PRODUTO_ATINGIDA', 'COTA_ROMANEIO_ATINGIDA')"
+                : "";
             $pauseLoading = $pdo->prepare(
                 "UPDATE carregamentos
                  SET state = 'PAUSADO', stop_reason = :stop_reason_set, operator_alert = :operator_alert
                  WHERE id = :id AND company_id = :company_id
                    AND state IN ('CARREGANDO', 'FINALIZANDO', 'PAUSADO')
-                   AND (stop_reason IS NULL OR stop_reason = :stop_reason_match)",
+                   AND (stop_reason IS NULL OR stop_reason = :stop_reason_match{$supersededReasons})",
             );
             $pauseLoading->execute([
                 "stop_reason_set" => $stopReason,
