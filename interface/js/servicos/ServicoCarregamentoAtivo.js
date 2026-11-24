@@ -215,7 +215,9 @@ export class ServicoCarregamentoAtivo {
     const serverScannerReadAt = loading.last_scanner_read_at ? String(loading.last_scanner_read_at) : null;
     const newServerReading = selectionChanged || serverScannerReadAt !== this.lastServerScannerReadAt;
     this.lastServerScannerReadAt = serverScannerReadAt;
-    const localPendingReading = ["SEM_PASSAGEM", "AGUARDANDO_PASSAGEM"].includes(this.state.latestScannerReading?.result);
+    // RECEBIDO: captura ainda aguardando a passagem; o visor mantém o código
+    // em vez de voltar à leitura anterior durante a espera.
+    const localPendingReading = ["RECEBIDO", "SEM_PASSAGEM", "AGUARDANDO_PASSAGEM"].includes(this.state.latestScannerReading?.result);
     if (newServerReading || !localPendingReading) {
       this.state.latestScannerReading = loading.last_scanner_read_at
         ? (() => {

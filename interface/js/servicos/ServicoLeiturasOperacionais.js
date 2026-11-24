@@ -68,7 +68,13 @@ export class ServicoLeiturasOperacionais {
     }
 
     const receivedAt = Number(scannerReceivedAtEpochMs) || Date.now();
-    const associationDeadline = Date.now() + 1500;
+    // A passagem pode chegar ao servidor até ~1,5 s depois da detecção quando
+    // um deadlock faz o Node-RED reenviá-la. Espere até 3 s contados da
+    // captura, não do início do envio: uma captura que ficou na fila atrás de
+    // outra tenta por no máximo 200 ms e libera a fila, sem atrasar as
+    // leituras seguintes. O servidor associa pelo horário da captura.
+    const startedAt = Date.now();
+    const associationDeadline = Math.max(startedAt + 200, Math.min(receivedAt, startedAt) + 3000);
     let transientRetryCount = 0;
     while (Number(this.state.loadingId) === loadingId) {
       const response = await this.api.fetch("/api/leituras.php", {

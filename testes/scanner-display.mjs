@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { ServicoLeiturasOperacionais } from "../interface/js/servicos/ServicoLeiturasOperacionais.js";
 import { createHidScannerCapture, isScannerNoReadMarker } from "../interface/js/controladores/captura-leitor-hid.js";
-import { aguardandoPassagemM2052, criarLeiturasAntecipadas, JANELA_LEITURA_ANTECIPADA_MS } from "../interface/js/funcoes/leituras-antecipadas.js";
+import { aguardandoPassagemM2052 } from "../interface/js/funcoes/leituras-sem-passagem.js";
 
 const operation = await readFile(new URL("../interface/telas/operacao/operacao.js", import.meta.url), "utf8");
 const liveView = await readFile(new URL("../interface/js/controladores/estado-visualizacao.js", import.meta.url), "utf8");
@@ -498,11 +498,11 @@ test("HID preserva a carga da primeira tecla durante a captura e na espera da fi
   const scans = [];
   const install = application.slice(application.indexOf("function installScannerHidReceiver()"), application.indexOf("function installInteractionGuards()"));
   new Function("store", "document", "window", "currentPage", "createHidScannerCapture", "isScannerNoReadMarker", "logFrontend",
-    "aguardandoPassagemM2052", "criarLeiturasAntecipadas", "JANELA_LEITURA_ANTECIPADA_MS",
+    "aguardandoPassagemM2052",
     install + "\ninstallScannerHidReceiver();")(store, document, { addEventListener() {} }, "work", options => createHidScannerCapture({
       ...options, onBarcode: (...args) => { scans.push(options.onBarcode(...args)); },
     }), isScannerNoReadMarker, { aviso() {}, erro(error) { throw error; } },
-    aguardandoPassagemM2052, criarLeiturasAntecipadas, JANELA_LEITURA_ANTECIPADA_MS);
+    aguardandoPassagemM2052);
 
   const key = key => handlers.get("keydown")({ key });
   const scan = code => { for (const digit of code) key(digit); key("Enter"); };
@@ -519,13 +519,13 @@ test("HID preserva a carga da primeira tecla durante a captura e na espera da fi
 });
 
 test("o HID serializa as capturas e mantém o horário original nos reenvios", async () => {
-  assert.match(application, /let queue = Promise\.resolve\(\);[\s\S]*?onBarcode: \(barcode, capturedAtEpochMs, loadingId\) => \{\s*queue = queue\.then/);
+  assert.match(application, /let queue = Promise\.resolve\(\);[\s\S]*?onBarcode: \(barcode, capturedAtEpochMs, loadingId\) => \{[\s\S]*?queue = queue\.then/);
   assert.doesNotMatch(application, /let latestScan = 0;/);
   assert.doesNotMatch(readingsEndpoint, /trace_oldest_pending_passage/);
   const matcher = (await readFile(new URL("../servidor/api/operacoes/temporizacao_leitor.php", import.meta.url), "utf8"))
     .split("function trace_pending_scanner_event_match(")[1] || "";
   assert.match(matcher, /trace_modbus_passage_from_ms/);
-  assert.match(operationalReadingService, /associationDeadline = Date\.now\(\) \+ 1500/);
+  assert.match(operationalReadingService, /associationDeadline = Math\.max\(startedAt \+ 200, Math\.min\(receivedAt, startedAt\) \+ 3000\);/);
   assert.doesNotMatch(operationalReadingService, /return \{ result: "SEM_PASSAGEM" \}/);
 
   const firstTime = Date.now();
@@ -556,7 +556,7 @@ test("o HID serializa as capturas e mantém o horário original nos reenvios", a
     request.headers["X-Trace-Offline-ID"] === requests[0].headers["X-Trace-Offline-ID"]));
 });
 
-test("ao vencer os 1,5 s, a resposta original do servidor é propagada", async () => {
+test("ao vencer a espera de 3 s, a resposta original do servidor é propagada", async () => {
   let attempts = 0;
   const service = new ServicoLeiturasOperacionais({
     api: { fetch: async () => {

@@ -141,7 +141,7 @@ const SHELL = [
   "/js/funcoes/formato.js",
   "/js/funcoes/estado-comando.js",
   "/js/funcoes/html.js",
-  "/js/funcoes/leituras-antecipadas.js",
+  "/js/funcoes/leituras-sem-passagem.js",
   "/js/funcoes/regras-carregamento.js",
   "/js/funcoes/relogio.js",
   "/js/funcoes/romaneio.js",
