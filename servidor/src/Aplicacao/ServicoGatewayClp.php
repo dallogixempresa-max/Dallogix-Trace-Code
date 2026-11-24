@@ -132,6 +132,7 @@ final class ServicoGatewayClp
             $statement = $this->connection->prepare(
                 "SELECT r.id, r.company_id, r.equipment_id, r.carregamento_id, r.command, r.requested_at,
                         r.remote_command_id, c.remote_carregamento_id, c.state AS loading_state,
+                        c.stop_reason,
                         (SELECT direction.command FROM solicitacoes_comandos_clp direction
                          WHERE direction.equipment_id = r.equipment_id
                            AND direction.company_id = r.company_id
@@ -166,11 +167,24 @@ final class ServicoGatewayClp
             if ($priorityStopRequestId !== null) {
                 $parameters["priority_stop_request_id"] = $priorityStopRequestId;
             }
-            $statement->execute($parameters);
-            $request = $statement->fetch();
-            if (!$request) {
-                $this->connection->commit();
-                return null;
+            // Ligar a esteira com uma parada por divergência ainda não
+            // confirmada no PC (ex.: produto incorreto com a saca na esteira)
+            // é recusado aqui, antes de chegar ao node-red. O central
+            // pode ter liberado a própria linha sem o PC confirmar; adiar o
+            // comando o faria disparar sozinho logo após a confirmação, então
+            // ele termina REJEITADO e o próximo da fila segue na mesma reserva.
+            while (true) {
+                $statement->execute($parameters);
+                $request = $statement->fetch();
+                $statement->closeCursor();
+                if (!$request) {
+                    $this->connection->commit();
+                    return null;
+                }
+                if (!self::bloqueadoPorParadaPendente($request)) {
+                    break;
+                }
+                $this->rejeitarPorParadaPendente($request, $deviceId);
             }
             $update = $this->connection->prepare(
                 "UPDATE solicitacoes_comandos_clp
@@ -220,6 +234,7 @@ final class ServicoGatewayClp
             // solicitação. Preserve a mesma ordem no ACK: inverter esses locks
             // permitia um deadlock quando o operador enviava outro comando.
             $lockedLoadingState = null;
+            $lockedStopReason = "";
             if ($status === "APLICADO") {
                 $candidate = $this->connection->prepare(
                     "SELECT command, carregamento_id, company_id
@@ -238,14 +253,18 @@ final class ServicoGatewayClp
                 ];
                 if ($candidateRequest && in_array($candidateRequest["command"], $commandsThatChangeLoading, true)) {
                     $loadingLock = $this->connection->prepare(
-                        "SELECT state FROM carregamentos
+                        "SELECT state, stop_reason FROM carregamentos
                          WHERE id = :id AND company_id = :company_id LIMIT 1 FOR UPDATE",
                     );
                     $loadingLock->execute([
                         "id" => $candidateRequest["carregamento_id"],
                         "company_id" => $candidateRequest["company_id"],
                     ]);
-                    $lockedLoadingState = $loadingLock->fetchColumn();
+                    $lockedLoading = $loadingLock->fetch();
+                    if ($lockedLoading) {
+                        $lockedLoadingState = $lockedLoading["state"];
+                        $lockedStopReason = trim((string) ($lockedLoading["stop_reason"] ?? ""));
+                    }
                 }
             }
 
@@ -294,6 +313,13 @@ final class ServicoGatewayClp
                 if (!in_array($previousState, $allowedStates, true)) {
                     $status = "ERRO";
                     $message = "O estado do carregamento mudou antes da confirmação física; o comando não foi aplicado ao estado local.";
+                } elseif ($request["command"] === "INICIAR_CARREGAMENTO" && $lockedStopReason !== "") {
+                    // Uma parada por divergência entrou durante a escrita (ou o
+                    // início escapou da reserva). Ir para CARREGANDO deixaria o
+                    // aviso sem confirmação possível: o estado local não muda e
+                    // a parada já solicitada desliga a esteira.
+                    $status = "ERRO";
+                    $message = "Parada por divergência ({$lockedStopReason}) registrada antes da confirmação física; o carregamento não passou para CARREGANDO e aguarda a confirmação do operador no PC.";
                 } elseif ($previousState !== "FINALIZADO") {
                     $stateUpdate = $this->connection->prepare(
                         "UPDATE carregamentos SET state = :state
@@ -487,6 +513,64 @@ final class ServicoGatewayClp
             && $request["remote_command_id"] !== null
             && $previousState === "PAUSADO"
             && !$stateChanged;
+    }
+
+    /**
+     * O PC recusa ligar a esteira enquanto houver um stop_reason
+     * (ServicoComandoClp). O gateway aplica a mesma regra ao INICIAR que
+     * chegou por outra via, como o "Ligar" do central.
+     *
+     * @param array<string,mixed> $request
+     */
+    private static function bloqueadoPorParadaPendente(array $request): bool
+    {
+        return $request["command"] === "INICIAR_CARREGAMENTO"
+            && trim((string) ($request["stop_reason"] ?? "")) !== "";
+    }
+
+    /** @param array<string,mixed> $request */
+    private function rejeitarPorParadaPendente(array $request, int $deviceId): void
+    {
+        $stopReason = trim((string) $request["stop_reason"]);
+        $message = "Comando recusado pelo PC da máquina: o carregamento está parado por divergência ({$stopReason}) "
+            . "e a remoção da unidade e a parada física ainda não foram confirmadas no PC; a esteira não foi ligada. "
+            . "Confirme no PC e envie o comando novamente.";
+        $reject = $this->connection->prepare(
+            "UPDATE solicitacoes_comandos_clp
+             SET status = 'REJEITADO', completed_at = NOW(3), response_message = :message
+             WHERE id = :id AND status = 'PENDENTE'",
+        );
+        $reject->execute(["message" => $message, "id" => $request["id"]]);
+        if ($reject->rowCount() !== 1) {
+            throw new ExcecaoGatewayClp("Comando já foi reservado por outro gateway.", 409);
+        }
+        // Mesmo evento do ACK do node-red: o central marca o próprio comando
+        // como REJEITADO e mostra o motivo a quem pediu.
+        \record_operational_event(
+            $this->connection,
+            $this->atorDoDispositivo((int) $request["company_id"]),
+            "COMANDO_CLP_CONCLUIDO",
+            "solicitacao_comando_clp",
+            (int) $request["id"],
+            [
+                "equipment_id" => (int) $request["equipment_id"],
+                "carregamento_id" => (int) $request["carregamento_id"],
+                "command" => $request["command"],
+                "status" => "REJEITADO",
+                "applied_at_epoch_ms" => null,
+                "pause_started_at_epoch_ms" => null,
+                "message" => $message,
+                "device_id" => $deviceId,
+                "blocked_by_stop_reason" => $stopReason,
+                "remote_command_id" => $request["remote_command_id"] === null
+                    ? null : (int) $request["remote_command_id"],
+                "remote_carregamento_id" => $request["remote_carregamento_id"] === null
+                    ? null : (int) $request["remote_carregamento_id"],
+                "remote_equipment_id" => $request["remote_equipment_id"] === null
+                    ? null : (int) $request["remote_equipment_id"],
+                "equipment_code" => $request["equipment_code"],
+            ],
+        );
     }
 
     /** @return array{id:null, company_id:int} */
