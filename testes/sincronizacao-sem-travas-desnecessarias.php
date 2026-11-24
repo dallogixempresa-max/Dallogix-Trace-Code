@@ -7,19 +7,16 @@ declare(strict_types=1);
 // travava o carregamento ativo. O registro de passagem e de leitura trava o
 // carregamento e confere produto/equipamento pela chave estrangeira na ordem
 // inversa: deadlock 1213, HTTP 500 no sensor_eventos e passagem gravada ~1,4 s
-// depois. Este teste garante que um instantâneo sem mudanças não grava essas
-// linhas e que as mudanças reais continuam sendo aplicadas.
+// depois. Este teste garante que um instantâneo sem mudanças não grava
+// produtos nem carregamentos e que as mudanças reais continuam sendo
+// aplicadas. Equipamento e dispositivos: sincronizacao-dala-sem-escrita.php.
 
 require_once __DIR__ . "/../servidor/src/Persistencia/RepositorioFilaSincronizacao.php";
 require_once __DIR__ . "/../servidor/src/Persistencia/RepositorioRomaneiosRemotos.php";
 require_once __DIR__ . "/../servidor/src/Persistencia/RepositorioProdutosRemotos.php";
-require_once __DIR__ . "/../servidor/src/Persistencia/RepositorioEquipamentosRemotos.php";
 require_once __DIR__ . "/../servidor/src/Persistencia/RepositorioCarregamentosRemotos.php";
-require_once __DIR__ . "/../servidor/src/Aplicacao/ProvisionadorDispositivosLocais.php";
 
-use App\Aplicacao\ProvisionadorDispositivosLocais;
 use App\Persistencia\RepositorioCarregamentosRemotos;
-use App\Persistencia\RepositorioEquipamentosRemotos;
 use App\Persistencia\RepositorioFilaSincronizacao;
 use App\Persistencia\RepositorioProdutosRemotos;
 use App\Persistencia\RepositorioRomaneiosRemotos;
@@ -58,8 +55,6 @@ $pdo = new PDO("sqlite::memory:", null, null, [
 $pdo->exec("CREATE TABLE fila_sincronizacao (id INTEGER PRIMARY KEY, company_id INTEGER, aggregate_type TEXT, aggregate_id INTEGER, status TEXT)");
 $pdo->exec("CREATE TABLE produtos (id INTEGER PRIMARY KEY, company_id INTEGER, remote_product_id INTEGER, code TEXT, name TEXT, category TEXT, active INTEGER)");
 $pdo->exec("CREATE TABLE codigos_produtos (id INTEGER PRIMARY KEY, company_id INTEGER, product_id INTEGER, barcode TEXT)");
-$pdo->exec("CREATE TABLE equipamentos (id INTEGER PRIMARY KEY, company_id INTEGER, remote_equipment_id INTEGER, equipment_code TEXT, name TEXT, plc_ip TEXT, plc_port INTEGER, external_port INTEGER, plc_protocol TEXT)");
-$pdo->exec("CREATE TABLE dispositivos (id INTEGER PRIMARY KEY, company_id INTEGER, equipment_id INTEGER, device_code TEXT UNIQUE, device_type TEXT, token_hash TEXT, token_lookup_hash TEXT, token_id TEXT, token_created_at TEXT, token_last_used_at TEXT, token_expires_at TEXT, token_revoked_at TEXT, active INTEGER)");
 $pdo->exec("CREATE TABLE carregamentos (id INTEGER PRIMARY KEY, company_id INTEGER, remote_carregamento_id INTEGER, state TEXT, finished_at TEXT)");
 
 $fila = new RepositorioFilaSincronizacao($pdo);
@@ -89,40 +84,9 @@ foreach (["produtos", "carregamentos"] as $arquivo) {
     verificar(!str_contains($fonte, "UPDATE {$arquivo} SET active = 0\n                     WHERE company_id"), "UPDATE varrendo a tabela inteira voltou em {$arquivo}.");
 }
 
-// 2) Equipamento: igual ao central não grava; diferente grava.
-$pdo->exec("INSERT INTO equipamentos VALUES (1, 1, 1, 'NutriDani_1', 'NutriDani', '192.168.1.10', 502, NULL, 'MODBUS_TCP')");
-$equipamentos = new RepositorioEquipamentosRemotos($pdo, $fila);
-$remoto = ["id" => 1, "equipment_code" => "NutriDani_1", "name" => "NutriDani", "plc_ip" => "192.168.1.10", "plc_port" => 502, "external_port" => null, "plc_protocol" => "MODBUS_TCP"];
-$escritas = $escritasDe(static fn () => $equipamentos->sincronizarEquipamento(1, $remoto));
-verificar($escritas === [], "Equipamento igual ao central não pode ser regravado a cada instantâneo.");
-$escritas = $escritasDe(static fn () => $equipamentos->sincronizarEquipamento(1, [...$remoto, "plc_ip" => "192.168.1.11"]));
-verificar(count($escritas) === 1 && str_starts_with($escritas[0], "UPDATE equipamentos SET remote_equipment_id"), "Mudança real no equipamento continua sendo aplicada.");
-verificar($pdo->query("SELECT plc_ip FROM equipamentos WHERE id = 1")->fetchColumn() === "192.168.1.11", "IP novo gravado.");
+// 2) Equipamento e dispositivos: testes/sincronizacao-dala-sem-escrita.php.
 
-// 3) Dispositivos: já provisionados com o mesmo token não são regravados (sem bcrypt).
-putenv("TRACE_INSTALLATION_MODE=local");
-putenv("KEYENCE_ENABLED=0");
-$token = str_repeat("ab", 32);
-putenv("TRACE_DEVICE_TOKEN={$token}");
-$pdo->exec("INSERT INTO dispositivos (company_id, equipment_id, device_code, device_type, token_hash, token_lookup_hash, token_id, active)
-            VALUES (1, 1, 'PLC-NutriDani_1', 'CLP', 'x', '" . hash("sha256", $token) . "', 't1', 1)");
-$inicio = microtime(true);
-$escritas = $escritasDe(static fn () => ProvisionadorDispositivosLocais::garantir($pdo, 1, 1, "NutriDani_1"));
-verificar($escritas === [], "Dispositivo igual não pode ser regravado a cada instantâneo.");
-verificar(microtime(true) - $inicio < 0.05, "Sem bcrypt quando nada mudou.");
-$pdo->exec("UPDATE dispositivos SET token_lookup_hash = 'outro' WHERE device_code = 'PLC-NutriDani_1'");
-$tentouGravar = false;
-try {
-    $escritas = $escritasDe(static fn () => ProvisionadorDispositivosLocais::garantir($pdo, 1, 1, "NutriDani_1"));
-    $tentouGravar = $escritas !== [];
-} catch (PDOException $exception) {
-    // O SQLite não entende ON DUPLICATE KEY: a falha ao preparar mostra que a
-    // gravação do dispositivo foi tentada.
-    $tentouGravar = str_contains($exception->getMessage(), "DUPLICATE");
-}
-verificar($tentouGravar, "Token diferente continua sendo regravado.");
-
-// 4) Carregamentos ausentes: nada a encerrar não grava; ausente é encerrado pela chave.
+// 3) Carregamentos ausentes: nada a encerrar não grava; ausente é encerrado pela chave.
 $pdo->exec("INSERT INTO carregamentos VALUES (137, 1, 123, 'FINALIZADO', '2026-11-24 13:59:35'), (138, 1, 124, 'PAUSADO', NULL), (139, 1, 125, 'CARREGANDO', NULL)");
 $carregamentos = new RepositorioCarregamentosRemotos($pdo, $fila, new RepositorioRomaneiosRemotos($pdo, $fila));
 $escritas = $escritasDe(static fn () => $carregamentos->finalizarAusentes(1, [124, 125]));
@@ -135,4 +99,4 @@ $pdo->exec("INSERT INTO fila_sincronizacao (company_id, aggregate_type, aggregat
 $escritasDe(static fn () => $carregamentos->finalizarAusentes(1, []));
 verificar($pdo->query("SELECT state FROM carregamentos WHERE id = 138")->fetchColumn() === "PAUSADO", "Carregamento com evento local pendente não é encerrado.");
 
-echo "Instantâneo: sem mudança não grava produtos, equipamento, dispositivos nem carregamentos; mudanças reais continuam aplicadas.\n";
+echo "Instantâneo: sem mudança não grava produtos nem carregamentos; mudanças reais continuam aplicadas.\n";

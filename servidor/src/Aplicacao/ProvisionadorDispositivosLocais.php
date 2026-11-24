@@ -36,7 +36,7 @@ final class ProvisionadorDispositivosLocais
                 trim((string) (getenv("KEYENCE_DEVICE_TOKEN") ?: "")),
             ];
         }
-        $upsertSql =
+        $statement = $connection->prepare(
             "INSERT INTO dispositivos
                 (company_id, equipment_id, device_code, device_type, token_hash,
                  token_lookup_hash, token_id, token_created_at, token_last_used_at,
@@ -50,45 +50,46 @@ final class ProvisionadorDispositivosLocais
                  token_hash = VALUES(token_hash), token_lookup_hash = VALUES(token_lookup_hash),
                  token_id = VALUES(token_id), token_created_at = NOW(),
                  token_last_used_at = NULL, token_expires_at = NULL,
-                 token_revoked_at = NULL, active = 1";
-        $statement = null;
+                 token_revoked_at = NULL, active = 1",
+        );
 
-        // O instantâneo chama esta rotina a cada ~1 s. Regravar o dispositivo
-        // (com bcrypt novo) travava a linha que o Node-RED e o leitor atualizam
-        // em toda requisição, e eles esperavam o instantâneo inteiro terminar.
-        // Só grava quando o dispositivo falta ou está diferente.
+        // A sincronização chama isto a cada ~1 s, dentro da transação que trava
+        // a Dala. Quando a credencial gravada já é a do .env (a API autentica
+        // pelo token_lookup_hash), não refaz o bcrypt nem o upsert. Token novo
+        // no .env, dispositivo inativo, revogado ou com validade: reprovisiona.
         $current = $connection->prepare(
-            "SELECT company_id, equipment_id, device_type, token_lookup_hash, active,
-                    token_revoked_at, token_expires_at
-             FROM dispositivos WHERE device_code = :device_code LIMIT 1",
+            "SELECT 1 FROM dispositivos
+             WHERE token_lookup_hash = :token_lookup_hash AND device_code = :device_code
+               AND device_type = :device_type AND company_id = :company_id
+               AND equipment_id = :equipment_id AND active = 1
+               AND token_revoked_at IS NULL AND token_expires_at IS NULL
+             LIMIT 1",
         );
 
         foreach ($devices as [$deviceType, $deviceCode, $token]) {
             if (!preg_match('/\A[a-f0-9]{64}\z/i', $token)) {
                 throw new RuntimeException("Credencial {$deviceType} da instalação local está ausente ou inválida.");
             }
-            $current->execute(["device_code" => $deviceCode]);
-            $existing = $current->fetch(PDO::FETCH_ASSOC) ?: null;
-            if ($existing !== null
-                && (int) $existing["company_id"] === $companyId
-                && (int) $existing["equipment_id"] === $equipmentId
-                && (string) $existing["device_type"] === $deviceType
-                && hash_equals((string) $existing["token_lookup_hash"], hash("sha256", $token))
-                && (int) $existing["active"] === 1
-                && $existing["token_revoked_at"] === null
-                && $existing["token_expires_at"] === null
-            ) {
+            $lookupHash = hash("sha256", $token);
+            $current->execute([
+                "token_lookup_hash" => $lookupHash,
+                "device_code" => $deviceCode,
+                "device_type" => $deviceType,
+                "company_id" => $companyId,
+                "equipment_id" => $equipmentId,
+            ]);
+            $alreadyProvisioned = $current->fetchColumn() !== false;
+            $current->closeCursor();
+            if ($alreadyProvisioned) {
                 continue;
             }
-            // Preparado só quando há o que gravar.
-            $statement ??= $connection->prepare($upsertSql);
             $statement->execute([
                 "company_id" => $companyId,
                 "equipment_id" => $equipmentId,
                 "device_code" => $deviceCode,
                 "device_type" => $deviceType,
                 "token_hash" => password_hash($token, PASSWORD_DEFAULT),
-                "token_lookup_hash" => hash("sha256", $token),
+                "token_lookup_hash" => $lookupHash,
                 "token_id" => self::novoTokenId(),
             ]);
         }

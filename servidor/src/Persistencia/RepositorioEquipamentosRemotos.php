@@ -87,20 +87,22 @@ final class RepositorioEquipamentosRemotos
         if ($remoteId <= 0 || $code === "") {
             throw new RuntimeException("Dala remota sem identificador válido.");
         }
+        $columns = "id, remote_equipment_id, equipment_code, name, plc_ip, plc_port, external_port, plc_protocol";
         $find = $this->connection->prepare(
-            "SELECT id FROM equipamentos WHERE company_id = :company_id
+            "SELECT {$columns} FROM equipamentos WHERE company_id = :company_id
              AND remote_equipment_id = :remote_id LIMIT 1",
         );
         $find->execute(["company_id" => $companyId, "remote_id" => $remoteId]);
-        $localId = (int) ($find->fetchColumn() ?: 0);
-        if ($localId === 0) {
+        $local = $find->fetch(PDO::FETCH_ASSOC) ?: null;
+        if ($local === null) {
             $find = $this->connection->prepare(
-                "SELECT id FROM equipamentos WHERE company_id = :company_id
+                "SELECT {$columns} FROM equipamentos WHERE company_id = :company_id
                  AND equipment_code = :equipment_code LIMIT 1",
             );
             $find->execute(["company_id" => $companyId, "equipment_code" => $code]);
-            $localId = (int) ($find->fetchColumn() ?: 0);
+            $local = $find->fetch(PDO::FETCH_ASSOC) ?: null;
         }
+        $localId = $local === null ? 0 : (int) $local["id"];
         $data = [
             "remote_equipment_id" => $remoteId,
             "equipment_code" => $code,
@@ -111,33 +113,20 @@ final class RepositorioEquipamentosRemotos
             "plc_protocol" => in_array(($remote["plc_protocol"] ?? "MODBUS_TCP"), ["MODBUS_TCP", "MODBUS_RTU"], true)
                 ? $remote["plc_protocol"] : "MODBUS_TCP",
         ];
-        if ($localId) {
+        // O snapshot chega a cada ~1 s. Um UPDATE, mesmo sem mudança, trava a
+        // linha da Dala até o fim da transação inteira, e paradas automáticas
+        // precisam dela (FK do comando ao CLP): só escreve quando algo mudou.
+        if ($local !== null) {
             if ($this->fila->possuiEventoPendente($companyId, "equipment", $localId)) {
-                $this->connection->prepare(
-                    "UPDATE equipamentos SET remote_equipment_id = :remote_id
-                     WHERE id = :id AND company_id = :company_id",
-                )->execute(["remote_id" => $remoteId, "id" => $localId, "company_id" => $companyId]);
+                if ((int) ($local["remote_equipment_id"] ?? 0) !== $remoteId) {
+                    $this->connection->prepare(
+                        "UPDATE equipamentos SET remote_equipment_id = :remote_id
+                         WHERE id = :id AND company_id = :company_id",
+                    )->execute(["remote_id" => $remoteId, "id" => $localId, "company_id" => $companyId]);
+                }
                 return ["id" => $localId, "codigo" => $code, "provisionar" => false];
             }
-            // Só grava quando algo mudou. A passagem do sensor confere o
-            // equipamento pela chave estrangeira com o carregamento já travado;
-            // regravar a linha a cada instantâneo travava os dois na ordem
-            // inversa e gerava deadlock.
-            $current = $this->connection->prepare(
-                "SELECT remote_equipment_id, equipment_code, name, plc_ip, plc_port, external_port, plc_protocol
-                 FROM equipamentos WHERE id = :id AND company_id = :company_id",
-            );
-            $current->execute(["id" => $localId, "company_id" => $companyId]);
-            $currentRow = $current->fetch(PDO::FETCH_ASSOC) ?: [];
-            $changed = false;
-            foreach ($data as $column => $value) {
-                $currentValue = $currentRow[$column] ?? null;
-                if (($currentValue === null) !== ($value === null) || (string) $currentValue !== (string) $value) {
-                    $changed = true;
-                    break;
-                }
-            }
-            if ($changed) {
+            if (self::normalizarParaComparacao($local) !== self::normalizarParaComparacao($data)) {
                 $update = $this->connection->prepare(
                     "UPDATE equipamentos SET remote_equipment_id = :remote_equipment_id,
                      equipment_code = :equipment_code, name = :name, plc_ip = :plc_ip,
@@ -158,4 +147,28 @@ final class RepositorioEquipamentosRemotos
         return ["id" => $localId, "codigo" => $code, "provisionar" => true];
     }
 
+    /**
+     * Mesma forma para a linha lida do banco (o PDO pode devolver portas como
+     * texto) e para os valores do central: portas inteiras, vazio igual a
+     * NULL e protocolo desconhecido como MODBUS_TCP, o padrão da coluna.
+     *
+     * @param array<string,mixed> $values
+     * @return array<string,mixed>
+     */
+    private static function normalizarParaComparacao(array $values): array
+    {
+        $optional = static fn (mixed $value): mixed => $value === null || $value === "" ? null : $value;
+        $optionalInt = static fn (mixed $value): ?int => $optional($value) === null ? null : (int) $value;
+        $protocol = $optional($values["plc_protocol"] ?? null);
+
+        return [
+            "remote_equipment_id" => $optionalInt($values["remote_equipment_id"] ?? null),
+            "equipment_code" => (string) ($values["equipment_code"] ?? ""),
+            "name" => (string) ($values["name"] ?? ""),
+            "plc_ip" => $optional($values["plc_ip"] ?? null) === null ? null : (string) $values["plc_ip"],
+            "plc_port" => $optionalInt($values["plc_port"] ?? null),
+            "external_port" => $optionalInt($values["external_port"] ?? null),
+            "plc_protocol" => in_array($protocol, ["MODBUS_TCP", "MODBUS_RTU"], true) ? $protocol : "MODBUS_TCP",
+        ];
+    }
 }
