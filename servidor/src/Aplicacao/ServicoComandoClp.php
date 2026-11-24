@@ -184,12 +184,15 @@ final class ServicoComandoClp
             );
             $this->concluirEscopoTransacao($ownsTransaction, "trace_solicitar_operacao");
         } catch (Throwable $exception) {
-            $this->reverterEscopoTransacao($ownsTransaction, "trace_solicitar_operacao");
+            $this->reverterEscopoTransacao($ownsTransaction, "trace_solicitar_operacao", $exception);
             if ($exception instanceof ExcecaoComandoClp || $exception instanceof ExcecaoDisponibilidadeClp) {
                 throw $exception;
             }
-            if ($ownsTransaction && self::desfeitaPorDeadlock($exception)) {
-                // O MySQL já desfez a transação inteira; solicitarOperacao repete.
+            if (self::desfeitaPorDeadlock($exception)) {
+                // O MySQL já desfez a transação inteira. Transação própria:
+                // solicitarOperacao repete. Parada automática (aninhada): o
+                // 1213 original sobe sem embrulho até quem abriu a transação
+                // (leituras.php repete a leitura do início).
                 throw $exception;
             }
             if ($ownsTransaction) {
@@ -478,7 +481,7 @@ final class ServicoComandoClp
                 "stop_reason" => $reason,
             ];
         } catch (Throwable $exception) {
-            $this->reverterEscopoTransacao($ownsTransaction, $savepoint);
+            $this->reverterEscopoTransacao($ownsTransaction, $savepoint, $exception);
             throw $exception;
         }
     }
@@ -499,20 +502,37 @@ final class ServicoComandoClp
         );
         $statement->execute();
         $loadings = $statement->fetchAll(PDO::FETCH_ASSOC);
+        $aninhada = $this->connection->inTransaction();
         foreach ($loadings as $loading) {
-            try {
-                $this->solicitarParadaPorExcesso([
-                    "id" => null,
-                    "company_id" => (int) $loading["company_id"],
-                ], (int) $loading["id"]);
-            } catch (ExcecaoComandoClp $exception) {
-                if (!in_array($exception->httpStatus, [404, 409], true)) {
-                    throw $exception;
+            for ($tentativa = 1; ; $tentativa++) {
+                try {
+                    $this->solicitarParadaPorExcesso([
+                        "id" => null,
+                        "company_id" => (int) $loading["company_id"],
+                    ], (int) $loading["id"]);
+                    break;
+                } catch (ExcecaoComandoClp $exception) {
+                    if (!in_array($exception->httpStatus, [404, 409], true)) {
+                        throw $exception;
+                    }
+                    error_log(
+                        "Excesso ativo mudou antes da reconciliação do carregamento "
+                        . (int) $loading["id"] . ": " . $exception->getMessage(),
+                    );
+                    break;
+                } catch (PDOException $exception) {
+                    // Fora de transação (sync worker) a parada é dona da própria
+                    // transação: o deadlock a desfez inteira e repetir relê o
+                    // carregamento. Aninhada, quem abriu a transação decide.
+                    if (
+                        $aninhada
+                        || !self::desfeitaPorDeadlock($exception)
+                        || $tentativa >= self::TENTATIVAS_EM_DEADLOCK
+                    ) {
+                        throw $exception;
+                    }
+                    usleep(random_int(20_000, 60_000) * $tentativa);
                 }
-                error_log(
-                    "Excesso ativo mudou antes da reconciliação do carregamento "
-                    . (int) $loading["id"] . ": " . $exception->getMessage(),
-                );
             }
         }
 
@@ -751,9 +771,9 @@ final class ServicoComandoClp
         string $origemLog,
     ): array {
         if ($this->connection->inTransaction()) {
-            // Chamada aninhada (parada automática): comportamento anterior.
-            // Repetir aqui não adianta, porque o deadlock desfaz a transação
-            // inteira de quem chamou (sensor ou leitura).
+            // Chamada aninhada (parada automática): repetir aqui não adianta,
+            // porque o deadlock desfaz a transação inteira de quem chamou
+            // (sensor ou leitura). O 1213 sobe intacto para quem a abriu.
             return $operacao();
         }
         for ($tentativa = 1; ; $tentativa++) {
@@ -824,13 +844,20 @@ final class ServicoComandoClp
         $this->connection->exec("RELEASE SAVEPOINT {$savepoint}");
     }
 
-    private function reverterEscopoTransacao(bool $ownsTransaction, string $savepoint): void
+    private function reverterEscopoTransacao(bool $ownsTransaction, string $savepoint, ?Throwable $falha = null): void
     {
         if (!$this->connection->inTransaction()) {
             return;
         }
         if ($ownsTransaction) {
             $this->connection->rollBack();
+            return;
+        }
+        if ($falha !== null && self::desfeitaPorDeadlock($falha)) {
+            // O deadlock desfez a transação de quem chamou e o savepoint junto,
+            // mas o pdo_mysql segue informando inTransaction(). Um ROLLBACK TO
+            // SAVEPOINT aqui falharia com 1305 e esconderia o 1213 que a
+            // leitura sabe repetir; o ROLLBACK fica com quem abriu a transação.
             return;
         }
 

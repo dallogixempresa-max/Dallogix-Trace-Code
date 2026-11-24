@@ -618,6 +618,10 @@ try {
             200,
         );
     }
+    // Já fora da transação: deadlock com a sincronização (inclusive o da
+    // parada por meta) fica em logs_erros. O node-red mantém a passagem na
+    // fila local e reenvia qualquer resposta que não seja 2xx.
+    registrar_log_erro($exception, "evento_sensor");
     json_response(
         ["error" => "Não foi possível registrar o evento do sensor."],
         500,
