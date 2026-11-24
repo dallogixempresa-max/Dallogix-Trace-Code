@@ -152,7 +152,12 @@ final class RepositorioProdutosRemotos
             $updated++;
         }
 
-        $staleSql = "UPDATE produtos SET active = 0
+        // Primeiro uma leitura sem trava; depois o UPDATE só nos produtos que
+        // realmente saíram do central. Um UPDATE com NOT IN varria e travava
+        // todos os produtos da empresa até o fim do instantâneo, e a gravação
+        // de leituras (que confere o produto pela chave estrangeira) entrava em
+        // deadlock com o instantâneo ao travar o carregamento na ordem inversa.
+        $staleSql = "SELECT id FROM produtos
                      WHERE company_id = :company_id AND remote_product_id IS NOT NULL
                        AND active <> 0
                        AND NOT EXISTS (SELECT 1 FROM fila_sincronizacao q
@@ -170,9 +175,26 @@ final class RepositorioProdutosRemotos
             }
             $staleSql .= " AND remote_product_id NOT IN (" . implode(",", $placeholders) . ")";
         }
-        $stale = $this->connection->prepare($staleSql);
-        $stale->execute($staleParams);
+        $staleQuery = $this->connection->prepare($staleSql);
+        $staleQuery->execute($staleParams);
+        $staleIds = array_map("intval", $staleQuery->fetchAll(PDO::FETCH_COLUMN));
+        $deactivated = 0;
+        if ($staleIds !== []) {
+            $deactivate = $this->connection->prepare(
+                "UPDATE produtos SET active = 0
+                 WHERE id = :id AND company_id = :company_id AND active <> 0
+                   AND NOT EXISTS (SELECT 1 FROM fila_sincronizacao q
+                       WHERE q.company_id = produtos.company_id
+                         AND q.aggregate_type = 'produto'
+                         AND q.aggregate_id = produtos.id
+                         AND q.status <> 'ENVIADO')",
+            );
+            foreach ($staleIds as $staleId) {
+                $deactivate->execute(["id" => $staleId, "company_id" => $companyId]);
+                $deactivated += $deactivate->rowCount();
+            }
+        }
 
-        return $updated + $stale->rowCount();
+        return $updated + $deactivated;
     }
 }

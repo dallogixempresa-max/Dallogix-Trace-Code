@@ -146,20 +146,37 @@ final class RepositorioCarregamentosRemotos
         $timestamp = $this->connection->getAttribute(PDO::ATTR_DRIVER_NAME) === "sqlite"
             ? "CURRENT_TIMESTAMP"
             : "NOW(3)";
-        $statement = $this->connection->prepare(
-            "UPDATE carregamentos
-             SET state = 'FINALIZADO', finished_at = COALESCE(finished_at, {$timestamp})
-             WHERE company_id = :company_id AND remote_carregamento_id IS NOT NULL
-               AND state <> 'FINALIZADO'{$notIn}
-               AND NOT EXISTS (
+        $pendingSyncFilter = "NOT EXISTS (
                    SELECT 1 FROM fila_sincronizacao q
                    WHERE q.company_id = carregamentos.company_id
                      AND q.aggregate_type = 'carregamento'
                      AND q.aggregate_id = carregamentos.id
                      AND q.status <> 'ENVIADO'
-               )",
+               )";
+        // Leitura sem trava primeiro; o UPDATE só toca os carregamentos que de
+        // fato saíram do central. O UPDATE com NOT IN varria e travava todos os
+        // carregamentos a cada instantâneo, disputando com sensor e leituras.
+        $candidates = $this->connection->prepare(
+            "SELECT id FROM carregamentos
+             WHERE company_id = :company_id AND remote_carregamento_id IS NOT NULL
+               AND state <> 'FINALIZADO'{$notIn}
+               AND {$pendingSyncFilter}",
         );
-        $statement->execute($parameters);
+        $candidates->execute($parameters);
+        $candidateIds = array_map("intval", $candidates->fetchAll(PDO::FETCH_COLUMN));
+        if ($candidateIds === []) {
+            return;
+        }
+        $statement = $this->connection->prepare(
+            "UPDATE carregamentos
+             SET state = 'FINALIZADO', finished_at = COALESCE(finished_at, {$timestamp})
+             WHERE id = :id AND company_id = :company_id AND remote_carregamento_id IS NOT NULL
+               AND state <> 'FINALIZADO'{$notIn}
+               AND {$pendingSyncFilter}",
+        );
+        foreach ($candidateIds as $candidateId) {
+            $statement->execute([...$parameters, "id" => $candidateId]);
+        }
     }
 
     /**

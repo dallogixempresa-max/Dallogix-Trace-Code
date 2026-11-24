@@ -119,13 +119,33 @@ final class RepositorioEquipamentosRemotos
                 )->execute(["remote_id" => $remoteId, "id" => $localId, "company_id" => $companyId]);
                 return ["id" => $localId, "codigo" => $code, "provisionar" => false];
             }
-            $update = $this->connection->prepare(
-                "UPDATE equipamentos SET remote_equipment_id = :remote_equipment_id,
-                 equipment_code = :equipment_code, name = :name, plc_ip = :plc_ip,
-                 plc_port = :plc_port, external_port = :external_port, plc_protocol = :plc_protocol
-                 WHERE id = :id AND company_id = :company_id",
+            // Só grava quando algo mudou. A passagem do sensor confere o
+            // equipamento pela chave estrangeira com o carregamento já travado;
+            // regravar a linha a cada instantâneo travava os dois na ordem
+            // inversa e gerava deadlock.
+            $current = $this->connection->prepare(
+                "SELECT remote_equipment_id, equipment_code, name, plc_ip, plc_port, external_port, plc_protocol
+                 FROM equipamentos WHERE id = :id AND company_id = :company_id",
             );
-            $update->execute([...$data, "id" => $localId, "company_id" => $companyId]);
+            $current->execute(["id" => $localId, "company_id" => $companyId]);
+            $currentRow = $current->fetch(PDO::FETCH_ASSOC) ?: [];
+            $changed = false;
+            foreach ($data as $column => $value) {
+                $currentValue = $currentRow[$column] ?? null;
+                if (($currentValue === null) !== ($value === null) || (string) $currentValue !== (string) $value) {
+                    $changed = true;
+                    break;
+                }
+            }
+            if ($changed) {
+                $update = $this->connection->prepare(
+                    "UPDATE equipamentos SET remote_equipment_id = :remote_equipment_id,
+                     equipment_code = :equipment_code, name = :name, plc_ip = :plc_ip,
+                     plc_port = :plc_port, external_port = :external_port, plc_protocol = :plc_protocol
+                     WHERE id = :id AND company_id = :company_id",
+                );
+                $update->execute([...$data, "id" => $localId, "company_id" => $companyId]);
+            }
             return ["id" => $localId, "codigo" => $code, "provisionar" => true];
         }
         $insert = $this->connection->prepare(

@@ -36,7 +36,7 @@ final class ProvisionadorDispositivosLocais
                 trim((string) (getenv("KEYENCE_DEVICE_TOKEN") ?: "")),
             ];
         }
-        $statement = $connection->prepare(
+        $upsertSql =
             "INSERT INTO dispositivos
                 (company_id, equipment_id, device_code, device_type, token_hash,
                  token_lookup_hash, token_id, token_created_at, token_last_used_at,
@@ -50,13 +50,38 @@ final class ProvisionadorDispositivosLocais
                  token_hash = VALUES(token_hash), token_lookup_hash = VALUES(token_lookup_hash),
                  token_id = VALUES(token_id), token_created_at = NOW(),
                  token_last_used_at = NULL, token_expires_at = NULL,
-                 token_revoked_at = NULL, active = 1",
+                 token_revoked_at = NULL, active = 1";
+        $statement = null;
+
+        // O instantâneo chama esta rotina a cada ~1 s. Regravar o dispositivo
+        // (com bcrypt novo) travava a linha que o Node-RED e o leitor atualizam
+        // em toda requisição, e eles esperavam o instantâneo inteiro terminar.
+        // Só grava quando o dispositivo falta ou está diferente.
+        $current = $connection->prepare(
+            "SELECT company_id, equipment_id, device_type, token_lookup_hash, active,
+                    token_revoked_at, token_expires_at
+             FROM dispositivos WHERE device_code = :device_code LIMIT 1",
         );
 
         foreach ($devices as [$deviceType, $deviceCode, $token]) {
             if (!preg_match('/\A[a-f0-9]{64}\z/i', $token)) {
                 throw new RuntimeException("Credencial {$deviceType} da instalação local está ausente ou inválida.");
             }
+            $current->execute(["device_code" => $deviceCode]);
+            $existing = $current->fetch(PDO::FETCH_ASSOC) ?: null;
+            if ($existing !== null
+                && (int) $existing["company_id"] === $companyId
+                && (int) $existing["equipment_id"] === $equipmentId
+                && (string) $existing["device_type"] === $deviceType
+                && hash_equals((string) $existing["token_lookup_hash"], hash("sha256", $token))
+                && (int) $existing["active"] === 1
+                && $existing["token_revoked_at"] === null
+                && $existing["token_expires_at"] === null
+            ) {
+                continue;
+            }
+            // Preparado só quando há o que gravar.
+            $statement ??= $connection->prepare($upsertSql);
             $statement->execute([
                 "company_id" => $companyId,
                 "equipment_id" => $equipmentId,
