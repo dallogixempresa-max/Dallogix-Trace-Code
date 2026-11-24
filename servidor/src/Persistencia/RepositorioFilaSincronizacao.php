@@ -31,6 +31,34 @@ final class RepositorioFilaSincronizacao
         return $statement->fetchColumn() !== false;
     }
 
+    /**
+     * Há evento local pendente que mexe no carregamento, de qualquer agregado?
+     * Pausas por produto incorreto ou excesso mudam o estado local mas entram
+     * na fila como "leitura" e "plc_command_request", com o carregamento no
+     * payload. O snapshot remoto não pode sobrescrever esse estado antes
+     * desses eventos chegarem à central.
+     */
+    public function possuiEventoPendenteDoCarregamento(int $companyId, int $loadingId): bool
+    {
+        if ($this->possuiEventoPendente($companyId, "carregamento", $loadingId)) {
+            return true;
+        }
+        $statement = $this->connection->prepare(
+            "SELECT 1 FROM fila_sincronizacao
+             WHERE company_id = :company_id AND status <> 'ENVIADO'
+               AND aggregate_type <> 'carregamento'
+               AND JSON_EXTRACT(payload, '$.data.carregamento_id') = :loading_id
+             LIMIT 1",
+        );
+        // PARAM_INT: o valor no JSON é número; ligado como texto ('55') a
+        // comparação JSON = string nunca é verdadeira (MySQL e SQLite).
+        $statement->bindValue("company_id", $companyId, PDO::PARAM_INT);
+        $statement->bindValue("loading_id", $loadingId, PDO::PARAM_INT);
+        $statement->execute();
+
+        return $statement->fetchColumn() !== false;
+    }
+
     /** @return list<array<string,mixed>> */
     public function reservarLote(int $limit = 50, ?int $companyId = null, ?int $queueId = null): array
     {

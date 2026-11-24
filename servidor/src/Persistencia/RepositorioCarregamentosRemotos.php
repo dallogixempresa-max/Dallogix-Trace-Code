@@ -53,7 +53,12 @@ final class RepositorioCarregamentosRemotos
 
         if ($localId > 0) {
             $hasPendingLoadingEvent = $this->fila->possuiEventoPendente($companyId, "carregamento", $localId);
-            if (!$hasPendingLoadingEvent) {
+            // Leituras e comandos pendentes também mudam o estado local (pausa
+            // de segurança). Só eles bloqueiam o estado; os itens seguem a regra
+            // anterior para não travar edições do romaneio durante a carga.
+            $hasPendingStateChange = $hasPendingLoadingEvent
+                || $this->fila->possuiEventoPendenteDoCarregamento($companyId, $localId);
+            if (!$hasPendingStateChange) {
                 $update = $this->connection->prepare(
                     "UPDATE carregamentos
                      SET equipment_id = :equipment_id, romaneio_id = :romaneio_id,
