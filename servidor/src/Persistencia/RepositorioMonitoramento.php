@@ -255,6 +255,13 @@ final class RepositorioMonitoramento
                    lr.product_id AS last_scanner_product_id,
                    lr.result AS last_scanner_result,
                    lr.read_at AS last_scanner_read_at,
+                   -- Produto do catálogo fora do romaneio é gravado sem product_id; o
+                   -- visor não pode chamá-lo de código não cadastrado.
+                   CASE WHEN lr.result = 'PRODUTO_INCORRETO' AND lr.product_id IS NULL AND EXISTS (
+                       SELECT 1 FROM codigos_produtos cp
+                       JOIN produtos cpp ON cpp.id = cp.product_id AND cpp.company_id = cp.company_id
+                       WHERE cp.barcode = lr.barcode AND cp.company_id = ca.company_id AND cpp.active = 1
+                   ) THEN 1 ELSE 0 END AS last_scanner_catalog_product,
                    ca.stop_reason, ca.operator_alert,
                    afp.end_product_alert
             FROM carregamentos_ativos ca

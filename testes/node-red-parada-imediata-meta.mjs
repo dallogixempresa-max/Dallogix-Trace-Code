@@ -152,7 +152,7 @@ test("uma consulta M2052 sem resposta libera a próxima amostra no limite aceito
     () => {},
     fixedDate,
   );
-  assert.equal(timerDelay, 2000);
+  assert.equal(timerDelay, 300); // o CLP responde em ~7 ms; consulta presa é abandonada em 300 ms
   timer();
   assert.equal(destroyed, true);
   assert.equal(errors.length, 1);

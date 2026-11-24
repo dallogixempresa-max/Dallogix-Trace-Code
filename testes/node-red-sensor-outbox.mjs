@@ -69,6 +69,40 @@ test("confirmação remove a passagem uma vez e é idempotente", async () => {
   }
 });
 
+test("arquivar recusada tira da fila sem apagar o registro e é idempotente", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "trace-sensor-outbox-"));
+  const rejectedDirectory = `${directory}-recusadas`;
+  const outbox = createSensorEventOutbox({ directory });
+  const event = {
+    equipment_id: 12,
+    carregamento_id: 34,
+    event_uuid: "d4a00000-0000-4000-8000-000000000044",
+    detected_at_epoch_ms: 1793314343925,
+    modbus_passage_from_epoch_ms: 1793314343725,
+  };
+  try {
+    await outbox.enqueue(event);
+    const before = Date.now();
+    assert.equal(await outbox.archive(event.event_uuid, { status: 422, reason: "fora do período" }), true);
+    assert.deepEqual(await outbox.list(), []);
+    assert.equal(await outbox.count(), 0);
+    const files = await readdir(rejectedDirectory);
+    assert.deepEqual(files, [`${event.event_uuid}.json`]);
+    const record = JSON.parse(await readFile(join(rejectedDirectory, files[0]), "utf8"));
+    assert.deepEqual(record.event, event);
+    assert.equal(record.version, 1);
+    assert.equal(record.rejected.http_status, 422);
+    assert.equal(record.rejected.reason, "fora do período");
+    assert.ok(record.rejected.at_epoch_ms >= before);
+    assert.equal(await outbox.archive(event.event_uuid, { status: 422 }), false);
+    assert.equal(await outbox.acknowledge(event.event_uuid), false);
+    assert.throws(() => outbox.archive("ruim"), /UUID inválido/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+    await rm(rejectedDirectory, { recursive: true, force: true });
+  }
+});
+
 test("não descarta arquivo de fila inválido nem aceita eventos incompletos", async () => {
   const directory = await mkdtemp(join(tmpdir(), "trace-sensor-outbox-"));
   const outbox = createSensorEventOutbox({ directory });

@@ -1,5 +1,5 @@
-const CACHE_NAME = "trace-shell-20261124-leitor-01";
-const APPLICATION_ASSET_VERSION = "202611240001";
+const CACHE_NAME = "trace-shell-20261124-leitor-02";
+const APPLICATION_ASSET_VERSION = "202611240002";
 const PRECACHE_CONCURRENCY = 4;
 const SHELL = [
   "/",
@@ -141,7 +141,7 @@ const SHELL = [
   "/js/funcoes/formato.js",
   "/js/funcoes/estado-comando.js",
   "/js/funcoes/html.js",
-  "/js/funcoes/leituras-antecipadas.js",
+  "/js/funcoes/leituras-sem-passagem.js",
   "/js/funcoes/regras-carregamento.js",
   "/js/funcoes/relogio.js",
   "/js/funcoes/romaneio.js",

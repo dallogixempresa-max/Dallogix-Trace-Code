@@ -53,9 +53,35 @@ final class ProvisionadorDispositivosLocais
                  token_revoked_at = NULL, active = 1",
         );
 
+        // A sincronização chama isto a cada ~1 s, dentro da transação que trava
+        // a Dala. Quando a credencial gravada já é a do .env (a API autentica
+        // pelo token_lookup_hash), não refaz o bcrypt nem o upsert. Token novo
+        // no .env, dispositivo inativo, revogado ou com validade: reprovisiona.
+        $current = $connection->prepare(
+            "SELECT 1 FROM dispositivos
+             WHERE token_lookup_hash = :token_lookup_hash AND device_code = :device_code
+               AND device_type = :device_type AND company_id = :company_id
+               AND equipment_id = :equipment_id AND active = 1
+               AND token_revoked_at IS NULL AND token_expires_at IS NULL
+             LIMIT 1",
+        );
+
         foreach ($devices as [$deviceType, $deviceCode, $token]) {
             if (!preg_match('/\A[a-f0-9]{64}\z/i', $token)) {
                 throw new RuntimeException("Credencial {$deviceType} da instalação local está ausente ou inválida.");
+            }
+            $lookupHash = hash("sha256", $token);
+            $current->execute([
+                "token_lookup_hash" => $lookupHash,
+                "device_code" => $deviceCode,
+                "device_type" => $deviceType,
+                "company_id" => $companyId,
+                "equipment_id" => $equipmentId,
+            ]);
+            $alreadyProvisioned = $current->fetchColumn() !== false;
+            $current->closeCursor();
+            if ($alreadyProvisioned) {
+                continue;
             }
             $statement->execute([
                 "company_id" => $companyId,
@@ -63,7 +89,7 @@ final class ProvisionadorDispositivosLocais
                 "device_code" => $deviceCode,
                 "device_type" => $deviceType,
                 "token_hash" => password_hash($token, PASSWORD_DEFAULT),
-                "token_lookup_hash" => hash("sha256", $token),
+                "token_lookup_hash" => $lookupHash,
                 "token_id" => self::novoTokenId(),
             ]);
         }
