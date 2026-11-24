@@ -145,7 +145,7 @@ test("associa códigos às passagens em ordem e reserva um evento por quadro", (
   assert.match(scannerTiming, /FOR UPDATE/);
   assert.match(scannerTiming, /\$ambiguous = count\(\$candidates\) > 1/);
   assert.match(worker, /reservedSensorEventIds\.add\(sensorEventId\)/);
-  assert.match(worker, /enqueueBarcodeFrame\(frame\)/);
+  assert.match(worker, /enqueueBarcodeFrame\(frame, receivedAtMs\)/);
 });
 
 test("reconhece apenas o leitor direto e o gateway de publicação do Docker", () => {
