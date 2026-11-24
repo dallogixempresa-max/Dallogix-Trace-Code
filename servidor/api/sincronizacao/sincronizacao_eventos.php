@@ -5,6 +5,8 @@ declare(strict_types=1);
 define("TRACE_SKIP_SESSION", true);
 
 require_once __DIR__ . "/../../configuracao/bootstrap.php";
+// trace_sql_datetime_to_epoch_ms() converte passagens antigas sem event_at_epoch_ms.
+require_once __DIR__ . "/../operacoes/temporizacao_leitor.php";
 require_once __DIR__ . "/../../src/Aplicacao/InicializadorAcoesDala.php";
 require_once __DIR__ . "/../../src/Aplicacao/ValidadorCodigoBarras.php";
 require_once __DIR__ . "/../../src/Aplicacao/ServicoPreparacaoCarregamentoSincronizado.php";

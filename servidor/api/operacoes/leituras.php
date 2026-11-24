@@ -453,7 +453,8 @@ record_operational_event(
         "barcode_unmatched" => $barcodeUnmatched,
         "attempt_number" => $attemptNumber,
         ...($productId !== null ? ["product_id" => (int) $productId] : []),
-        "read_at" => date("Y-m-d H:i:s.v"),
+        // A central grava read_at como DATETIME em UTC (mesmo relógio do NOW()).
+        "read_at" => (new DateTimeImmutable("now", new DateTimeZone("UTC")))->format("Y-m-d H:i:s.v"),
         ...($offlineEventId !== "" ? ["event_uuid" => $offlineEventId] : []),
     ],
 );

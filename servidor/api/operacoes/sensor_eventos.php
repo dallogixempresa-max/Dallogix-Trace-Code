@@ -166,7 +166,8 @@ if ($action === "FINALIZE_EXPIRED") {
                     "sensor_event_id" => (int) $sensorEventId,
                     "result" => $readingResult,
                     "source" => "sensor_timeout",
-                    "read_at" => date("Y-m-d H:i:s.v"),
+                    // A central grava read_at como DATETIME em UTC (mesmo relógio do NOW()).
+                    "read_at" => (new DateTimeImmutable("now", new DateTimeZone("UTC")))->format("Y-m-d H:i:s.v"),
                 ],
             );
             if (!$countsTowardPlan) {
@@ -320,9 +321,13 @@ try {
         $loading && $deviceDetectedAt !== null &&
         $loading["started_at"] !== null && $loading["finished_at"] !== null
     ) {
-        $eventTime = new DateTimeImmutable($deviceDetectedAt);
-        $loadingStart = new DateTimeImmutable((string) $loading["started_at"]);
-        $loadingFinish = new DateTimeImmutable((string) $loading["finished_at"]);
+        // Dois relógios: device_detected_at está no fuso da aplicação
+        // (trace_epoch_ms_to_sql_datetime), enquanto started_at/finished_at
+        // vêm de NOW() do MySQL, fixado em UTC. Compare instantes absolutos.
+        $utc = new DateTimeZone("UTC");
+        $eventTime = new DateTimeImmutable($deviceDetectedAt, new DateTimeZone(date_default_timezone_get()));
+        $loadingStart = new DateTimeImmutable((string) $loading["started_at"], $utc);
+        $loadingFinish = new DateTimeImmutable((string) $loading["finished_at"], $utc);
         $historicalEventWithinLoading = $eventTime >= $loadingStart && $eventTime <= $loadingFinish;
     }
     if (
