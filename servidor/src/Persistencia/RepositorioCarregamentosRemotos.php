@@ -10,6 +10,9 @@ use RuntimeException;
 /** Persiste o snapshot de carregamentos sem sobrescrever eventos locais pendentes. */
 final class RepositorioCarregamentosRemotos
 {
+    /** Estados que só mudam no PC, por ACK do gateway CLP ou parada de segurança local. */
+    private const ESTADOS_CONTROLADOS_PELO_PC = ["CARREGANDO", "PAUSADO", "FINALIZANDO", "EMERGENCIA"];
+
     public function __construct(
         private readonly PDO $connection,
         private readonly RepositorioFilaSincronizacao $fila,
@@ -33,7 +36,7 @@ final class RepositorioCarregamentosRemotos
 
         $lock = $this->connection->getAttribute(PDO::ATTR_DRIVER_NAME) === "sqlite" ? "" : " FOR UPDATE";
         $find = $this->connection->prepare(
-            "SELECT id, state FROM carregamentos
+            "SELECT id, state, stop_reason FROM carregamentos
              WHERE company_id = :company_id AND remote_carregamento_id = :remote_id LIMIT 1" . $lock,
         );
         $find->execute(["company_id" => $companyId, "remote_id" => $remoteLoadingId]);
@@ -53,7 +56,12 @@ final class RepositorioCarregamentosRemotos
 
         if ($localId > 0) {
             $hasPendingLoadingEvent = $this->fila->possuiEventoPendente($companyId, "carregamento", $localId);
-            if (!$hasPendingLoadingEvent) {
+            // Leituras e comandos pendentes também mudam o estado local (pausa
+            // de segurança). Só eles bloqueiam o estado; os itens seguem a regra
+            // anterior para não travar edições do romaneio durante a carga.
+            $hasPendingStateChange = $hasPendingLoadingEvent
+                || $this->fila->possuiEventoPendenteDoCarregamento($companyId, $localId);
+            if (!$hasPendingStateChange) {
                 $update = $this->connection->prepare(
                     "UPDATE carregamentos
                      SET equipment_id = :equipment_id, romaneio_id = :romaneio_id,
@@ -64,7 +72,7 @@ final class RepositorioCarregamentosRemotos
                     "equipment_id" => $equipmentId,
                     "romaneio_id" => $manifestId,
                     "truck_id" => $truckId,
-                    "state" => $state,
+                    "state" => self::estadoAposInstantaneo($local, $state),
                     "started_at" => $remote["started_at"] ?? null,
                     "id" => $localId,
                     "company_id" => $companyId,
@@ -152,6 +160,26 @@ final class RepositorioCarregamentosRemotos
                )",
         );
         $statement->execute($parameters);
+    }
+
+    /**
+     * O central pode estar atrasado ou ter recusado o motivo de uma parada do
+     * PC. Copiar o estado dele fazia uma esteira fisicamente pausada voltar a
+     * CARREGANDO com a parada ainda pendente, e a confirmação do operador era
+     * recusada. Por isso o instantâneo só altera estados que não são do PC.
+     * A decisão usa a linha bloqueada (FOR UPDATE), não a leitura da fila.
+     *
+     * @param array<string,mixed> $local
+     */
+    private static function estadoAposInstantaneo(array $local, string $remoteState): string
+    {
+        $localState = (string) ($local["state"] ?? "");
+        $localStop = trim((string) ($local["stop_reason"] ?? ""));
+        if ($localStop !== "" || in_array($localState, self::ESTADOS_CONTROLADOS_PELO_PC, true)) {
+            return $localState;
+        }
+
+        return $remoteState;
     }
 
     private function normalizarEstado(string $state): string

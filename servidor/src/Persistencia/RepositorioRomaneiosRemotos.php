@@ -147,7 +147,8 @@ final class RepositorioRomaneiosRemotos
     }
 
     /** @param list<array<string,mixed>> $manifests */
-    public function sincronizarRomaneiosDisponiveis(int $companyId, array $manifests): int
+    /** @param list<string> $avisos recebe um aviso por romaneio ignorado */
+    public function sincronizarRomaneiosDisponiveis(int $companyId, array $manifests, array &$avisos = []): int
     {
         $lock = $this->connection->getAttribute(PDO::ATTR_DRIVER_NAME) === "sqlite" ? "" : " FOR UPDATE";
         $findByRemoteId = $this->connection->prepare(
@@ -188,9 +189,11 @@ final class RepositorioRomaneiosRemotos
                 $findByNumber->execute(["company_id" => $companyId, "number" => $number]);
                 $sameNumber = $findByNumber->fetchAll(PDO::FETCH_ASSOC);
                 if ($sameNumber !== []) {
-                    throw new RuntimeException(
-                        "Romaneio central {$number} conflita com um registro local; a sincronização não o vinculou automaticamente.",
-                    );
+                    // Números podem se repetir (migration 064). Não vincule
+                    // automaticamente, mas não aborte o snapshot inteiro: os
+                    // demais dados do central precisam continuar chegando.
+                    $avisos[] = "Romaneio central {$number} conflita com um registro local; a sincronização não o vinculou automaticamente.";
+                    continue;
                 }
                 $insert->execute([
                     "company_id" => $companyId,

@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { ServicoLeiturasOperacionais } from "../interface/js/servicos/ServicoLeiturasOperacionais.js";
 import { createHidScannerCapture, isScannerNoReadMarker } from "../interface/js/controladores/captura-leitor-hid.js";
+import { aguardandoPassagemM2052, criarLeiturasAntecipadas, JANELA_LEITURA_ANTECIPADA_MS } from "../interface/js/funcoes/leituras-antecipadas.js";
 
 const operation = await readFile(new URL("../interface/telas/operacao/operacao.js", import.meta.url), "utf8");
 const liveView = await readFile(new URL("../interface/js/controladores/estado-visualizacao.js", import.meta.url), "utf8");
@@ -497,9 +498,11 @@ test("HID preserva a carga da primeira tecla durante a captura e na espera da fi
   const scans = [];
   const install = application.slice(application.indexOf("function installScannerHidReceiver()"), application.indexOf("function installInteractionGuards()"));
   new Function("store", "document", "window", "currentPage", "createHidScannerCapture", "isScannerNoReadMarker", "logFrontend",
+    "aguardandoPassagemM2052", "criarLeiturasAntecipadas", "JANELA_LEITURA_ANTECIPADA_MS",
     install + "\ninstallScannerHidReceiver();")(store, document, { addEventListener() {} }, "work", options => createHidScannerCapture({
       ...options, onBarcode: (...args) => { scans.push(options.onBarcode(...args)); },
-    }), isScannerNoReadMarker, { aviso() {}, erro(error) { throw error; } });
+    }), isScannerNoReadMarker, { aviso() {}, erro(error) { throw error; } },
+    aguardandoPassagemM2052, criarLeiturasAntecipadas, JANELA_LEITURA_ANTECIPADA_MS);
 
   const key = key => handlers.get("keydown")({ key });
   const scan = code => { for (const digit of code) key(digit); key("Enter"); };

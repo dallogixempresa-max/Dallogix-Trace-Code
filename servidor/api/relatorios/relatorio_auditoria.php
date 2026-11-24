@@ -483,10 +483,12 @@ if ($loadIds !== []) {
             $operationSummary["valid_readings"] = (int) $readingCount["quantity"];
         }
     }
+    // Produto incorreto (fora do romaneio ou código não cadastrado) é retirado
+    // da carga: aparece listado abaixo, mas não entra no total de leituras.
     $scannerCount = $pdo->prepare(
         "SELECT COUNT(*) FROM leituras
          WHERE carregamento_id IN ({$placeholders}) AND barcode IS NOT NULL
-           AND result IN ('VALIDO', 'PRODUTO_INCORRETO', 'EXCESSO')",
+           AND result IN ('VALIDO', 'EXCESSO')",
     );
     $scannerCount->execute($loadIds);
     $operationSummary["scanner_readings"] = (int) $scannerCount->fetchColumn();
@@ -884,7 +886,7 @@ $excessImages = (int) ($operationSummary["excess_images"] ?? 0);
 $excesses = (int) ($operationSummary["excesses"] ?? 0);
 $report->escreverParagrafo(
     "Sensor: {$sensorPassages} passagem(ns) detectada(s) · " .
-    "Scanner: {$scannerReadings} leitura(s) com código · " .
+    "Scanner: {$scannerReadings} leitura(s) com código na carga · " .
     "Excesso com foto: {$excessImages} de {$excesses} passagem(ns).",
 );
 $report->escreverTitulo("Falhas de leitura do código de barras");

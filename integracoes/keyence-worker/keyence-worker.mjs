@@ -51,6 +51,9 @@ const POLL_MS = boundedInteger(process.env.KEYENCE_POLL_MS, 500, 100, 5000);
 const HEARTBEAT_MS = boundedInteger(process.env.KEYENCE_HEARTBEAT_MS, 5000, 1000, 60000);
 const SCANNER_NO_READ_TIMEOUT_MS = boundedInteger(process.env.TRACE_SCANNER_NO_READ_TIMEOUT_MS, 1500, 500, 10000);
 const SCAN_ASSOCIATION_WAIT_MS = Math.max(100, SCANNER_NO_READ_TIMEOUT_MS - 250);
+// Quando o Trace não responde, a passagem só é encerrada como SEM_LEITURA
+// depois do prazo do sensor (~4,7 s). Tente associar até pouco antes disso.
+const SCAN_ASSOCIATION_UNAVAILABLE_WAIT_MS = boundedInteger(process.env.KEYENCE_ASSOCIATION_UNAVAILABLE_WAIT_MS, 4000, SCAN_ASSOCIATION_WAIT_MS, 30000);
 const MAX_SCAN_BYTES = 2048;
 const execFile = promisify(execFileCallback);
 
@@ -130,21 +133,21 @@ async function apiRequest(path, { jsonBody = null, formBody = null, timeoutMs = 
   return data;
 }
 
-async function refreshActiveLoading(scannerObservedAtEpochMs = null) {
+async function refreshActiveLoading(scannerObservedAtEpochMs = null, timeoutMs = 10000) {
   const result = await apiRequest("/api/keyence_worker.php", {
     jsonBody: {
       action: "STATUS",
       ...(Number.isSafeInteger(scannerObservedAtEpochMs) ? { scanner_received_at_epoch_ms: scannerObservedAtEpochMs } : {}),
     },
+    timeoutMs,
   });
   const data = result?.data || {};
   const pendingSensorEventIds = Array.isArray(data.pending_sensor_event_ids)
     ? data.pending_sensor_event_ids.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0)
     : Number(data.pending_sensor_event_id) > 0 ? [Number(data.pending_sensor_event_id)] : [];
-  const pendingSensorEventSet = new Set(pendingSensorEventIds);
-  for (const eventId of reservedSensorEventIds) {
-    if (!pendingSensorEventSet.has(eventId)) reservedSensorEventIds.delete(eventId);
-  }
+  // As reservas só saem quando o arquivo da fila é confirmado ou descartado.
+  // O STATUS devolve apenas a melhor passagem para o horário consultado, então
+  // limpar reservas por ele liberava passagens cuja leitura ainda está na fila.
   activeLoading = Number(data.active_loading_id) > 0
     ? {
       id: Number(data.active_loading_id),
@@ -157,7 +160,20 @@ async function refreshActiveLoading(scannerObservedAtEpochMs = null) {
   return activeLoading;
 }
 
-async function queueBarcode(rawFrame) {
+// Guarda em disco um código que não pôde ser associado a uma passagem, para
+// que a leitura não desapareça só num log e possa ser auditada depois.
+async function preserveUnassociatedScan(details) {
+  try {
+    await mkdir(FAILED_SCAN_DIR, { recursive: true, mode: 0o770 });
+    const offlineId = scanEventId();
+    const file = join(FAILED_SCAN_DIR, `${Date.now()}-${offlineId}.unassociated.json`);
+    await writeFile(file, JSON.stringify({ offline_id: offlineId, ...details }), { flag: "wx", mode: 0o600 });
+  } catch (error) {
+    log("error", "Não foi possível preservar em disco o código Keyence sem passagem.", { reason: String(error?.message || error) });
+  }
+}
+
+async function queueBarcode(rawFrame, receivedAtMs = Date.now()) {
   const decodedValue = parseBarcodeFrame(rawFrame);
   if (!decodedValue) {
     log("warn", "Quadro TCP ignorado: código vazio, longo ou com caracteres de controle.");
@@ -165,34 +181,55 @@ async function queueBarcode(rawFrame) {
   }
   const noRead = isKeyenceNoReadFrame(decodedValue);
   const barcode = noRead ? "" : decodedValue;
-  readerLastReadAt = new Date().toISOString();
-  readerLastReadAtMs = Date.now();
+  // O horário da leitura é o da chegada do quadro TCP, não o do processamento:
+  // quadros ficam em fila atrás de outros e o atraso deslocava a janela.
+  readerLastReadAt = new Date(receivedAtMs).toISOString();
+  readerLastReadAtMs = receivedAtMs;
   let loading = null;
   let sensorEventId = null;
-  try {
-    const associationDeadline = Date.now() + SCAN_ASSOCIATION_WAIT_MS;
-    do {
-      loading = await refreshActiveLoading(readerLastReadAtMs);
+  let lastAssociationError = "";
+  // Sem resposta do Trace, continue tentando enquanto a passagem ainda pode
+  // estar aberta no servidor; com resposta, espere só a chegada do sensor.
+  const associationDeadline = receivedAtMs + SCAN_ASSOCIATION_WAIT_MS;
+  const unavailableDeadline = receivedAtMs + SCAN_ASSOCIATION_UNAVAILABLE_WAIT_MS;
+  for (;;) {
+    try {
+      loading = await refreshActiveLoading(receivedAtMs, 1500);
+      lastAssociationError = "";
       sensorEventId = loading
         ? nextUnreservedSensorEventId(loading.sensorEventIds, reservedSensorEventIds)
         : null;
       if (!loading || sensorEventId || Date.now() >= associationDeadline) break;
-      await new Promise((resolve) => setTimeout(resolve, Math.min(100, associationDeadline - Date.now())));
-    } while (Date.now() <= associationDeadline);
-  } catch (error) {
-    setError(error);
-    if (Date.now() - activeLoadingCheckedAt > 5000) {
-      log("error", "Código recebido sem estado operacional recente; leitura não foi associada.", { reason: lastError });
-      return;
+      await new Promise((resolve) => setTimeout(resolve, Math.max(0, Math.min(100, associationDeadline - Date.now()))));
+    } catch (error) {
+      setError(error);
+      lastAssociationError = lastError;
+      loading = null;
+      sensorEventId = null;
+      if (Date.now() >= unavailableDeadline) break;
+      await new Promise((resolve) => setTimeout(resolve, Math.max(0, Math.min(250, unavailableDeadline - Date.now()))));
     }
-    loading = activeLoading;
   }
-  if (!loading) {
-    log("warn", "Código Keyence recebido sem carregamento ativo; leitura ignorada.");
-    return;
-  }
-  if (!sensorEventId) {
-    log("warn", "Código Keyence recebido sem passagem disponível; leitura ignorada.", { loading_id: loading.id });
+  if (!loading || !sensorEventId) {
+    const reason = lastAssociationError
+      ? "Trace indisponível durante a associação"
+      : !loading ? "sem carregamento ativo" : "sem passagem disponível";
+    if (lastAssociationError) setError("Código Keyence não associado: " + lastAssociationError);
+    log(lastAssociationError ? "error" : "warn", "Código Keyence não associado a uma passagem; preservado em failed-scans.", {
+      reason,
+      detail: lastAssociationError || undefined,
+      loading_id: loading?.id,
+      no_read: noRead,
+    });
+    await preserveUnassociatedScan({
+      reason,
+      detail: lastAssociationError,
+      barcode,
+      no_read: noRead,
+      loading_id: loading?.id ?? null,
+      received_at: readerLastReadAt,
+      received_at_epoch_ms: receivedAtMs,
+    });
     return;
   }
   const event = {
@@ -201,8 +238,8 @@ async function queueBarcode(rawFrame) {
     no_read: noRead,
     loading_id: loading.id,
     sensor_event_id: sensorEventId,
-    received_at: new Date().toISOString(),
-    received_at_epoch_ms: readerLastReadAtMs,
+    received_at: readerLastReadAt,
+    received_at_epoch_ms: receivedAtMs,
   };
   await mkdir(SCAN_QUEUE_DIR, { recursive: true, mode: 0o770 });
   const file = join(SCAN_QUEUE_DIR, `${Date.now()}-${event.offline_id}.json`);
@@ -274,9 +311,13 @@ function processScanQueue() {
             duplicate: Boolean(result.data.duplicate),
           });
         } catch (error) {
-          if (Number(error.status) >= 400 && Number(error.status) < 500 && error.status !== 429) {
+          // 401 (token trocado), 408, 423 (emergência) e 429 são temporários:
+          // a leitura continua na fila e será reenviada, em vez de descartada.
+          const retryableClientStatus = [401, 408, 423, 429].includes(Number(error.status));
+          if (Number(error.status) >= 400 && Number(error.status) < 500 && !retryableClientStatus) {
             setError(error);
             await rename(file, join(FAILED_SCAN_DIR, name));
+            reservedSensorEventIds.delete(Number(event.sensor_event_id));
             log("error", "Leitura Keyence rejeitada pelo Trace e movida para a fila de falhas.", {
               loading_id: Number(event.loading_id),
               http_status: error.status,
@@ -295,8 +336,8 @@ function processScanQueue() {
   return scanQueuePromise;
 }
 
-function enqueueBarcodeFrame(rawFrame) {
-  scanFrameQueue = scanFrameQueue.then(() => queueBarcode(rawFrame)).catch((error) => {
+function enqueueBarcodeFrame(rawFrame, receivedAtMs = Date.now()) {
+  scanFrameQueue = scanFrameQueue.then(() => queueBarcode(rawFrame, receivedAtMs)).catch((error) => {
     setError(error);
     log("error", "Falha ao associar um quadro TCP do Keyence.", { reason: lastError });
   });
@@ -722,6 +763,7 @@ function startTcpReceiver(allowedAddresses) {
     socket.setTimeout(30000, () => socket.destroy());
     let buffer = "";
     socket.on("data", (chunk) => {
+      const receivedAtMs = Date.now();
       buffer += chunk;
       if (Buffer.byteLength(buffer, "utf8") > MAX_SCAN_BYTES) {
         log("warn", "Quadro TCP Keyence acima do limite; conexão encerrada.");
@@ -732,7 +774,7 @@ function startTcpReceiver(allowedAddresses) {
       buffer = frames.pop() || "";
       for (const frame of frames) {
         if (!frame) continue;
-        void enqueueBarcodeFrame(frame);
+        void enqueueBarcodeFrame(frame, receivedAtMs);
       }
     });
     socket.on("close", () => {

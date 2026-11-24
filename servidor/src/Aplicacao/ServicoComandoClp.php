@@ -6,6 +6,7 @@ namespace App\Aplicacao;
 use App\Persistencia\RepositorioComandosClp;
 use App\Persistencia\RepositorioDisponibilidadeClp;
 use PDO;
+use PDOException;
 use RuntimeException;
 use Throwable;
 
@@ -18,14 +19,23 @@ final class ExcecaoComandoClp extends RuntimeException
     public function __construct(
         string $message,
         public readonly int $httpStatus,
+        ?Throwable $previous = null,
     ) {
-        parent::__construct($message);
+        parent::__construct($message, 0, $previous);
     }
 }
 
 final class ServicoComandoClp
 {
     private const COMANDOS_DE_REVERSAO = ["REVERSAO_ATIVAR", "REVERSAO_DESATIVAR"];
+
+    /**
+     * O comando trava o carregamento e grava a solicitação com FK do
+     * equipamento; a sincronização do central, que roda a cada segundo, pega
+     * as mesmas linhas na ordem inversa. O MySQL desfaz uma das transações
+     * (deadlock) e o operador via "Não foi possível registrar o comando".
+     */
+    private const TENTATIVAS_EM_DEADLOCK = 3;
 
     private readonly PDO $connection;
     private readonly RepositorioComandosClp $repositorio;
@@ -51,6 +61,19 @@ final class ServicoComandoClp
 
     /** @param array{id:int|string|null, company_id:int|string|null} $user */
     public function solicitarOperacao(
+        array $user,
+        int $loadingId,
+        string $command,
+    ): array {
+        return $this->repetirTransacaoDesfeitaPorDeadlock(
+            fn (): array => $this->registrarOperacao($user, $loadingId, $command),
+            "Não foi possível registrar o comando operacional.",
+            "comando_clp.solicitar_operacao",
+        );
+    }
+
+    /** @param array{id:int|string|null, company_id:int|string|null} $user */
+    private function registrarOperacao(
         array $user,
         int $loadingId,
         string $command,
@@ -165,6 +188,17 @@ final class ServicoComandoClp
             if ($exception instanceof ExcecaoComandoClp || $exception instanceof ExcecaoDisponibilidadeClp) {
                 throw $exception;
             }
+            if ($ownsTransaction && self::desfeitaPorDeadlock($exception)) {
+                // O MySQL já desfez a transação inteira; solicitarOperacao repete.
+                throw $exception;
+            }
+            if ($ownsTransaction) {
+                throw $this->falhaAoRegistrar(
+                    $exception,
+                    "Não foi possível registrar o comando operacional.",
+                    "comando_clp.solicitar_operacao",
+                );
+            }
             error_log(
                 "PLC operational command request could not be created: " .
                     $exception->getMessage(),
@@ -172,6 +206,7 @@ final class ServicoComandoClp
             throw new ExcecaoComandoClp(
                 "Não foi possível registrar o comando operacional.",
                 500,
+                $exception,
             );
         }
 
@@ -490,6 +525,19 @@ final class ServicoComandoClp
         int $loadingId,
         string $command,
     ): array {
+        return $this->repetirTransacaoDesfeitaPorDeadlock(
+            fn (): array => $this->registrarReversao($user, $loadingId, $command),
+            "Não foi possível registrar a solicitação de reversão.",
+            "comando_clp.solicitar_reversao",
+        );
+    }
+
+    /** @param array{id:int|string|null, company_id:int|string|null} $user */
+    private function registrarReversao(
+        array $user,
+        int $loadingId,
+        string $command,
+    ): array {
         if (!in_array($command, self::COMANDOS_DE_REVERSAO, true)) {
             throw new ExcecaoComandoClp(
                 "Carregamento e comando de reversão válido são obrigatórios.",
@@ -583,13 +631,14 @@ final class ServicoComandoClp
             if ($exception instanceof ExcecaoComandoClp || $exception instanceof ExcecaoDisponibilidadeClp) {
                 throw $exception;
             }
-            error_log(
-                "PLC command request could not be created: " .
-                    $exception->getMessage(),
-            );
-            throw new ExcecaoComandoClp(
+            if (self::desfeitaPorDeadlock($exception)) {
+                // O MySQL já desfez a transação inteira; solicitarReversao repete.
+                throw $exception;
+            }
+            throw $this->falhaAoRegistrar(
+                $exception,
                 "Não foi possível registrar a solicitação de reversão.",
-                500,
+                "comando_clp.solicitar_reversao",
             );
         }
 
@@ -686,6 +735,72 @@ final class ServicoComandoClp
                 "replaced_by" => $command,
             ],
         );
+    }
+
+    /**
+     * Repete do início a transação própria que o MySQL desfez por deadlock.
+     * Cada tentativa relê estado, comando pendente e disponibilidade do CLP;
+     * se uma parada automática ganhou a corrida, o operador recebe o 409 dela.
+     *
+     * @param callable(): array<string,mixed> $operacao
+     * @return array<string,mixed>
+     */
+    private function repetirTransacaoDesfeitaPorDeadlock(
+        callable $operacao,
+        string $mensagemFalha,
+        string $origemLog,
+    ): array {
+        if ($this->connection->inTransaction()) {
+            // Chamada aninhada (parada automática): comportamento anterior.
+            // Repetir aqui não adianta, porque o deadlock desfaz a transação
+            // inteira de quem chamou (sensor ou leitura).
+            return $operacao();
+        }
+        for ($tentativa = 1; ; $tentativa++) {
+            try {
+                return $operacao();
+            } catch (PDOException $exception) {
+                // Só o deadlock de uma transação própria chega aqui; as demais
+                // falhas já saem como ExcecaoComandoClp.
+                if ($tentativa >= self::TENTATIVAS_EM_DEADLOCK) {
+                    throw $this->falhaAoRegistrar($exception, $mensagemFalha, $origemLog);
+                }
+                usleep(random_int(20_000, 60_000) * $tentativa);
+            }
+        }
+    }
+
+    /**
+     * 1205 (espera de lock esgotada) fica de fora: desfaz só o comando SQL e
+     * chega depois dos 15 s do navegador; repetir criaria um comando que o
+     * operador já viu falhar.
+     */
+    private static function desfeitaPorDeadlock(Throwable $exception): bool
+    {
+        return $exception instanceof PDOException
+            && ($exception->getCode() === "40001" || (int) ($exception->errorInfo[1] ?? 0) === 1213);
+    }
+
+    /**
+     * Registra a causa real em logs_erros. Só é chamada fora de transação:
+     * dentro dela o rollback apagaria o próprio log.
+     */
+    private function falhaAoRegistrar(Throwable $exception, string $mensagem, string $origemLog): ExcecaoComandoClp
+    {
+        $logged = false;
+        if (function_exists("registrar_log_erro") && !$this->connection->inTransaction()) {
+            try {
+                \registrar_log_erro($exception, $origemLog);
+                $logged = true;
+            } catch (Throwable) {
+                $logged = false;
+            }
+        }
+        if (!$logged) {
+            error_log("PLC command request could not be created [{$origemLog}]: " . $exception->getMessage());
+        }
+
+        return new ExcecaoComandoClp($mensagem, 500, $exception);
     }
 
     private function iniciarEscopoTransacao(string $savepoint): bool

@@ -91,39 +91,9 @@ final class ValidadorInstantaneoRemoto
         }
 
         foreach (($snapshot["romaneios_disponiveis"] ?? []) as $manifest) {
-            if (!is_array($manifest)
-                || (int) ($manifest["id"] ?? 0) < 1
-                || trim((string) ($manifest["number"] ?? "")) === ""
-                || !in_array(strtoupper(trim((string) ($manifest["status"] ?? ""))), ["IMPORTADO", "AGUARDANDO"], true)
-                || !is_array($manifest["trucks"] ?? null)
-                || $manifest["trucks"] === []
-            ) {
-                throw new RuntimeException("Resposta do servidor central contém um romaneio disponível inválido.");
-            }
-            $scheduledDate = trim((string) ($manifest["scheduled_date"] ?? ""));
-            $date = \DateTime::createFromFormat("!Y-m-d", $scheduledDate);
-            if ($date === false || $date->format("Y-m-d") !== $scheduledDate) {
-                throw new RuntimeException("Resposta do servidor central contém uma data de romaneio inválida.");
-            }
-            foreach ($manifest["trucks"] as $truck) {
-                if (!is_array($truck)
-                    || (int) ($truck["id"] ?? 0) < 1
-                    || !placa_caminhao_valida((string) ($truck["plate"] ?? ""))
-                    || !is_array($truck["items"] ?? null)
-                ) {
-                    throw new RuntimeException("Resposta do servidor central contém um caminhão de romaneio inválido.");
-                }
-                foreach ($truck["items"] as $item) {
-                    $quantity = is_array($item)
-                        ? filter_var($item["planned_quantity"] ?? null, FILTER_VALIDATE_INT)
-                        : false;
-                    if (!is_array($item)
-                        || trim((string) ($item["code"] ?? "")) === ""
-                        || $quantity === false || $quantity < 1
-                    ) {
-                        throw new RuntimeException("Resposta do servidor central contém um item de romaneio inválido.");
-                    }
-                }
+            $reason = self::motivoRomaneioDisponivelInvalido($manifest);
+            if ($reason !== null) {
+                throw new RuntimeException($reason);
             }
         }
 
@@ -151,5 +121,72 @@ final class ValidadorInstantaneoRemoto
                 throw new RuntimeException("Resposta do servidor central contém um comando inválido.");
             }
         }
+    }
+
+    /**
+     * Retira do snapshot os romaneios disponíveis inválidos e devolve um aviso
+     * para cada um. Um romaneio ruim no central não pode impedir o PC de receber
+     * produtos, comandos, carregamentos e licença.
+     *
+     * @param array<string,mixed> $snapshot
+     * @return list<string>
+     */
+    public static function separarRomaneiosDisponiveisInvalidos(array &$snapshot): array
+    {
+        if (!is_array($snapshot["romaneios_disponiveis"] ?? null) || !array_is_list($snapshot["romaneios_disponiveis"])) {
+            return [];
+        }
+        $valid = [];
+        $warnings = [];
+        foreach ($snapshot["romaneios_disponiveis"] as $manifest) {
+            $reason = self::motivoRomaneioDisponivelInvalido($manifest);
+            if ($reason === null) {
+                $valid[] = $manifest;
+                continue;
+            }
+            $number = is_array($manifest) ? trim((string) ($manifest["number"] ?? "")) : "";
+            $warnings[] = "Romaneio central " . ($number !== "" ? $number : "sem número") . " ignorado: " . $reason;
+        }
+        $snapshot["romaneios_disponiveis"] = $valid;
+        return $warnings;
+    }
+
+    public static function motivoRomaneioDisponivelInvalido(mixed $manifest): ?string
+    {
+        if (!is_array($manifest)
+            || (int) ($manifest["id"] ?? 0) < 1
+            || trim((string) ($manifest["number"] ?? "")) === ""
+            || !in_array(strtoupper(trim((string) ($manifest["status"] ?? ""))), ["IMPORTADO", "AGUARDANDO"], true)
+            || !is_array($manifest["trucks"] ?? null)
+            || $manifest["trucks"] === []
+        ) {
+            return "Resposta do servidor central contém um romaneio disponível inválido.";
+        }
+        $scheduledDate = trim((string) ($manifest["scheduled_date"] ?? ""));
+        $date = \DateTime::createFromFormat("!Y-m-d", $scheduledDate);
+        if ($date === false || $date->format("Y-m-d") !== $scheduledDate) {
+            return "Resposta do servidor central contém uma data de romaneio inválida.";
+        }
+        foreach ($manifest["trucks"] as $truck) {
+            if (!is_array($truck)
+                || (int) ($truck["id"] ?? 0) < 1
+                || !placa_caminhao_valida((string) ($truck["plate"] ?? ""))
+                || !is_array($truck["items"] ?? null)
+            ) {
+                return "Resposta do servidor central contém um caminhão de romaneio inválido.";
+            }
+            foreach ($truck["items"] as $item) {
+                $quantity = is_array($item)
+                    ? filter_var($item["planned_quantity"] ?? null, FILTER_VALIDATE_INT)
+                    : false;
+                if (!is_array($item)
+                    || trim((string) ($item["code"] ?? "")) === ""
+                    || $quantity === false || $quantity < 1
+                ) {
+                    return "Resposta do servidor central contém um item de romaneio inválido.";
+                }
+            }
+        }
+        return null;
     }
 }

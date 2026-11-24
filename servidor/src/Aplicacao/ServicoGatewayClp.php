@@ -407,6 +407,30 @@ final class ServicoGatewayClp
                     );
                 }
             }
+            if (self::pausaRemotaSemMudancaLocal($status, $request, (string) $lockedLoadingState, $stateChanged)) {
+                // O central pediu a pausa de um carregamento que o PC já tinha
+                // pausado (parada automática). O UPDATE não muda linha e nenhum
+                // ESTADO sairia; como o instantâneo não rebaixa mais o estado do
+                // PC, o central ficaria em CARREGANDO sem conseguir encerrar.
+                // Só sincroniza: localmente nada mudou e não há o que auditar.
+                \enfileirar_evento_sincronizacao(
+                    $this->connection,
+                    $actor,
+                    "ESTADO_CARREGAMENTO_ALTERADO",
+                    "carregamento",
+                    (int) $request["carregamento_id"],
+                    [
+                        "previous_state" => "PAUSADO",
+                        "state" => "PAUSADO",
+                        "local_state_unchanged" => true,
+                        "command_request_id" => $requestId,
+                        "command" => $request["command"],
+                        "device_id" => $deviceId,
+                        "remote_carregamento_id" => $request["remote_carregamento_id"] === null
+                            ? null : (int) $request["remote_carregamento_id"],
+                    ],
+                );
+            }
             if ($stateChanged && $stateTransition !== null) {
                 \record_operational_event(
                     $this->connection,
@@ -443,6 +467,26 @@ final class ServicoGatewayClp
             error_log("PLC gateway could not complete command: " . $exception->getMessage());
             throw new ExcecaoGatewayClp("Não foi possível concluir o comando industrial.", 500);
         }
+    }
+
+    /**
+     * Só a pausa vinda do central (remote_command_id) e aplicada sobre um
+     * carregamento já PAUSADO no PC. Pausas automáticas locais seguem como
+     * antes: o central recebe o evento da própria divergência.
+     *
+     * @param array<string,mixed> $request
+     */
+    private static function pausaRemotaSemMudancaLocal(
+        string $status,
+        array $request,
+        string $previousState,
+        bool $stateChanged,
+    ): bool {
+        return $status === "APLICADO"
+            && $request["command"] === "PAUSAR_CARREGAMENTO"
+            && $request["remote_command_id"] !== null
+            && $previousState === "PAUSADO"
+            && !$stateChanged;
     }
 
     /** @return array{id:null, company_id:int} */

@@ -138,6 +138,22 @@ final class RepositorioCarregamentosEventos
         )->execute(["state" => $state, "id" => $loadingId, "company_id" => $companyId]);
     }
 
+    /**
+     * Pausa pedida pelo central e aplicada num PC que já estava pausado: só
+     * corrige um central que ficou em operação. O evento pode chegar depois de
+     * o central encerrar a carga e não pode reabri-la.
+     */
+    public function pausarSeEmOperacao(int $companyId, int $loadingId): bool
+    {
+        $statement = $this->connection->prepare(
+            "UPDATE carregamentos SET state = 'PAUSADO'
+             WHERE id = :id AND company_id = :company_id AND state IN ('CARREGANDO', 'FINALIZANDO')",
+        );
+        $statement->execute(["id" => $loadingId, "company_id" => $companyId]);
+
+        return $statement->rowCount() > 0;
+    }
+
     public function finalizar(int $companyId, int $loadingId): void
     {
         $this->connection->prepare(

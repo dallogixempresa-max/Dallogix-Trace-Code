@@ -78,8 +78,9 @@ final class ServicoSincronizacaoRemota
                 $installationToken,
                 "GET",
             );
+            $warnings = ValidadorInstantaneoRemoto::separarRomaneiosDisponiveisInvalidos($snapshot);
             ValidadorInstantaneoRemoto::validar($installation, $snapshot);
-            $updated = $this->aplicarInstantaneo($installation, $snapshot);
+            $updated = $this->aplicarInstantaneo($installation, $snapshot, $warnings);
             $this->enviarSinaisDeVida(
                 $centralUrl,
                 $installationToken,
@@ -192,8 +193,11 @@ final class ServicoSincronizacaoRemota
         return $decoded["data"] ?? $decoded;
     }
 
-    /** @param array<string,mixed> $installation @param array<string,mixed> $snapshot */
-    private function aplicarInstantaneo(array $installation, array $snapshot): int
+    /**
+     * @param array<string,mixed> $installation @param array<string,mixed> $snapshot
+     * @param list<string> $warnings romaneios do central que não puderam ser aplicados
+     */
+    private function aplicarInstantaneo(array $installation, array $snapshot, array $warnings = []): int
     {
         $companyId = (int) $installation["company_id"];
         $updated = 0;
@@ -260,6 +264,7 @@ final class ServicoSincronizacaoRemota
             $updated += $this->repositorioRomaneios->sincronizarRomaneiosDisponiveis(
                 $companyId,
                 $snapshot["romaneios_disponiveis"] ?? [],
+                $warnings,
             );
 
             $loadingIds = [];
@@ -317,6 +322,12 @@ final class ServicoSincronizacaoRemota
                 }
             }
 
+            // Romaneios ignorados vão para a tela de logs de erros (no máximo
+            // uma vez por hora por mensagem) sem marcar a sincronização como
+            // falha: o restante do snapshot foi aplicado normalmente.
+            if ($warnings !== []) {
+                $this->registrarAvisosRomaneiosIgnorados($companyId, $warnings);
+            }
             $statement = $this->connection->prepare(
                 "UPDATE instalacoes_locais
                  SET last_remote_sync_at = NOW(3), last_remote_sync_error = NULL
@@ -428,6 +439,35 @@ final class ServicoSincronizacaoRemota
                 "heartbeats" => $heartbeats,
             ],
         );
+    }
+
+    /** @param list<string> $warnings */
+    private function registrarAvisosRomaneiosIgnorados(int $companyId, array $warnings): void
+    {
+        $recent = $this->connection->prepare(
+            "SELECT 1 FROM logs_erros
+             WHERE company_id = :company_id AND origem = 'sincronizacao_central'
+               AND mensagem = :mensagem
+               AND criado_em >= DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 1 HOUR)
+             LIMIT 1",
+        );
+        $insert = $this->connection->prepare(
+            "INSERT INTO logs_erros (company_id, user_id, origem, mensagem, contexto)
+             VALUES (:company_id, NULL, 'sincronizacao_central', :mensagem, :contexto)",
+        );
+        foreach (array_values(array_unique($warnings)) as $warning) {
+            $message = mb_substr($warning, 0, 1000);
+            error_log("Dallogix Trace: " . $message);
+            $recent->execute(["company_id" => $companyId, "mensagem" => $message]);
+            if ($recent->fetchColumn() !== false) {
+                continue;
+            }
+            $insert->execute([
+                "company_id" => $companyId,
+                "mensagem" => $message,
+                "contexto" => json_encode(["tipo" => "ROMANEIO_CENTRAL_IGNORADO"], JSON_UNESCAPED_UNICODE),
+            ]);
+        }
     }
 
     private function marcarErro(string $message): void

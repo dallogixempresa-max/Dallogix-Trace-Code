@@ -203,12 +203,14 @@ final class RepositorioMonitoramento
                 WHERE se.conta_na_meta = 1
                 GROUP BY se.carregamento_id, se.equipment_id
             ), leituras_scanner AS (
+                -- Produto incorreto (fora do romaneio ou código não cadastrado)
+                -- é retirado da carga: aparece só no relatório, não na tela.
                 SELECT l.carregamento_id, COUNT(*) AS scanner_readings
                 FROM leituras l
                 JOIN carregamentos_ativos ca
                   ON ca.id = l.carregamento_id AND ca.company_id = l.company_id
                 WHERE l.barcode IS NOT NULL
-                  AND l.result IN ('VALIDO', 'PRODUTO_INCORRETO', 'EXCESSO')
+                  AND l.result IN ('VALIDO', 'EXCESSO')
                 GROUP BY l.carregamento_id
             ), evidencias_excesso AS (
                 SELECT r.carregamento_id,

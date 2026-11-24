@@ -80,6 +80,27 @@ test("a contagem do detalhe do romaneio é escopada por empresa", () => {
   );
 });
 
+test("saca retirada por produto incorreto não entra em nenhum total de leituras", () => {
+  // Fora do romaneio e código não cadastrado param a esteira e a saca é
+  // retirada. Ela não conta na tela ("Scanner: N sacas com código"), no total
+  // do relatório nem na API de resumo; o relatório só lista a ocorrência.
+  const monitoramento = readFileSync(new URL("../servidor/src/Persistencia/RepositorioMonitoramento.php", import.meta.url), "utf8");
+  const resumo = readFileSync(new URL("../servidor/api/operacoes/resumo_carregamento.php", import.meta.url), "utf8");
+  const scannerCte = monitoramento.match(/leituras_scanner AS \(([\s\S]*?)GROUP BY l\.carregamento_id/)?.[1] || "";
+  assert.match(scannerCte, /l\.result IN \('VALIDO', 'EXCESSO'\)/);
+  assert.doesNotMatch(scannerCte, /PRODUTO_INCORRETO/);
+  const reportScanner = reportEndpoint.match(/\$scannerCount = \$pdo->prepare\(([\s\S]*?)\);/)?.[1] || "";
+  assert.match(reportScanner, /result IN \('VALIDO', 'EXCESSO'\)/);
+  const summaryScanner = resumo.match(/\$data\["leituras_scanner"\] = \$count\(([\s\S]*?)\);/)?.[1] || "";
+  assert.match(summaryScanner, /result IN \('VALIDO', 'EXCESSO'\)/);
+  for (const source of [monitoramento, reportEndpoint, resumo]) {
+    assert.doesNotMatch(source, /result IN \('VALIDO', 'PRODUTO_INCORRETO', 'EXCESSO'\)/);
+  }
+  // A ocorrência continua listada no relatório.
+  assert.match(reportEndpoint, /Código válido não cadastrado/);
+  assert.match(reportEndpoint, /l\.result = 'PRODUTO_INCORRETO'/);
+});
+
 test("as sacas detectadas seguem escopadas por empresa", () => {
   assert.match(
     manifestApi,
