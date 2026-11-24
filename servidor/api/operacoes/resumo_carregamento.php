@@ -67,11 +67,12 @@ $data["sacas_retornadas"] = $count(
     ["id" => $loadingId],
 );
 $data["leituras_liquidas"] = max(0, $data["leituras_validas"] - $data["sacas_retornadas"]);
+// Produto incorreto é retirado da carga e não entra no total de leituras.
 $data["leituras_scanner"] = $count(
     $pdo,
     "SELECT COUNT(*) FROM leituras
      WHERE carregamento_id = :id AND barcode IS NOT NULL
-       AND result IN ('VALIDO', 'PRODUTO_INCORRETO', 'EXCESSO')",
+       AND result IN ('VALIDO', 'EXCESSO')",
     ["id" => $loadingId],
 );
 $data["leituras_excesso"] = $count(
