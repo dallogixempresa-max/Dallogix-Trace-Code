@@ -590,6 +590,8 @@ responder_json(
             "result" => $result,
             "barcode" => $barcode !== "" ? $barcode : null,
             "unregistered_product_detected" => $classification["unregistered_product_detected"],
+            // Produto incorreto com produto previsto: passou da quantidade prevista.
+            "product_id" => $productId !== null ? (int) $productId : null,
             "attempt_number" => $attemptNumber,
             "retry" => false,
             "final" => true,

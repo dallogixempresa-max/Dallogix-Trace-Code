@@ -224,8 +224,10 @@ export class ServicoCarregamentoAtivo {
             const value = result === "SEM_LEITURA"
               ? barcode ? `Falha na leitura do código: ${barcode}` : "Falha na leitura (sem código)"
               : result === "PRODUTO_INCORRETO"
-                ? loading.last_scanner_product_id == null
+                ? loading.last_scanner_product_id == null && !Number(loading.last_scanner_catalog_product)
                   ? `Código válido não cadastrado: ${barcode || "sem identificação"}`
+                  : loading.last_scanner_product_id != null
+                    ? `Acima da quantidade prevista: ${barcode || "código sem identificação"}`
                   : `Produto fora do romaneio: ${barcode || "código sem identificação"}`
                 : barcode || "Leitura sem código";
             return {

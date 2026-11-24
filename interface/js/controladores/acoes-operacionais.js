@@ -1,7 +1,7 @@
 import {
   motivoBloqueioFinalizacao,
   podeFinalizarCarregamento,
-} from "../funcoes/regras-carregamento.js?v=202611240001";
+} from "../funcoes/regras-carregamento.js?v=202611240002";
 
 const ACOES_COMANDO_MAQUINA = new Set([
   "start-machine",
