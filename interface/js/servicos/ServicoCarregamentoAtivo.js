@@ -178,6 +178,7 @@ export class ServicoCarregamentoAtivo {
       this.state.commandFeedback = "";
       this.state.loadingItems = [];
       this.state.latestScannerReading = null;
+      this.lastServerScannerReadAt = undefined;
       this.state.scannerUnmatchedCount = 0;
       return null;
     }
@@ -209,7 +210,13 @@ export class ServicoCarregamentoAtivo {
     this.state.excessEvidenceCaptured = Number(loading.excess_evidence_captured) || 0;
     this.state.excessEvidencePending = Number(loading.excess_evidence_pending) || 0;
     this.state.excessEvidenceFailed = Number(loading.excess_evidence_failed) || 0;
-    if (selectionChanged || this.state.latestScannerReading?.result !== "SEM_PASSAGEM") {
+    // Captura local ainda sem passagem: o visor mantém o código recebido até o
+    // servidor registrar uma leitura nova, em vez de voltar a mostrar a anterior.
+    const serverScannerReadAt = loading.last_scanner_read_at ? String(loading.last_scanner_read_at) : null;
+    const newServerReading = selectionChanged || serverScannerReadAt !== this.lastServerScannerReadAt;
+    this.lastServerScannerReadAt = serverScannerReadAt;
+    const localPendingReading = ["SEM_PASSAGEM", "AGUARDANDO_PASSAGEM"].includes(this.state.latestScannerReading?.result);
+    if (newServerReading || !localPendingReading) {
       this.state.latestScannerReading = loading.last_scanner_read_at
         ? (() => {
             const barcode = String(loading.last_scanner_barcode || "");

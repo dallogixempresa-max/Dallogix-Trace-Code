@@ -1,4 +1,4 @@
-import { prepararDialogoAcessivel } from "../funcoes/dialogo.js?v=202611230003";
+import { prepararDialogoAcessivel } from "../funcoes/dialogo.js?v=202611240001";
 
 // Exibe feedback no fluxo da página, sem sobrepor controles do quiosque.
 export function limparNotificacao() {
