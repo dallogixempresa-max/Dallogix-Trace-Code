@@ -18,12 +18,15 @@ const clpFlow = JSON.parse(await readFile(new URL("../integracoes/node-red/trace
 // gateway não registrou. O leitor dispara com o M2052 (PR #98: "7 códigos para
 // 6 passagens"), então leitura sem passagem é saca perdida, não repetição.
 
-test("o M2052 é consultado a cada 50 ms (pulso curto não cai entre consultas)", () => {
+test("o M2052 é consultado a cada 20 ms (pulso curto não cai entre consultas)", () => {
+  // Sacas com poucos centímetros entre si geram pulsos próximos; o CLP responde
+  // em ~7 ms (máximo medido 17 ms), então 20 ms ainda deixa folga por consulta.
   const tick = clpFlow.find((node) => node.id === "sensor-poll-tick");
-  assert.equal(tick.repeat, "0.05");
-  assert.match(tick.name, /50 ms/);
+  assert.equal(tick.repeat, "0.02");
+  assert.match(tick.name, /20 ms/);
   const result = clpFlow.find((node) => node.id === "modbus-result")?.func || "";
-  assert.match(result, /poll_interval_ms: 50,/);
+  assert.equal(result.match(/poll_interval_ms: 20,/g)?.length, 2);
+  assert.doesNotMatch(result, /poll_interval_ms: 50,/);
   // A consulta seguinte não começa enquanto a anterior está em andamento.
   const frame = clpFlow.find((node) => node.id === "modbus-frame")?.func || "";
   assert.match(frame, /if \(inFlightSince && Date\.now\(\) - inFlightSince < inFlightLimitMs\) return null;/);
