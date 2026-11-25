@@ -33,7 +33,8 @@ for(const [name,input,ready] of [
   ['contagem malformada',{pending_events:'erro'},false],
   ['fila da própria carga pendente',{pending_events_by_loading:'{"42":2}'},false],
   ['fila pendente de outra carga',{pending_events_by_loading:'{"43":2}'},true],
-  ['mapa inválido',{pending_events_by_loading:'[]',pending_events:0},false],
+  ['mapa vazio gravado como lista vazia',{pending_events_by_loading:'[]',pending_events:0},true],
+  ['mapa inválido',{pending_events_by_loading:'[2]',pending_events:0},false],
 ]) {
   test(`JSON do validador PHP é interpretado pelo frontend: ${name}`,()=>{
     const script=`<?php require $argv[1]; $s=json_decode($argv[2],true); echo json_encode(['sensor_outbox_pendentes'=>App\\Aplicacao\\ValidadorFilaSensor::pendentes($s,42)]);`;
