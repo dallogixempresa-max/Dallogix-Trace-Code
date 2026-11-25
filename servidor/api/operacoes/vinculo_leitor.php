@@ -73,15 +73,79 @@ function trace_scanner_event_match(
         return $match;
     }
 
-    // Fila: a passagem pendente mais antiga, pela ordem em que entrou no Trace
-    // (a fila durável do Node-RED reenvia uma passagem por vez, em ordem).
-    $candidates = $match["candidates"];
-    usort(
-        $candidates,
-        static fn (array $left, array $right): int => $left["sensor_event_id"] <=> $right["sensor_event_id"],
-    );
-    $match["best"] = $candidates[0];
+    $queue = trace_sequential_queue($pdo, $loadingId, $match["candidates"]);
+    if ($queue === null) {
+        return $match;
+    }
+    $match["best"] = $queue[0];
     $match["ambiguous"] = false;
     $match["link_rule"] = "SEQUENCIAL";
     return $match;
+}
+
+/** Atraso máximo entre detectar a passagem e ela chegar ao servidor para a fila confiar nela. */
+const TRACE_SEQUENTIAL_MAX_ARRIVAL_DELAY_MS = 1000;
+
+/**
+ * Monta a fila das candidatas ou devolve null quando a fila não é confiável
+ * (aí vale a regra da janela, que recusa a leitura ambígua sem trocar códigos).
+ *
+ * - Só entram passagens ainda SEM leitura: com ERROR (includeFinalizedNoRead)
+ *   a janela também devolve passagens já fechadas como SEM_LEITURA, que não
+ *   podem receber a leitura da saca seguinte.
+ * - Ordem pela hora em que o sensor viu a saca (device_detected_at), não pela
+ *   ordem de inserção: um reenvio do Node-RED pode inserir uma passagem depois
+ *   da seguinte.
+ * - Toda candidata precisa ser precisa e pontual: ter o intervalo Modbus da
+ *   detecção (as passagens interpoladas da recuperação do contador não têm) e
+ *   ter chegado ao servidor em até TRACE_SEQUENTIAL_MAX_ARRIVAL_DELAY_MS. Uma
+ *   passagem atrasada pode ter perdido o próprio código (o worker do leitor
+ *   desiste depois de 1.250 ms), e a fila deslocaria as sacas seguintes.
+ *
+ * @param list<array{sensor_event_id:int}> $candidates
+ * @return ?list<array>
+ */
+function trace_sequential_queue(PDO $pdo, int $loadingId, array $candidates): ?array
+{
+    $byId = [];
+    foreach ($candidates as $candidate) {
+        $byId[(int) $candidate["sensor_event_id"]] = $candidate;
+    }
+    if (count($byId) < 2) {
+        return null;
+    }
+    $placeholders = implode(",", array_fill(0, count($byId), "?"));
+    $statement = $pdo->prepare(
+        "SELECT s.id, s.device_detected_at, s.modbus_passage_from_epoch_ms,
+                CAST(ROUND(UNIX_TIMESTAMP(s.detected_at) * 1000) AS UNSIGNED) AS server_received_at_epoch_ms,
+                (SELECT COUNT(*) FROM leituras l WHERE l.sensor_event_id = s.id) AS readings
+         FROM eventos_sensor s
+         WHERE s.carregamento_id = ? AND s.id IN ({$placeholders})",
+    );
+    $statement->execute([$loadingId, ...array_keys($byId)]);
+
+    $pending = [];
+    foreach ($statement->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        if ((int) $row["readings"] > 0) {
+            continue;
+        }
+        if ($row["device_detected_at"] === null || $row["modbus_passage_from_epoch_ms"] === null) {
+            return null;
+        }
+        $detectedAtMs = trace_sql_datetime_to_epoch_ms((string) $row["device_detected_at"]);
+        $arrivalDelayMs = (int) $row["server_received_at_epoch_ms"] - $detectedAtMs;
+        if ($detectedAtMs < 1 || $arrivalDelayMs > TRACE_SEQUENTIAL_MAX_ARRIVAL_DELAY_MS) {
+            return null;
+        }
+        $pending[] = ["detected_at_epoch_ms" => $detectedAtMs] + $byId[(int) $row["id"]];
+    }
+    if ($pending === []) {
+        return null;
+    }
+    usort(
+        $pending,
+        static fn (array $left, array $right): int => [$left["detected_at_epoch_ms"], $left["sensor_event_id"]]
+            <=> [$right["detected_at_epoch_ms"], $right["sensor_event_id"]],
+    );
+    return $pending;
 }
