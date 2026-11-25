@@ -138,8 +138,8 @@ test("associa códigos às passagens em ordem e reserva um evento por quadro", (
   reserved.add(103);
   assert.equal(nextUnreservedSensorEventId([101, 102, 103], reserved), null);
   assert.match(imageEndpoint, /pending_sensor_event_ids/);
-  assert.match(imageEndpoint, /trace_pending_scanner_event_match\(/);
-  assert.match(readingsEndpoint, /trace_pending_scanner_event_match\([\s\S]*?\$scannerObservedAtMs,\s*false,\s*\$noRead,/);
+  assert.match(imageEndpoint, /trace_scanner_event_match\(/);
+  assert.match(readingsEndpoint, /trace_scanner_event_match\([\s\S]*?\$scannerObservedAtMs,\s*false,\s*\$noRead,/);
   assert.match(scannerTiming, /\$expectedAtMs\s*=\s*\$detectedAtMs\s*\+\s*\$timing\["travel_ms"\]/);
   assert.match(scannerTiming, /ORDER BY s\.id ASC/);
   assert.match(scannerTiming, /FOR UPDATE/);

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . "/../../configuracao/bootstrap.php";
 require_once __DIR__ . "/temporizacao_leitor.php";
+require_once __DIR__ . "/vinculo_leitor.php";
 require_once __DIR__ . "/../../src/Aplicacao/ClassificadorLeitura.php";
 require_once __DIR__ . "/../../src/Aplicacao/ValidadorCodigoBarras.php";
 require_once __DIR__ . "/../../src/Aplicacao/SolicitacaoLeitura.php";
@@ -162,7 +163,7 @@ if (!in_array($loading["state"], ["CARREGANDO", "FINALIZANDO", "PAUSADO", "FINAL
 $loadingValidCount = 0;
 $scannerMatch = null;
 if (($barcode !== "" || $noRead) && ($dispositivoScanner !== null || !$sensorEventId)) {
-    $scannerMatch = trace_pending_scanner_event_match(
+    $scannerMatch = trace_scanner_event_match(
         $pdo,
         (int) $loadingId,
         (int) $loading["equipment_id"],

@@ -6,6 +6,7 @@ define("TRACE_SKIP_SESSION", true);
 require_once __DIR__ . "/../configuracao/bootstrap.php";
 require_once __DIR__ . "/../../scripts/image_storage_path.php";
 require_once __DIR__ . "/operacoes/temporizacao_leitor.php";
+require_once __DIR__ . "/operacoes/vinculo_leitor.php";
 require_once __DIR__ . "/operacoes/janela_foto_keyence.php";
 
 exigir_metodo_http(["POST"]);
@@ -88,7 +89,7 @@ if ($action === "STATUS") {
     $loadingId = (int) ($active->fetchColumn() ?: 0);
     $pendingSensorEventIds = [];
     if ($loadingId > 0) {
-        $match = trace_pending_scanner_event_match(
+        $match = trace_scanner_event_match(
             $pdo,
             $loadingId,
             (int) $device["equipment_id"],
