@@ -143,7 +143,8 @@ test("uma consulta M2052 sem resposta libera a próxima amostra no limite aceito
   socket.destroy = () => { destroyed = true; };
   const frame = Buffer.from([0, 1, 0, 0, 0, 6, 1, 1, 8, 4, 0, 1]);
   const state = new Map([["modbus_sensor_inflight_17", true]]);
-  const request = new Function("msg", "global", "node", "setTimeout", "clearTimeout", "Date", byId("modbus-request").func);
+  const request = new Function("msg", "global", "node", "setTimeout", "clearTimeout", "Date", "context", byId("modbus-request").func);
+  const nodeContext = new Map();
   request(
     { payload: frame, host: "10.0.0.10", port: 502, modbusPurpose: "sensor", equipmentId: 17, modbusStartedAt: now },
     { get: () => () => socket },
@@ -151,6 +152,7 @@ test("uma consulta M2052 sem resposta libera a próxima amostra no limite aceito
     (callback, delay) => { timer = callback; timerDelay = delay; return 1; },
     () => {},
     fixedDate,
+    { get: (key) => nodeContext.get(key), set: (key, value) => nodeContext.set(key, value), keys: () => [...nodeContext.keys()] },
   );
   assert.equal(timerDelay, 300); // o CLP responde em ~7 ms; consulta presa é abandonada em 300 ms
   timer();

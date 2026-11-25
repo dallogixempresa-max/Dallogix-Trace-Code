@@ -6,7 +6,8 @@ const TRACE_MODBUS_PASSAGE_WINDOW_MAX_MS = 2000;
 /**
  * Timing for a line where M2052 is upstream of the barcode reader.
  * The configured distance is measured from the sensor detection point to the
- * beginning of the reader's capture area. Belt speed is the measured 0.7 m/s.
+ * beginning of the reader's capture area. Belt speed comes from
+ * TRACE_BELT_SPEED_M_S (default: the measured 0.7 m/s).
  */
 function trace_scanner_timing(): array
 {
@@ -32,13 +33,32 @@ function trace_scanner_timing(): array
         throw new RuntimeException("TRACE_SENSOR_TO_READER_DISTANCE_M deve estar entre 0 e 20 metros.");
     }
 
-    $travelMs = (int) ceil(($distanceM / 0.7) * 1000);
+    // Velocidade da esteira do cliente. O padrão é a esteira medida (0,7 m/s).
+    $rawSpeed = getenv("TRACE_BELT_SPEED_M_S");
+    $rawSpeed = $rawSpeed === false || trim($rawSpeed) === "" ? "0.7" : str_replace(",", ".", trim($rawSpeed));
+    if (!is_numeric($rawSpeed)) {
+        throw new RuntimeException("TRACE_BELT_SPEED_M_S deve ser uma velocidade em metros por segundo.");
+    }
+    $speedMs = (float) $rawSpeed;
+    if (!is_finite($speedMs) || $speedMs < 0.05 || $speedMs > 5) {
+        throw new RuntimeException("TRACE_BELT_SPEED_M_S deve estar entre 0,05 e 5 m/s.");
+    }
+
+    $rawEarly = getenv("TRACE_SCANNER_EARLY_TOLERANCE_MS");
+    $configuredEarly = filter_var(
+        $rawEarly === false || $rawEarly === "" ? 250 : $rawEarly,
+        FILTER_VALIDATE_INT,
+    );
+    $earlyMs = max(0, min(2000, $configuredEarly === false ? 250 : (int) $configuredEarly));
+
+    $travelMs = (int) ceil(($distanceM / $speedMs) * 1000);
     $timing = [
         "distance_m" => $distanceM,
+        "belt_speed_m_s" => $speedMs,
         "travel_ms" => $travelMs,
         "grace_ms" => $graceMs,
         "no_read_deadline_ms" => $travelMs + $graceMs,
-        "early_tolerance_ms" => 250,
+        "early_tolerance_ms" => $earlyMs,
     ];
     return $timing;
 }
