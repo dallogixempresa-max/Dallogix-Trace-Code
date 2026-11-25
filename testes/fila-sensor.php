@@ -15,7 +15,11 @@ $cases = [
     [['pending_events_by_loading' => '{}'], 0],
     [['pending_events_by_loading' => 'null', 'pending_events' => 0], null],
     [['pending_events_by_loading' => '{"42":null}'], null],
-    [['pending_events_by_loading' => '[]', 'pending_events' => 0], null],
+    // Mapa vazio gravado pelo PHP como "[]" (PC e Central, 25/11/2026): nada pendente.
+    [['pending_events_by_loading' => '[]', 'pending_events' => 0], 0],
+    [['pending_events_by_loading' => '[]'], 0],
+    [['pending_events_by_loading' => '[2]', 'pending_events' => 0], null],
+    [['pending_events_by_loading' => '[0]'], null],
     [['pending_events_by_loading' => 'quebrado', 'pending_events' => 0], null],
     [['pending_events_by_loading' => '{"42":-1}'], null],
     [['pending_events_by_loading' => '{"42":0.5}'], null],
@@ -24,4 +28,4 @@ foreach ($cases as [$state, $expected]) {
     $actual = ValidadorFilaSensor::pendentes($state, 42);
     if ($actual !== $expected) throw new RuntimeException('Fila inválida liberada ou contagem divergente: ' . json_encode($state));
 }
-echo "16 casos da fila do sensor passaram.\n";
+echo "19 casos da fila do sensor passaram.\n";

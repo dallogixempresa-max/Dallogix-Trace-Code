@@ -11,6 +11,11 @@ final class ValidadorFilaSensor
         $raw = $estado["pending_events_by_loading"] ?? null;
         if ($raw !== null) {
             $map = is_string($raw) ? json_decode($raw) : null;
+            // O PHP grava um mapa vazio como "[]" (json_encode de array vazio),
+            // no PC e no Central: é "nada pendente", não um mapa inválido.
+            if ($map === []) {
+                $map = new \stdClass();
+            }
             if (!$map instanceof \stdClass) {
                 return null;
             }
