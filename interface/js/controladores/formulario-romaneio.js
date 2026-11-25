@@ -1,6 +1,6 @@
-import { setFormFeedback } from "../componentes/form-feedback.js?v=202611240002";
-import { agora } from "../funcoes/relogio.js?v=202611240002";
-import { validarCadastroRomaneio } from "../funcoes/romaneio.js?v=202611240002";
+import { setFormFeedback } from "../componentes/form-feedback.js?v=202611250001";
+import { agora } from "../funcoes/relogio.js?v=202611250001";
+import { validarCadastroRomaneio } from "../funcoes/romaneio.js?v=202611250001";
 
 function dataLocalAtual(now) {
   const date = now();

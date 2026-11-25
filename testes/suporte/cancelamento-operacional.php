@@ -6,7 +6,7 @@ $scenario=json_decode($argv[1]??'{}',true);
 $events=[];
 class CancelStatement extends PDOStatement {
     public function __construct(private string $sql) {}
-    public function execute(?array $params=null): bool { return true; }
+    public function execute(?array $params=null): bool { global $loadingReason; if(str_contains($this->sql,'UPDATE carregamentos')) $loadingReason=$params['reason']??null; return true; }
     public function fetch(int $mode=PDO::FETCH_DEFAULT,int $orientation=PDO::FETCH_ORI_NEXT,int $offset=0): mixed {
         global $scenario;
         return str_contains($this->sql,'status_dispositivos')
@@ -33,9 +33,9 @@ class CancelConnection extends PDO {
         return new CancelStatement($query);
     }
 }
-function record_operational_event(mixed ...$args): void {global $events;$events[]=$args[2];}
-function responder_json(array $data,int $status=200): never {global $events;echo json_encode(['status'=>$status,'body'=>$data,'events'=>$events]);exit;}
-$pdo=new CancelConnection();$payload=['romaneio_id'=>76,'justification'=>'Teste de bancada'];$action='cancel';$companyId=7;$usuarioAtor=['id'=>1,'company_id'=>7];
+function record_operational_event(mixed ...$args): void {global $events,$eventDetails;$events[]=$args[2];$eventDetails[]=$args[5]??null;}
+function responder_json(array $data,int $status=200): never {global $events;global $eventDetails;echo json_encode(['status'=>$status,'body'=>$data,'events'=>$events,'event_details'=>$eventDetails??[],'loading_reason'=>$GLOBALS['loadingReason']??null]);exit;}
+$pdo=new CancelConnection();$payload=['romaneio_id'=>76,'justification'=>'Teste de bancada']+(array_key_exists('force',$scenario)?['force'=>$scenario['force']]:[]);$action='cancel';$companyId=7;$usuarioAtor=['id'=>1,'company_id'=>7];
 $source=file_get_contents(__DIR__.'/../../servidor/api/romaneios/romaneios.php');
 $start=strpos($source,'    if ($action === "cancel")');
 $end=strpos($source,'    // O ramo cancel',$start);

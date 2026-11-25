@@ -1,7 +1,7 @@
 import {
   motivoBloqueioFinalizacao,
   podeFinalizarCarregamento,
-} from "../funcoes/regras-carregamento.js?v=202611240002";
+} from "../funcoes/regras-carregamento.js?v=202611250001";
 
 const ACOES_COMANDO_MAQUINA = new Set([
   "start-machine",
@@ -75,9 +75,17 @@ export function criarTratadorAcoesOperacionais({
       { obrigatorio: true },
     ) || "";
     if (!reason.trim()) return;
-    if (!await confirmarAcao("Confirma o cancelamento? A operação precisa estar pausada ou em emergência.")) return;
+    if (!await confirmarAcao("Confirma o cancelamento desta operação?")) return;
 
     const manifestId = node.dataset.id || idDaConsulta();
+    const mostrarErro = (error) => {
+      store.state.manifestActionPending = false;
+      store.state.manifestActionFeedback = {
+        type: "error",
+        message: error?.message || "Não foi possível cancelar a operação.",
+      };
+      render();
+    };
     store.state.manifestActionPending = true;
     store.state.manifestActionFeedback = { type: "status", message: "Cancelando operação…" };
     render();
@@ -86,13 +94,26 @@ export function criarTratadorAcoesOperacionais({
     try {
       cancellationResult = await store.cancelManifest(manifestId, reason.trim());
     } catch (error) {
-      store.state.manifestActionPending = false;
-      store.state.manifestActionFeedback = {
-        type: "error",
-        message: error.message || "Não foi possível cancelar a operação.",
-      };
+      if (!error?.podeForcar) {
+        mostrarErro(error);
+        return;
+      }
+      // Trava operacional (Dala em movimento ou passagens do sensor sem
+      // confirmação): o usuário pode sobrepor e cancelar mesmo assim.
+      mostrarErro(error);
+      const forcar = await confirmarAcao(
+        `${error.message} Deseja cancelar mesmo assim? Passagens do sensor ainda não confirmadas serão descartadas e o cancelamento ficará registrado como forçado na auditoria.`,
+      );
+      if (!forcar) return;
+      store.state.manifestActionPending = true;
+      store.state.manifestActionFeedback = { type: "status", message: "Cancelando operação…" };
       render();
-      return;
+      try {
+        cancellationResult = await store.cancelManifest(manifestId, reason.trim(), { force: true });
+      } catch (forcedError) {
+        mostrarErro(forcedError);
+        return;
+      }
     }
 
     store.state.manifestActionPending = false;

@@ -1,17 +1,17 @@
-import { OfflineOperationBuffer, secureRandomId } from "./OfflineOperationBuffer.js?v=202611240002";
-import { ClienteApi, erroRespostaHttp } from "../api/ClienteApi.js?v=202611240002";
-import { ServicoSincronizacao } from "../servicos/ServicoSincronizacao.js?v=202611240002";
-import { ServicoDalas } from "../servicos/ServicoDalas.js?v=202611240002";
-import { ServicoObservabilidade } from "../servicos/ServicoObservabilidade.js?v=202611240002";
-import { ServicoCarregamentoAtivo } from "../servicos/ServicoCarregamentoAtivo.js?v=202611240002";
-import { ServicoComandosMaquina } from "../servicos/ServicoComandosMaquina.js?v=202611240002";
-import { ServicoLeiturasOperacionais } from "../servicos/ServicoLeiturasOperacionais.js?v=202611240002";
-import { logFrontend } from "../utilitarios/LogFrontend.js?v=202611240002";
-import { resolverComandoAtual } from "../funcoes/estado-comando.js?v=202611240002";
+import { OfflineOperationBuffer, secureRandomId } from "./OfflineOperationBuffer.js?v=202611250001";
+import { ClienteApi, erroRespostaHttp } from "../api/ClienteApi.js?v=202611250001";
+import { ServicoSincronizacao } from "../servicos/ServicoSincronizacao.js?v=202611250001";
+import { ServicoDalas } from "../servicos/ServicoDalas.js?v=202611250001";
+import { ServicoObservabilidade } from "../servicos/ServicoObservabilidade.js?v=202611250001";
+import { ServicoCarregamentoAtivo } from "../servicos/ServicoCarregamentoAtivo.js?v=202611250001";
+import { ServicoComandosMaquina } from "../servicos/ServicoComandosMaquina.js?v=202611250001";
+import { ServicoLeiturasOperacionais } from "../servicos/ServicoLeiturasOperacionais.js?v=202611250001";
+import { logFrontend } from "../utilitarios/LogFrontend.js?v=202611250001";
+import { resolverComandoAtual } from "../funcoes/estado-comando.js?v=202611250001";
 import {
   buscarTodasPaginas,
   validarCursorPaginacao as validarCursorPaginacaoApi,
-} from "../funcoes/paginacao-api.js?v=202611240002";
+} from "../funcoes/paginacao-api.js?v=202611250001";
 
 const LIMITE_IDADE_MONITORAMENTO_OPERACIONAL_MS = 6000;
 
@@ -211,7 +211,7 @@ export class ArmazenamentoTrace {
   obterServicoRomaneios() {
     return this.obterServicoSobDemanda(
       "servicoRomaneios",
-      () => import("../servicos/ServicoRomaneios.js?v=202611240002"),
+      () => import("../servicos/ServicoRomaneios.js?v=202611250001"),
       ({ ServicoRomaneios }) => new ServicoRomaneios({
         api: this.api,
         state: this.state,
@@ -225,7 +225,7 @@ export class ArmazenamentoTrace {
   obterServicoCatalogoProdutos() {
     return this.obterServicoSobDemanda(
       "servicoCatalogoProdutos",
-      () => import("../servicos/ServicoCatalogoProdutos.js?v=202611240002"),
+      () => import("../servicos/ServicoCatalogoProdutos.js?v=202611250001"),
       ({ ServicoCatalogoProdutos }) => new ServicoCatalogoProdutos({
         api: this.api,
         state: this.state,
@@ -238,7 +238,7 @@ export class ArmazenamentoTrace {
   obterServicoAdministracaoContas() {
     return this.obterServicoSobDemanda(
       "servicoAdministracaoContas",
-      () => import("../servicos/ServicoAdministracaoContas.js?v=202611240002"),
+      () => import("../servicos/ServicoAdministracaoContas.js?v=202611250001"),
       ({ ServicoAdministracaoContas }) => new ServicoAdministracaoContas({
         api: this.api,
         state: this.state,
@@ -252,7 +252,7 @@ export class ArmazenamentoTrace {
   obterServicoInstalacoesIndustriais() {
     return this.obterServicoSobDemanda(
       "servicoInstalacoesIndustriais",
-      () => import("../servicos/ServicoInstalacoesIndustriais.js?v=202611240002"),
+      () => import("../servicos/ServicoInstalacoesIndustriais.js?v=202611250001"),
       ({ ServicoInstalacoesIndustriais }) => new ServicoInstalacoesIndustriais({
         api: this.api,
         state: this.state,
@@ -265,7 +265,7 @@ export class ArmazenamentoTrace {
   obterServicoAcoesDala() {
     return this.obterServicoSobDemanda(
       "servicoAcoesDala",
-      () => import("../servicos/ServicoAcoesDala.js?v=202611240002"),
+      () => import("../servicos/ServicoAcoesDala.js?v=202611250001"),
       ({ ServicoAcoesDala }) => new ServicoAcoesDala({
         api: this.api,
         state: this.state,
@@ -600,7 +600,7 @@ export class ArmazenamentoTrace {
   async confirmStopRemoval(loadingId = this.state.loadingId) {
     return this.servicoLeiturasOperacionais.confirmStopRemoval(loadingId);
   }
-  async cancelManifest(manifestId, justification = "") {
+  async cancelManifest(manifestId, justification = "", { force = false } = {}) {
     const reason = String(justification).trim();
     const response = await this.api.fetch("/api/romaneios.php", {
       method: "PATCH",
@@ -609,8 +609,19 @@ export class ArmazenamentoTrace {
         action: "cancel",
         romaneio_id: manifestId,
         justification: reason,
+        ...(force ? { force: true } : {}),
       }),
     });
+    if (response.status === 409 && !force) {
+      // O servidor indica quando o bloqueio é uma trava operacional que o
+      // usuário pode sobrepor com um cancelamento forçado.
+      const detail = await response.clone().json().catch(() => null);
+      if (detail?.can_force === true) {
+        const error = await erroRespostaHttp(response, "Não foi possível cancelar o romaneio.");
+        error.podeForcar = true;
+        throw error;
+      }
+    }
     const result = await this.jsonResponse(response, "Não foi possível cancelar o romaneio.");
     return result.data;
   }
