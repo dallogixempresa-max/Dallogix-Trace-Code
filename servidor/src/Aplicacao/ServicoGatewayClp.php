@@ -32,10 +32,109 @@ final class ServicoGatewayClp
         $this->repositorio = new RepositorioComandosClp($connection);
     }
 
+    /**
+     * Pausa automática (produto incorreto, acima da quantidade, excesso, meta)
+     * que o servidor já gravou como PAUSADO. É a única que a consulta longa de
+     * parada de segurança entrega; ligar a esteira, reversão e parada manual
+     * seguem só na consulta normal de 2 s.
+     */
+    private const FILTRO_PARADA_DE_SEGURANCA = "r.command = 'PAUSAR_CARREGAMENTO'
+                           AND c.state IN ('PAUSADO', 'FINALIZADO')
+                           AND c.stop_reason IN (
+                               'EXCESSO', 'PRODUTO_INCORRETO',
+                               'COTA_PRODUTO_ATINGIDA', 'COTA_ROMANEIO_ATINGIDA'
+                           )";
+
+    /**
+     * Consulta longa do node-red durante a carga: espera até $esperaMs por uma
+     * pausa de segurança e a reserva assim que ela existir. A parada que nasce
+     * da leitura do Keyence não tem o CLAIM imediato da passagem e esperava a
+     * consulta de 2 s; aqui ela sai em ~$intervaloMs. Sem parada pendente, só
+     * lê sem trava, sem abrir transação nem disputar a Dala.
+     */
+    public function aguardarParadaDeSeguranca(
+        int $equipmentId,
+        int $deviceId,
+        int $esperaMs,
+        int $intervaloMs = 100,
+        ?int $prazoClienteEpochMs = null,
+    ): ?array {
+        $limite = hrtime(true) + max(0, $esperaMs) * 1_000_000;
+        if ($prazoClienteEpochMs !== null) {
+            // Prazo do node-red (mesmo relógio do host Docker): depois dele o
+            // node-red pode ter desistido ou reiniciado, e uma pausa reservada
+            // ficaria PROCESSANDO sem ninguém escrever a bobina.
+            $restanteClienteMs = $prazoClienteEpochMs - (int) round(microtime(true) * 1000);
+            if ($restanteClienteMs <= 0) {
+                return null;
+            }
+            $limite = min($limite, hrtime(true) + $restanteClienteMs * 1_000_000);
+        }
+        $intervaloMs = max(10, $intervaloMs);
+        if ($this->connection->getAttribute(PDO::ATTR_DRIVER_NAME) === "mysql") {
+            // A conexão é só desta requisição. Com a Dala travada por outra
+            // transação, desiste em 1 s (o node-red tenta de novo em 2 s) em vez
+            // de esperar os 50 s padrão e acumular consultas nos 5 processos PHP.
+            $this->connection->exec("SET SESSION innodb_lock_wait_timeout = 1");
+        }
+        while (true) {
+            if ($this->existeParadaDeSegurancaReservavel($equipmentId)) {
+                // A reserva pode pular a linha travada por outra transação;
+                // nesse caso tenta de novo na próxima volta.
+                $request = $this->reservarComando($equipmentId, $deviceId, null, true);
+                if ($request !== null) {
+                    return $request;
+                }
+            }
+            $restanteNs = $limite - hrtime(true);
+            if ($restanteNs <= 0) {
+                return null;
+            }
+            usleep((int) min($intervaloMs * 1000, intdiv($restanteNs, 1000)));
+        }
+    }
+
+    /**
+     * Prazo enviado pelo node-red (wait_until_epoch_ms), no mesmo relógio do
+     * host Docker. Prazo vencido, por mais antigo que seja (fila do PHP), fica
+     * como vencido: a consulta responde 204 sem reservar. Só um prazo mais de
+     * 10 s no futuro, ou inválido, é ignorado (vale só a espera de 1,5 s).
+     */
+    public static function prazoDoCliente(mixed $valor, int $agoraEpochMs): ?int
+    {
+        $prazo = filter_var($valor, FILTER_VALIDATE_INT);
+        if ($prazo === false || $prazo <= 0 || $prazo - $agoraEpochMs > 10000) {
+            return null;
+        }
+        return $prazo;
+    }
+
+    /** Mesma condição da reserva rápida, em leitura sem trava (autocommit). */
+    private function existeParadaDeSegurancaReservavel(int $equipmentId): bool
+    {
+        $pendingStop = $this->connection->prepare(
+            "SELECT r.id FROM solicitacoes_comandos_clp r
+             JOIN carregamentos c ON c.id = r.carregamento_id
+             WHERE r.equipment_id = :equipment_id AND r.status = 'PENDENTE'
+               AND " . self::FILTRO_PARADA_DE_SEGURANCA . "
+               AND NOT EXISTS (
+                   SELECT 1 FROM solicitacoes_comandos_clp processing
+                   WHERE processing.equipment_id = r.equipment_id
+                     AND processing.status = 'PROCESSANDO'
+               )
+             LIMIT 1",
+        );
+        $pendingStop->execute(["equipment_id" => $equipmentId]);
+        $exists = $pendingStop->fetchColumn() !== false;
+        $pendingStop->closeCursor();
+        return $exists;
+    }
+
     public function reservarComando(
         int $equipmentId,
         int $deviceId,
         ?int $priorityStopRequestId = null,
+        bool $somenteParadaDeSeguranca = false,
     ): ?array
     {
         if (
@@ -46,18 +145,36 @@ final class ServicoGatewayClp
             throw new ExcecaoGatewayClp("Equipamento e dispositivo são obrigatórios.", 422);
         }
 
+        $reservaRapida = $somenteParadaDeSeguranca && $priorityStopRequestId === null;
+        if ($reservaRapida && !$this->existeParadaDeSegurancaReservavel($equipmentId)) {
+            return null;
+        }
+
         $this->connection->beginTransaction();
         try {
             // Serializa os CLAIMs da mesma Dala. A emergência pode ultrapassar
             // outro comando em andamento, mas comandos comuns não são enviados
             // em paralelo pela mesma máquina.
+            // A reserva rápida não espera a Dala: ocupada por outra reserva ou
+            // pela passagem do sensor, devolve null e a consulta longa tenta de
+            // novo em 100 ms.
             $equipmentLock = $this->connection->prepare(
-                "SELECT id FROM equipamentos WHERE id = :equipment_id LIMIT 1 FOR UPDATE",
+                "SELECT id FROM equipamentos WHERE id = :equipment_id LIMIT 1 FOR UPDATE"
+                    . ($reservaRapida ? " SKIP LOCKED" : ""),
             );
             $equipmentLock->execute(["equipment_id" => $equipmentId]);
             if (!$equipmentLock->fetchColumn()) {
                 $this->connection->commit();
                 return null;
+            }
+
+            if ($reservaRapida) {
+                // Depois de travar a Dala, a reserva rápida não espera nenhuma
+                // outra trava: o UPDATE dos aposentados e a varredura dos
+                // vencidos (FOR UPDATE sem SKIP) ficam com a consulta de 2 s.
+                // Esperar a linha da pausa travada pela leitura da saca seguinte,
+                // segurando a Dala, fechava ciclo de deadlock com a FK da evidência.
+                return $this->reservarParadaDeSeguranca($deviceId, $equipmentId);
             }
 
             // Compatibilidade com instalações antigas: comandos removidos não
@@ -210,6 +327,63 @@ final class ServicoGatewayClp
             error_log("PLC gateway could not claim command: " . $exception->getMessage());
             throw new ExcecaoGatewayClp("Não foi possível reservar o comando industrial.", 500);
         }
+    }
+
+    /**
+     * Parte da reserva rápida que roda com a Dala já travada pela transação de
+     * reservarComando. Trava só a solicitação (OF r, SKIP LOCKED): o carregamento
+     * é lido sem trava porque a pausa é a direção segura e o ACK (concluirComando)
+     * trava o carregamento antes de mudar o estado. Assim a sincronização do
+     * central e a leitura, que seguram o carregamento, não fazem a pausa esperar
+     * a consulta de 2 s.
+     */
+    private function reservarParadaDeSeguranca(int $deviceId, int $equipmentId): ?array
+    {
+        $statement = $this->connection->prepare(
+            "SELECT r.id, r.company_id, r.equipment_id, r.carregamento_id, r.command, r.requested_at,
+                    r.remote_command_id, c.remote_carregamento_id, c.state AS loading_state,
+                    c.stop_reason,
+                    (SELECT direction.command FROM solicitacoes_comandos_clp direction
+                     WHERE direction.equipment_id = r.equipment_id
+                       AND direction.company_id = r.company_id
+                       AND direction.command IN ('REVERSAO_ATIVAR', 'REVERSAO_DESATIVAR')
+                       AND direction.status = 'APLICADO'
+                     ORDER BY direction.id DESC LIMIT 1) AS reversal_command,
+                    e.remote_equipment_id, e.equipment_code
+             FROM solicitacoes_comandos_clp r
+             JOIN carregamentos c ON c.id = r.carregamento_id
+             JOIN equipamentos e ON e.id = r.equipment_id
+             WHERE r.equipment_id = :equipment_id AND r.status = 'PENDENTE'
+               AND " . self::FILTRO_PARADA_DE_SEGURANCA . "
+               AND NOT EXISTS (
+                   SELECT 1 FROM solicitacoes_comandos_clp processing
+                   WHERE processing.equipment_id = r.equipment_id
+                     AND processing.status = 'PROCESSANDO'
+               )
+             ORDER BY r.requested_at, r.id
+             LIMIT 1 FOR UPDATE OF r SKIP LOCKED",
+        );
+        $statement->execute(["equipment_id" => $equipmentId]);
+        $request = $statement->fetch();
+        $statement->closeCursor();
+        if (!$request) {
+            $this->connection->commit();
+            return null;
+        }
+        $update = $this->connection->prepare(
+            "UPDATE solicitacoes_comandos_clp
+             SET status = 'PROCESSANDO', claimed_at = NOW(3),
+                 expires_at = DATE_ADD(NOW(3), INTERVAL 2 MINUTE),
+                 claimed_by_device_id = :device_id
+             WHERE id = :id AND status = 'PENDENTE'",
+        );
+        $update->execute(["id" => $request["id"], "device_id" => $deviceId]);
+        if ($update->rowCount() !== 1) {
+            throw new ExcecaoGatewayClp("Comando já foi reservado por outro gateway.", 409);
+        }
+        $this->connection->commit();
+        $request["claimed_by_device_id"] = $deviceId;
+        return $request;
     }
 
     public function concluirComando(
