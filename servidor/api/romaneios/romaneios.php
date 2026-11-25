@@ -275,6 +275,10 @@ if ($_SERVER["REQUEST_METHOD"] === "PATCH") {
         if (!$romaneioId || $reason === "") {
             responder_json(["error" => "Romaneio e justificativa são obrigatórios para cancelar uma operação."], 422);
         }
+        // Cancelamento forçado: as travas abaixo continuam avisando o usuário,
+        // mas ele pode decidir sobrepô-las. O que foi sobreposto fica na
+        // auditoria do romaneio e de cada carregamento.
+        $force = ($payload["force"] ?? false) === true;
         try {
             $pdo->beginTransaction();
             $lock = $pdo->prepare("SELECT r.id, r.status FROM romaneios r WHERE r.id = :id AND r.company_id = :company_id LIMIT 1 FOR UPDATE");
@@ -285,9 +289,15 @@ if ($_SERVER["REQUEST_METHOD"] === "PATCH") {
             $activeLoadingsStatement = $pdo->prepare("SELECT id, equipment_id, state FROM carregamentos WHERE romaneio_id = :romaneio_id AND company_id = :company_id AND state <> 'FINALIZADO' ORDER BY id DESC FOR UPDATE");
             $activeLoadingsStatement->execute(["romaneio_id" => $romaneioId, "company_id" => $companyId]);
             $activeLoadings = $activeLoadingsStatement->fetchAll();
+            // Cada trava não atendida vira um aviso. Sem "force", o primeiro
+            // aviso bloqueia o cancelamento como antes; com "force", todos são
+            // sobrepostos e registrados.
+            $blockMessage = null;
+            $bypassedByLoading = [];
             foreach ($activeLoadings as $activeLoading) {
                 if (!in_array($activeLoading["state"], ["PREPARANDO", "PAUSADO", "EMERGENCIA"], true)) {
-                    $pdo->rollBack(); responder_json(["error" => "Antes de cancelar, coloque todas as Dalas em pausa ou emergência."], 409);
+                    $blockMessage ??= "Antes de cancelar, coloque todas as Dalas em pausa ou emergência.";
+                    $bypassedByLoading[(int) $activeLoading["id"]][] = ["check" => "DALA_EM_OPERACAO", "state" => (string) $activeLoading["state"]];
                 }
             }
             if ($activeLoadings !== []) {
@@ -300,26 +310,50 @@ if ($_SERVER["REQUEST_METHOD"] === "PATCH") {
                 foreach ($activeLoadings as $activeLoading) {
                     $activeLoadingId = (int) $activeLoading["id"];
                     $pendingSensorEvents->execute(["loading_id" => $activeLoadingId]);
-                    if ((int) $pendingSensorEvents->fetchColumn() > 0) {
-                        $pdo->rollBack();
-                        responder_json(["error" => "Aguarde o registro de cada passagem do sensor antes de cancelar."], 409);
+                    $unregisteredCount = (int) $pendingSensorEvents->fetchColumn();
+                    if ($unregisteredCount > 0) {
+                        $blockMessage ??= "Aguarde o registro de cada passagem do sensor antes de cancelar.";
+                        $bypassedByLoading[$activeLoadingId][] = ["check" => "PASSAGEM_SEM_REGISTRO", "count" => $unregisteredCount];
                     }
 
                     $sensorState = $sensorOutbox->consultar((int) $activeLoading["equipment_id"], true);
                     $pendingCount = \App\Aplicacao\ValidadorFilaSensor::pendentes($sensorState, $activeLoadingId);
                     if ($pendingCount === null || $pendingCount > 0) {
-                        $pdo->rollBack();
-                        responder_json(["error" => "Aguarde o sensor confirmar o envio de todas as passagens antes de cancelar."], 409);
+                        $blockMessage ??= "Aguarde o sensor confirmar o envio de todas as passagens antes de cancelar.";
+                        $bypassedByLoading[$activeLoadingId][] = $pendingCount === null
+                            ? ["check" => "SENSOR_SEM_CONFIRMACAO"]
+                            : ["check" => "FILA_SENSOR_PENDENTE", "count" => $pendingCount];
                     }
                 }
+            }
+            if ($blockMessage !== null && !$force) {
+                $pdo->rollBack();
+                responder_json(["error" => $blockMessage, "can_force" => true], 409);
+            }
+            $forced = $bypassedByLoading !== [];
+            if ($activeLoadings !== []) {
                 $updateLoading = $pdo->prepare("UPDATE carregamentos SET state = 'FINALIZADO', finished_at = NOW(), finish_justification = :reason WHERE romaneio_id = :romaneio_id AND company_id = :company_id AND state <> 'FINALIZADO'");
-                $updateLoading->execute(["romaneio_id" => $romaneioId, "company_id" => $companyId, "reason" => "ROMANEIO CANCELADO: " . $reason]);
+                $updateLoading->execute(["romaneio_id" => $romaneioId, "company_id" => $companyId, "reason" => ($forced ? "ROMANEIO CANCELADO (FORÇADO): " : "ROMANEIO CANCELADO: ") . $reason]);
                 foreach ($activeLoadings as $activeLoading) {
-                    record_operational_event($pdo, $usuarioAtor, "CARREGAMENTO_CANCELADO", "carregamento", (int) $activeLoading["id"], ["romaneio_id" => (int) $romaneioId, "justification" => $reason]);
+                    $loadingEvent = ["romaneio_id" => (int) $romaneioId, "justification" => $reason];
+                    if (isset($bypassedByLoading[(int) $activeLoading["id"]])) {
+                        $loadingEvent["forced"] = true;
+                        $loadingEvent["bypassed_checks"] = $bypassedByLoading[(int) $activeLoading["id"]];
+                    }
+                    record_operational_event($pdo, $usuarioAtor, "CARREGAMENTO_CANCELADO", "carregamento", (int) $activeLoading["id"], $loadingEvent);
                 }
             }
             $pdo->prepare("UPDATE romaneios SET status = 'CANCELADO' WHERE id = :id AND company_id = :company_id")->execute(["id" => $romaneioId, "company_id" => $companyId]);
-            record_operational_event($pdo, $usuarioAtor, "ROMANEIO_CANCELADO", "romaneio", (int) $romaneioId, ["justification" => $reason, "in_progress" => $activeLoadings !== []]);
+            $manifestEvent = ["justification" => $reason, "in_progress" => $activeLoadings !== []];
+            if ($forced) {
+                $manifestEvent["forced"] = true;
+                $manifestEvent["bypassed_checks"] = array_map(
+                    static fn (int $loadingId, array $checks): array => ["carregamento_id" => $loadingId, "checks" => $checks],
+                    array_keys($bypassedByLoading),
+                    array_values($bypassedByLoading),
+                );
+            }
+            record_operational_event($pdo, $usuarioAtor, "ROMANEIO_CANCELADO", "romaneio", (int) $romaneioId, $manifestEvent);
             $pdo->commit();
             responder_json(["data" => ["id" => (int) $romaneioId, "status" => "CANCELADO"]]);
         } catch (Throwable $exception) {
