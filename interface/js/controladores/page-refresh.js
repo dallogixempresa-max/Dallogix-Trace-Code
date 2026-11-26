@@ -1,4 +1,4 @@
-import { logFrontend } from "../utilitarios/LogFrontend.js?v=202611260004";
+import { logFrontend } from "../utilitarios/LogFrontend.js?v=202611260005";
 
 /** Atualiza a página ativa sem reiniciar formulários ou navegação. */
 export function createPageRefreshController({ getPage, pages }) {
