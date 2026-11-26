@@ -88,6 +88,9 @@ export function matchPendingImage(receivedAt, requests, windowMs, timestampField
  * window. FTP filenames do not carry a Trace passage ID, so choosing the
  * nearest of multiple candidates can attach the photo to the wrong sack.
  */
+/** Última saca do carregamento (sem passagem seguinte): foto aceita até este tempo depois dela. */
+export const ARCHIVE_IMAGE_OPEN_INTERVAL_MAX_MS = 10000;
+
 export function matchUniquePendingImage(receivedAt, requests, windowMs, timestampField) {
   const candidates = (Array.isArray(requests) ? requests : [])
     .map((request) => ({
@@ -95,11 +98,20 @@ export function matchUniquePendingImage(receivedAt, requests, windowMs, timestam
       distance: Math.abs(Number(receivedAt) - Number(request[timestampField])),
     }))
     .filter(({ request, distance }) => {
-      if (!Number.isFinite(distance) || distance > windowMs) return false;
-      if (timestampField !== "image_expected_at_epoch_ms") return true;
+      if (!Number.isFinite(distance)) return false;
+      if (timestampField !== "image_expected_at_epoch_ms") return distance <= windowMs;
       const from = request.image_valid_from_epoch_ms;
       const until = request.image_valid_until_epoch_ms;
-      return (from == null || receivedAt >= Number(from))
+      // Foto do arquivo do Keyence: vale o intervalo entre a passagem desta
+      // saca e a da seguinte (a mesma regra que o servidor confere). Os
+      // intervalos de passagens seguidas não se sobrepõem, então a foto cabe
+      // numa única saca, mesmo que o leitor demore para desistir e a tire
+      // segundos depois da passagem. Sem passagem seguinte, limita a distância.
+      if (from != null && until != null) {
+        return receivedAt >= Number(from) && receivedAt < Number(until);
+      }
+      return distance <= Math.max(windowMs, ARCHIVE_IMAGE_OPEN_INTERVAL_MAX_MS)
+        && (from == null || receivedAt >= Number(from))
         && (until == null || receivedAt < Number(until));
     });
 

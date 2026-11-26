@@ -33,7 +33,6 @@ function trace_janelas_recuperacao_keyence(PDO $pdo, array $device, int $loading
     }
     usort($events, static fn(array $a, array $b): int => $a["at"] <=> $b["at"]);
 
-    $travelMs = trace_scanner_timing()["travel_ms"];
     $lastWindow = filter_var(getenv("KEYENCE_IMAGE_ARCHIVE_MATCH_WINDOW_MS"), FILTER_VALIDATE_INT, [
         "options" => ["min_range" => 500, "max_range" => 10000],
     ]);
@@ -44,8 +43,11 @@ function trace_janelas_recuperacao_keyence(PDO $pdo, array $device, int $loading
         if ($next === $current || ($events[$index - 1]["at"] ?? null) === $current) {
             continue;
         }
-        $from = $current + $travelMs;
-        $until = $next !== null ? $next + $travelMs : $from + ($lastWindow === false ? 1500 : $lastWindow);
+        // Mesmo intervalo da associação ao vivo: do disparo desta saca até o da
+        // seguinte. A última saca aceita até 10 s depois (o leitor pode
+        // demorar para desistir da leitura e tirar a foto).
+        $from = $current;
+        $until = $next !== null ? $next : $from + max(10000, $lastWindow === false ? 1500 : $lastWindow);
         $until = min($until, $finishedMs);
         if ($until > $from) {
             $windows[$event["id"]] = ["from_ms" => $from, "until_ms" => $until];
