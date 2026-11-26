@@ -141,14 +141,20 @@ function trace_record_trigger_link(PDO $pdo, int $loadingId, int $sensorEventId,
     if (abs($offsetMs) > 10000) {
         return;
     }
-    $pdo->prepare(
-        "INSERT INTO vinculos_disparo_leitor (carregamento_id, sensor_event_id, offset_ms)
-         VALUES (:loading_id, :sensor_event_id, :offset_ms)",
-    )->execute([
-        "loading_id" => $loadingId,
-        "sensor_event_id" => $sensorEventId,
-        "offset_ms" => $offsetMs,
-    ]);
+    // A calibração nunca pode impedir o registro da leitura (ex.: migração 083
+    // ainda não aplicada): sem ela, o próximo resultado só volta à ordem.
+    try {
+        $pdo->prepare(
+            "INSERT INTO vinculos_disparo_leitor (carregamento_id, sensor_event_id, offset_ms)
+             VALUES (:loading_id, :sensor_event_id, :offset_ms)",
+        )->execute([
+            "loading_id" => $loadingId,
+            "sensor_event_id" => $sensorEventId,
+            "offset_ms" => $offsetMs,
+        ]);
+    } catch (PDOException) {
+        return;
+    }
 }
 
 /** Tempo de leitura (ms do disparo até a leitura) anexado pelo Keyence, ou null. */
