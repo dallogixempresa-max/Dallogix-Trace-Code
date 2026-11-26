@@ -14,11 +14,25 @@ use App\Aplicacao\FontesEvidenciasRelatorio;
 use App\Aplicacao\ConferidorEvidenciasRelatorio;
 use App\Aplicacao\ServicoPublicacaoRelatoriosAuditoria;
 
-$apiClient = $GLOBALS["trace_api_v1_client"] ?? null;
-$user = is_array($apiClient)
-    ? ["id" => null, "company_id" => (int) $apiClient["company_id"]]
-    : require_session_user();
-$respondJson = static function (array $payload, int $status = 200) use ($apiClient): never {
+// Geração interna pelo report-worker do PC (scripts/gerar_relatorio_auditoria_interno.php):
+// sem sessão, sem registrar download e sem devolver o PDF. O arquivo com as
+// fotos do Keyence é salvo e publicado no central mesmo que ninguém abra o
+// relatório no PC.
+$internalReport = $GLOBALS["trace_relatorio_interno"] ?? null;
+$apiClient = is_array($internalReport) ? null : ($GLOBALS["trace_api_v1_client"] ?? null);
+$user = match (true) {
+    is_array($internalReport) => [
+        "id" => null,
+        "company_id" => ((int) ($internalReport["company_id"] ?? 0)) > 0 ? (int) $internalReport["company_id"] : null,
+    ],
+    is_array($apiClient) => ["id" => null, "company_id" => (int) $apiClient["company_id"]],
+    default => require_session_user(),
+};
+$respondJson = static function (array $payload, int $status = 200) use ($apiClient, $internalReport): never {
+    if (is_array($internalReport)) {
+        echo json_encode(["status" => $status] + $payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), "\n";
+        exit($status >= 400 ? 1 : 0);
+    }
     if (is_array($apiClient)) {
         $message = (string) ($payload["error"] ?? "Relatório indisponível.");
         $code = (string) ($payload["error_code"] ?? match ($status) {
@@ -43,7 +57,7 @@ if ($user["company_id"] === null || !$romaneioId) {
     $respondJson(["error" => "Romaneio obrigatório."], 422);
 }
 
-if (!is_array($apiClient)) {
+if (!is_array($apiClient) && !is_array($internalReport)) {
     session_write_close();
 }
 $pdo = db();
@@ -59,7 +73,15 @@ $romaneio = $manifest->fetch();
 if (!$romaneio) {
     $respondJson(["error" => "Romaneio não encontrado."], 404);
 }
-$downloadAuditPdf = static function (string $pdfBytes) use ($apiClient, $pdo, $user, $romaneioId, $romaneio): never {
+$finishInternalReport = static function (array $data) use ($internalReport): void {
+    if (!is_array($internalReport)) {
+        return;
+    }
+    echo json_encode(["status" => 200, "data" => $data], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), "\n";
+    exit(0);
+};
+$downloadAuditPdf = static function (string $pdfBytes) use ($apiClient, $pdo, $user, $romaneioId, $romaneio, $finishInternalReport): never {
+    $finishInternalReport(["romaneio_id" => (int) $romaneioId, "cached" => true]);
     if (is_array($apiClient)) {
         api_v1_registrar_download_pdf($pdo, $apiClient, (int) $romaneioId);
     } else {
@@ -323,6 +345,7 @@ if ($savedReport !== null && $cachedEvidenceValid && !$isLocalReport
         registrar_log_erro($exception, "relatorio_auditoria_sync");
         header("X-Trace-Report-Sync: pending");
     }
+    $finishInternalReport(["romaneio_id" => (int) $romaneioId, "report" => $reportRelativePath, "cached" => true]);
     if (is_array($apiClient)) {
         api_v1_registrar_download_pdf($pdo, $apiClient, (int) $romaneioId);
     } else {
@@ -1152,12 +1175,23 @@ if (file_put_contents($temporaryReportPath, $pdfBytes, LOCK_EX) !== strlen($pdfB
         $respondJson(["error" => "Não foi possível validar as evidências do relatório salvo."], 503);
     }
 }
+$reportPublishFailed = false;
 try {
     $reportPublisher->enfileirar((int) $user["company_id"], (int) $romaneioId, $reportRelativePath);
 } catch (Throwable $exception) {
+    $reportPublishFailed = true;
     registrar_log_erro($exception, "relatorio_auditoria_sync");
     header("X-Trace-Report-Sync: pending");
 }
+if (is_array($internalReport) && $reportPublishFailed) {
+    // O worker tenta de novo: sem fila de publicação o central não recebe as fotos.
+    $respondJson(["error" => "PDF salvo, mas não foi possível enfileirar a publicação no central."], 503);
+}
+$finishInternalReport([
+    "romaneio_id" => (int) $romaneioId,
+    "report" => $reportRelativePath,
+    "evidence_count" => count($evidenceImages),
+]);
 if (is_array($apiClient)) {
     api_v1_registrar_download_pdf($pdo, $apiClient, (int) $romaneioId);
 } else {

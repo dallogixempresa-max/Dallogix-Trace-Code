@@ -299,6 +299,13 @@ final class ServicoSincronizacaoRemota
             }
 
             $this->repositorioCarregamentos->finalizarAusentes($companyId, array_keys($loadingIds));
+            // Depois de finalizar os carregamentos ausentes: o central avisa quais
+            // romaneios desta Dala ele encerrou; sem isso o romaneio ficava
+            // EM_ANDAMENTO no PC e o relatório com as fotos não podia ser gerado.
+            $updated += count($this->repositorioRomaneios->sincronizarRomaneiosFinalizados(
+                $companyId,
+                $snapshot["romaneios_finalizados"] ?? [],
+            ));
 
             $adminId = $this->repositorioComandos->localizarIdAdministradorLocal($companyId);
             if ($adminId) {

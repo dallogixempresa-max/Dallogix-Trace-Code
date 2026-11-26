@@ -97,7 +97,7 @@ services:
       TRACE_CENTRAL_URL: ${TRACE_CENTRAL_URL:-}
       TRACE_READINESS_TOKEN: ${TRACE_READINESS_TOKEN:-}
       TRACE_INSTALLATION_MODE: ${TRACE_INSTALLATION_MODE:-}
-      TRACE_DEBOUNCE_MS: ${TRACE_DEBOUNCE_MS:-400}
+      TRACE_DEBOUNCE_MS: ${TRACE_DEBOUNCE_MS:-150}
       TRACE_SCANNER_NO_READ_TIMEOUT_MS: ${TRACE_SCANNER_NO_READ_TIMEOUT_MS:-1500}
       TRACE_SCANNER_LINK_MODE: ${TRACE_SCANNER_LINK_MODE:-sequencial}
       TRACE_SCANNER_TRIGGER_TOLERANCE_MS: ${TRACE_SCANNER_TRIGGER_TOLERANCE_MS:-300}
@@ -407,6 +407,70 @@ services:
     volumes:
       - ./armazenamento:/var/www/armazenamento
       - ./scripts:/var/www/scripts:ro
+
+  # Gera e publica no central o relatório de auditoria com as fotos do Keyence
+  # assim que o romaneio é encerrado, sem depender de alguém abrir o relatório
+  # no PC. Serviço próprio para não atrasar a sincronização nem o sinal do sensor.
+  report-worker:
+    profiles: ["industrial"]
+    build:
+      context: ./docker/php
+    depends_on:
+      armazenamento-init:
+        condition: service_completed_successfully
+      mysql:
+        condition: service_healthy
+    restart: unless-stopped
+    user: "82:82"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 512m
+    cpus: "0.50"
+    logging: *trace-logging
+    tmpfs:
+      - /tmp
+    volumes:
+      - ./servidor:/var/www/servidor:ro
+      - ./scripts:/var/www/scripts:ro
+      - ./armazenamento:/var/www/armazenamento
+    environment:
+      APP_ENV: ${APP_ENV:-local}
+      TZ: ${TZ:-America/Sao_Paulo}
+      APP_URL: ${APP_URL:-http://localhost:8080}
+      DB_HOST: mysql
+      DB_NAME: ${MYSQL_DATABASE:-trace_local}
+      DB_USER: ${MYSQL_USER:-trace}
+      DB_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD é obrigatório}
+      TRACE_INSTALLATION_MODE: ${TRACE_INSTALLATION_MODE:-}
+      TRACE_SCANNER_NO_READ_TIMEOUT_MS: ${TRACE_SCANNER_NO_READ_TIMEOUT_MS:-1500}
+      TRACE_SENSOR_TO_READER_DISTANCE_M: ${TRACE_SENSOR_TO_READER_DISTANCE_M:-0.125}
+      TRACE_BELT_SPEED_M_S: ${TRACE_BELT_SPEED_M_S:-0.7}
+      TRACE_SCANNER_EARLY_TOLERANCE_MS: ${TRACE_SCANNER_EARLY_TOLERANCE_MS:-250}
+      TRACE_END_PRODUCT_ALERT_THRESHOLD: ${TRACE_END_PRODUCT_ALERT_THRESHOLD:-5}
+      TRACE_VERSION: ${TRACE_VERSION:-development}
+      TRACE_COMMIT: ${TRACE_COMMIT:-unknown}
+      CLP_SIGNAL_LIMIT_SECONDS: ${CLP_SIGNAL_LIMIT_SECONDS:-3}
+      SCANNER_SIGNAL_LIMIT_SECONDS: ${SCANNER_SIGNAL_LIMIT_SECONDS:-15}
+      KEYENCE_IMAGE_RECEIVE_TIMEOUT_MS: ${KEYENCE_IMAGE_RECEIVE_TIMEOUT_MS:-120000}
+      KEYENCE_IMAGE_ARCHIVE_MATCH_WINDOW_MS: ${KEYENCE_IMAGE_ARCHIVE_MATCH_WINDOW_MS:-1500}
+      REPORT_WORKER_INTERVAL_SECONDS: ${REPORT_WORKER_INTERVAL_SECONDS:-15}
+    command:
+      [
+        "sh",
+        "-c",
+        "while true; do if php /var/www/scripts/gerar_relatorios_auditoria.php; then php /var/www/scripts/write_heartbeat.php /tmp/trace-report-worker-heartbeat || echo 'Falha ao gravar heartbeat dos relatórios' >&2; else echo 'Falha na geração automática de relatórios; heartbeat não atualizado' >&2; fi; sleep \"$${REPORT_WORKER_INTERVAL_SECONDS:-15}\"; done",
+      ]
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "php -r 'exit((!is_file(\"/tmp/trace-report-worker-heartbeat\") || time() - filemtime(\"/tmp/trace-report-worker-heartbeat\") > 600) ? 1 : 0);'",
+        ]
+      interval: 60s
+      timeout: 5s
+      retries: 3
 
   sync-worker:
     build:

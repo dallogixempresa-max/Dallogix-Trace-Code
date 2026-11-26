@@ -146,6 +146,93 @@ final class RepositorioRomaneiosRemotos
         return $updated;
     }
 
+    /**
+     * Romaneios que o central encerrou depois de passar por esta Dala. O
+     * carregamento encerrado no central é finalizado aqui por ausência, mas só o
+     * central sabe se o romaneio inteiro acabou (pode haver caminhões em outras
+     * Dalas). Sem aplicar este aviso o romaneio ficava EM_ANDAMENTO no PC e o
+     * relatório com as fotos do Keyence não podia ser gerado (romaneio
+     * "teste novo ms", 25/11/2026). Não reenvia ao central, que é quem encerrou.
+     *
+     * @param list<array<string,mixed>> $finishedManifests
+     * @return list<int> romaneios locais encerrados nesta chamada
+     */
+    public function sincronizarRomaneiosFinalizados(int $companyId, array $finishedManifests): array
+    {
+        $remoteIds = [];
+        foreach ($finishedManifests as $manifest) {
+            $remoteId = (int) ($manifest["id"] ?? 0);
+            if ($remoteId > 0) {
+                $remoteIds[$remoteId] = true;
+            }
+        }
+        if ($remoteIds === []) {
+            return [];
+        }
+
+        // Leitura sem trava; a gravação é pela chave e repete as condições.
+        $findOpen = $this->connection->prepare(
+            "SELECT r.id FROM romaneios r
+             WHERE r.company_id = :company_id AND r.remote_romaneio_id = :remote_id
+               AND r.status = 'EM_ANDAMENTO'
+               AND NOT EXISTS (
+                 SELECT 1 FROM carregamentos c
+                 WHERE c.company_id = r.company_id AND c.romaneio_id = r.id AND c.state <> 'FINALIZADO'
+               )
+             LIMIT 1",
+        );
+        $finish = $this->connection->prepare(
+            "UPDATE romaneios SET status = 'FINALIZADO'
+             WHERE id = :id AND company_id = :company_id AND status = 'EM_ANDAMENTO'
+               AND NOT EXISTS (
+                 SELECT 1 FROM carregamentos c
+                 WHERE c.company_id = :loading_company_id AND c.romaneio_id = :loading_romaneio_id
+                   AND c.state <> 'FINALIZADO'
+               )",
+        );
+        $audit = $this->connection->prepare(
+            "INSERT INTO logs_auditoria (event_uuid, company_id, user_id, action, entity_type, entity_id, metadata)
+             VALUES (:event_uuid, :company_id, NULL, 'ROMANEIO_FINALIZADO', 'romaneio', :entity_id, :metadata)",
+        );
+
+        $closed = [];
+        foreach (array_keys($remoteIds) as $remoteId) {
+            $findOpen->execute(["company_id" => $companyId, "remote_id" => $remoteId]);
+            $localId = (int) ($findOpen->fetchColumn() ?: 0);
+            if ($localId < 1 || $this->fila->possuiEventoPendente($companyId, "romaneio", $localId)) {
+                continue;
+            }
+            $finish->execute([
+                "id" => $localId,
+                "company_id" => $companyId,
+                "loading_company_id" => $companyId,
+                "loading_romaneio_id" => $localId,
+            ]);
+            if ($finish->rowCount() !== 1) {
+                continue;
+            }
+            $audit->execute([
+                "event_uuid" => self::uuidV4(),
+                "company_id" => $companyId,
+                "entity_id" => $localId,
+                "metadata" => json_encode(
+                    ["automatic" => true, "origin" => "CENTRAL", "remote_romaneio_id" => $remoteId],
+                    JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR,
+                ),
+            ]);
+            $closed[] = $localId;
+        }
+        return $closed;
+    }
+
+    private static function uuidV4(): string
+    {
+        $bytes = random_bytes(16);
+        $bytes[6] = chr((ord($bytes[6]) & 0x0f) | 0x40);
+        $bytes[8] = chr((ord($bytes[8]) & 0x3f) | 0x80);
+        return vsprintf("%s%s-%s-%s-%s-%s%s%s", str_split(bin2hex($bytes), 4));
+    }
+
     /** @param list<array<string,mixed>> $manifests */
     /** @param list<string> $avisos recebe um aviso por romaneio ignorado */
     public function sincronizarRomaneiosDisponiveis(int $companyId, array $manifests, array &$avisos = []): int

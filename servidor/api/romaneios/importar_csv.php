@@ -29,6 +29,7 @@ if (!in_array($user["role"], ["ADMIN_EMPRESA", "SUPERVISOR"], true)) {
     json_response(["error" => "Perfil sem permissão para importar romaneio."], 403);
 }
 
+$pdo = db();
 try {
     $resolvedInstallationId = ResolvedorInstalacaoDestinatariaRomaneio::resolver(
         $pdo,
@@ -104,7 +105,6 @@ foreach ($required as $column) {
     }
 }
 $index = array_flip($header);
-$pdo = db();
 $created = 0;
 $romaneioIds = [];
 $truckIds = [];

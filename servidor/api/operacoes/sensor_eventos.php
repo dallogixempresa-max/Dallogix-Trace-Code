@@ -295,10 +295,10 @@ if ($parsedDeviceDate !== null) {
 
 $rawDebounce = getenv("TRACE_DEBOUNCE_MS");
 $configuredDebounce = filter_var(
-    $rawDebounce === false || $rawDebounce === "" ? 400 : $rawDebounce,
+    $rawDebounce === false || $rawDebounce === "" ? 150 : $rawDebounce,
     FILTER_VALIDATE_INT,
 );
-$debounceMs = max(0, min(5000, $configuredDebounce === false ? 400 : (int) $configuredDebounce));
+$debounceMs = max(0, min(5000, $configuredDebounce === false ? 150 : (int) $configuredDebounce));
 // O contador do CLP já conta uma vez por saca. Passagens recuperadas de uma
 // mesma consulta chegam próximas no tempo e não podem ser descartadas por debounce;
 // a duplicidade continua bloqueada pelo event_uuid.
