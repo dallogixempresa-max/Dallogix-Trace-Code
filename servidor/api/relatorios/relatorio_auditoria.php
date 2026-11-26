@@ -535,8 +535,10 @@ if ($loadIds !== []) {
         }
         $passageNumbers[$loadingId] = ($passageNumbers[$loadingId] ?? 0) + 1;
         $operationSummary["passages"]++;
-        $sackReferencesByEvent[(int) $passage["id"]] =
-            "Carga " . ($loadOrderById[$loadingId] ?? "—") . " · saco " . $passageNumbers[$loadingId];
+        // "Carga N" só quando o romaneio tem mais de uma carga.
+        $sackReferencesByEvent[(int) $passage["id"]] = count($loadOrderById) > 1
+            ? "Carga " . ($loadOrderById[$loadingId] ?? "—") . " · saco " . $passageNumbers[$loadingId]
+            : "Saco " . $passageNumbers[$loadingId];
     }
 
     $readingCounts = $pdo->prepare(
@@ -882,7 +884,8 @@ if ($incidentImages !== []) {
                 $sackReference = $sackReferencesByEvent[$sensorEventId] ?? "passagem sem número";
                 $caption = "Saca em excesso · {$sackReference} · {$capturedAt}";
             }
-            $caption .= " · Evento {$sensorEventId} · Evidência {$requestId}";
+            // Números internos (passagem e solicitação) ficam fora da legenda:
+            // continuam gravados no manifesto da evidência para o suporte.
             foreach ($sourceImages as $sourceImage) {
                 $probe = new RelatorioAuditoriaPdf("", "");
                 if (!$probe->inserirDadosDaImagemDaOcorrencia($sourceImage["bytes"], $sourceImage["mime"])) {
