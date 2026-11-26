@@ -665,6 +665,9 @@ async function processImageQueue() {
         if (error.status === 404 || error.status === 409) {
           // Uma solicitação concorrente pode ter concluído o vínculo. Reavalie
           // no próximo ciclo; não descarte a imagem com base apenas no horário.
+          // Foto de falha: as seguintes também esperam o próximo ciclo, para a
+          // ordem não pular para a saca seguinte enquanto esta não foi ligada.
+          if (archived) break;
           continue;
         }
         setError(error);

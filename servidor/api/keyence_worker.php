@@ -262,12 +262,10 @@ try {
         $timing->execute([(int) $capture["sensor_event_id"], (int) $capture["carregamento_id"], (int) $capture["equipment_id"]]);
         $passage = $timing->fetch(PDO::FETCH_ASSOC) ?: [];
         $from = (int) ($passage["event_at_epoch_ms"] ?? 0);
-        $until = (int) ($passage["next_event_at_epoch_ms"] ?? 0);
         // A foto de falha é tirada quando a saca termina de passar, e com sacas
         // próximas isso acontece depois da passagem seguinte. Vale qualquer foto
         // tirada depois desta passagem, até TRACE_FAILURE_PHOTO_MAX_DELAY_MS; a
         // escolha da saca é feita pela ordem no worker.
-        unset($until);
         if ($capturedAtEpochMs === null || ($from > 0 && $capturedAtEpochMs < $from)
             || ($from > 0 && $capturedAtEpochMs > $from + TRACE_FAILURE_PHOTO_MAX_DELAY_MS)) {
             $pdo->rollBack();
