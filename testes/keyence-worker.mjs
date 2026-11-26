@@ -59,17 +59,9 @@ async function sendFtpCommand(socket, command) {
 
 test("valida códigos TCP e só associa imagem quando há solicitação inequívoca", () => {
   assert.equal(parseBarcodeFrame("  0123456789\r\n"), "0123456789");
-  // GS e TAB recebem 422 no servidor (SolicitacaoLeitura.php): o worker os
-  // recusa antes de reservar uma passagem, como a captura HID.
-  assert.equal(parseBarcodeFrame("01012345\x1D17250301"), null);
-  assert.equal(parseBarcodeFrame("0101\t2345"), null);
-  assert.equal(parseBarcodeFrame("AB"), null);
-  assert.equal(parseBarcodeFrame("ABC"), "ABC");
-  assert.equal(parseBarcodeFrame("ERROR"), "ERROR");
-  assert.equal(parseBarcodeFrame("caf\xe9123"), null);
+  assert.equal(parseBarcodeFrame("01012345\x1D17250301"), "01012345\x1D17250301");
   assert.equal(parseBarcodeFrame(""), null);
   assert.equal(parseBarcodeFrame("0123\x00"), null);
-  assert.equal(parseBarcodeFrame("x".repeat(128)), "x".repeat(128));
   assert.equal(parseBarcodeFrame("x".repeat(129)), null);
 
   const requests = [
@@ -153,10 +145,7 @@ test("associa códigos às passagens em ordem e reserva um evento por quadro", (
   assert.match(scannerTiming, /FOR UPDATE/);
   assert.match(scannerTiming, /\$ambiguous = count\(\$candidates\) > 1/);
   assert.match(worker, /reservedSensorEventIds\.add\(sensorEventId\)/);
-  assert.match(worker, /onFrame: \(frame\) => void enqueueBarcodeFrame\(frame\)/);
-  assert.match(worker, /queueBarcode\(scan, inFlightWrite\)/);
-  assert.match(worker, /refreshActiveLoading\(receivedAtMs, 1500, \{ noRead \}\)/);
-  assert.match(worker, /\.\.\.\(noRead \? \{ no_read: true \} : \{\}\)/);
+  assert.match(worker, /enqueueBarcodeFrame\(frame, receivedAtMs\)/);
 });
 
 test("reconhece apenas o leitor direto e o gateway de publicação do Docker", () => {
@@ -170,12 +159,7 @@ test("reconhece apenas o leitor direto e o gateway de publicação do Docker", (
   assert.match(worker, /parseLinuxDefaultGateway\(await readFile\("\/proc\/net\/route", "utf8"\)\)/);
   assert.match(worker, /tcpAllowedAddresses = \[\.\.\.new Set\(\[TCP_ALLOWED_ADDRESS, dockerGateway\]/);
   assert.match(compose, /TRACE_SCANNER_NO_READ_TIMEOUT_MS: \$\{TRACE_SCANNER_NO_READ_TIMEOUT_MS:-1500\}/);
-  // A espera pela passagem é a mesma da rota HID (3 s), independente do prazo
-  // de não leitura, e o STATUS é consultado a cada 250 ms por causa do nginx.
-  assert.match(worker, /boundedInteger\(process\.env\.KEYENCE_ASSOCIATION_WAIT_MS, 3000, 100, SCAN_ASSOCIATION_UNAVAILABLE_WAIT_MS\)/);
-  assert.match(worker, /const SCAN_ASSOCIATION_POLL_MS = 250;/);
-  assert.match(worker, /if \(associationsInProgress === 0\) await refreshActiveLoading\(\);/);
-  assert.doesNotMatch(worker, /SCANNER_NO_READ_TIMEOUT_MS - 250/);
+  assert.match(worker, /SCAN_ASSOCIATION_WAIT_MS = Math\.max\(100, SCANNER_NO_READ_TIMEOUT_MS - 250\)/);
 });
 
 test("servidor FTP aceita JPEG somente após autenticação e grava em inbox local", async (context) => {

@@ -1,10 +1,9 @@
 import { button, esc } from "../../js/funcoes/html.js";
-import { numero } from "../../js/funcoes/formato.js?v=202611260002";
-import { rotuloComando, rotuloEstado } from "../../js/funcoes/rotulos.js?v=202611260002";
-import { resolverComandoAtual } from "../../js/funcoes/estado-comando.js?v=202611260002";
-import { pageHeader } from "../../js/funcoes/view.js?v=202611260002";
-import { motivoBloqueioFinalizacao, podeFinalizarCarregamento } from "../../js/funcoes/regras-carregamento.js?v=202611260002";
-import { leituraDoVisor, totalLeiturasSemPassagem } from "../../js/funcoes/leitor-rota-tcp.js?v=202611260002";
+import { numero } from "../../js/funcoes/formato.js?v=202611250001";
+import { rotuloComando, rotuloEstado } from "../../js/funcoes/rotulos.js?v=202611250001";
+import { resolverComandoAtual } from "../../js/funcoes/estado-comando.js?v=202611250001";
+import { pageHeader } from "../../js/funcoes/view.js?v=202611250001";
+import { motivoBloqueioFinalizacao, podeFinalizarCarregamento } from "../../js/funcoes/regras-carregamento.js?v=202611250001";
 
 function equipmentLabel(store) {
   if (store.state.equipmentCode && store.state.equipmentCode !== "—") {
@@ -303,8 +302,7 @@ function workControls(store) {
       : "Desligar esteira · sentido normal"
     : "Desligar esteira";
   const loadingPicker = `<div class="work-header-actions"><button class="button secondary small work-back-button" data-action="goto-manifests" type="button">← Romaneios</button>${(store.state.activeLoadings || []).length > 1 ? `<button class="button secondary small work-back-button" data-action="change-loading" type="button">Trocar Dala</button>` : ""}</div>`;
-  // Visor e contador somam a rota HID desta tela e a rota TCP do PC.
-  const latestScannerReading = leituraDoVisor(store.state);
+  const latestScannerReading = store.state.latestScannerReading;
   const leitorPodeConcluirPassagens = Boolean(store.state.loadingId)
     && ["CARREGANDO", "FINALIZANDO", "PAUSADO"].includes(estadoOperacional);
   const scannerValue = leitorPodeConcluirPassagens
@@ -314,8 +312,8 @@ function workControls(store) {
     ["SEM_LEITURA", "SEM_PASSAGEM", "PRODUTO_INCORRETO"].includes(latestScannerReading?.result)
     ? " is-error"
     : "";
-  const scannerUnmatchedCount = totalLeiturasSemPassagem(store.state);
-  const scannerUnmatchedNotice = `<p class="work-completion-notice excess" data-live="scanner-unmatched-notice" role="status"${scannerUnmatchedCount > 0 ? "" : " hidden"}>Leituras sem passagem neste carregamento: <strong data-live="scanner-unmatched-count">${numero(scannerUnmatchedCount)}</strong>. Confira a contagem antes de continuar.</p>`;
+  const scannerUnmatchedCount = Number(store.state.scannerUnmatchedCount) || 0;
+  const scannerUnmatchedNotice = `<p class="work-completion-notice excess" data-live="scanner-unmatched-notice" role="status"${scannerUnmatchedCount > 0 ? "" : " hidden"}>Leituras sem passagem nesta tela: <strong data-live="scanner-unmatched-count">${numero(scannerUnmatchedCount)}</strong>. Confira a contagem antes de continuar.</p>`;
   const scannerMonitor = store.state.loadingId
     ? `<div class="work-reader-monitor"><div class="work-reader-monitor-heading"><span class="kicker">Visor do leitor</span><small>Último código recebido automaticamente do leitor.</small></div><div class="work-scanner-display"><span class="work-scanner-display-label">Código de barras</span><output id="automatic-scanner-barcode" class="work-scanner-display-value${scannerValueClass}" data-live="scanner-value" role="status" aria-live="polite" aria-atomic="true">${esc(scannerValue)}</output></div></div>`
     : "";

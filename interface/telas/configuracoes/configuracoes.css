@@ -1,5 +1,5 @@
 /* Estilos da tela configuracoes; a base responsiva é compartilhada. */
-@import url("/css/responsive.css?v=202611260002");
+@import url("/css/responsive.css?v=202611250001");
 
 .settings-device-status-panel {
   overflow: hidden;
@@ -103,12 +103,6 @@
   background: #f9fbfc;
 }
 
-/* Leitor na rede, mas com erro de associação ou leituras retidas na rota TCP. */
-.settings-device-status-card.attention {
-  border-top-color: #d29724;
-  background: #fffdf8;
-}
-
 .settings-device-status-identity,
 .settings-device-status-result {
   display: flex;
@@ -199,10 +193,6 @@
   color: #667887;
 }
 
-.settings-device-status-result .status-value.status-attention {
-  color: #a56b00;
-}
-
 .settings-device-status-result .status-value.status-error,
 .settings-device-status-card.error .settings-device-status-result .status-value {
   color: var(--red, #b83242);
@@ -213,10 +203,6 @@
   font-size: 11px;
   max-width: 160px;
   white-space: normal;
-}
-
-.settings-device-status-route {
-  max-width: 220px;
 }
 
 .settings-device-status-note {

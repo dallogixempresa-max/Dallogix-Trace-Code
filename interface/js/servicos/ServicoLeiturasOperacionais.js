@@ -1,5 +1,3 @@
-import { registrarCotaAvisadaNestaTela, registrarLeituraEnviadaNestaTela } from "../funcoes/leitor-rota-tcp.js?v=202611260002";
-
 export class ServicoLeiturasOperacionais {
   constructor({
     api,
@@ -70,23 +68,6 @@ export class ServicoLeiturasOperacionais {
     }
 
     const receivedAt = Number(scannerReceivedAtEpochMs) || Date.now();
-    // Enquanto este POST estiver em andamento, a leitura nova vista pela
-    // atualização ao vivo pode ser esta: o aviso fica com a resposta do POST.
-    this.state.scannerReadingsInFlight = (Number(this.state.scannerReadingsInFlight) || 0) + 1;
-    let envioEmAndamento = true;
-    const concluirEnvio = () => {
-      if (!envioEmAndamento) return;
-      envioEmAndamento = false;
-      this.state.scannerReadingsInFlight = Math.max(0, (Number(this.state.scannerReadingsInFlight) || 0) - 1);
-    };
-    try {
-      return await this.enviarLeituraDoLeitor(loadingId, barcode, offlineEventId, receivedAt, concluirEnvio);
-    } finally {
-      concluirEnvio();
-    }
-  }
-
-  async enviarLeituraDoLeitor(loadingId, barcode, offlineEventId, receivedAt, concluirEnvio = () => {}) {
     // A passagem pode chegar ao servidor até ~1,5 s depois da detecção quando
     // um deadlock faz o Node-RED reenviá-la. Espere até 3 s contados da
     // captura, não do início do envio: uma captura que ficou na fila atrás de
@@ -132,14 +113,6 @@ export class ServicoLeiturasOperacionais {
       }
 
       const result = await this.jsonResponse(response, "Não foi possível registrar a leitura do leitor.");
-      // Registra o id antes de recarregar o carregamento: a tela já avisa por
-      // esta resposta e a atualização ao vivo não repete o aviso.
-      registrarLeituraEnviadaNestaTela(this.state, result?.data?.id);
-      // A cota atingida por esta leitura já é avisada pela resposta do POST.
-      if (result?.data?.product_quota_reached === true) {
-        registrarCotaAvisadaNestaTela(this.state, loadingId, result.data.product_id);
-      }
-      concluirEnvio();
       if (Number(this.state.loadingId) === loadingId) {
         try {
           await this.loadActiveLoading(loadingId, { onlyIfCurrent: true });

@@ -3,7 +3,7 @@ declare(strict_types=1);
 // Executa as consultas reais de seleção com SQLite; não valida locks de MySQL.
 foreach (['keyence_worker.php','operacoes/sensor_eventos.php'] as $endpoint) {
     $source=file_get_contents(__DIR__.'/../servidor/api/'.$endpoint);
-    if (!preg_match('/"SELECT c\.id(?:, c\.romaneio_id, c\.truck_id|, c\.state)? FROM carregamentos c.*?LIMIT 1(?: FOR UPDATE)?"/s',$source,$match)) throw new RuntimeException('Consulta não localizada: '.$endpoint);
+    if (!preg_match('/"SELECT c\.id(?:, c\.romaneio_id, c\.truck_id)? FROM carregamentos c.*?LIMIT 1(?: FOR UPDATE)?"/s',$source,$match)) throw new RuntimeException('Consulta não localizada: '.$endpoint);
     $sql=trim($match[0],'"');
     $sql=str_replace(' FOR UPDATE','',$sql);
     $pdo=new PDO('sqlite::memory:');$pdo->setAttribute(PDO::ATTR_ERRMODE,PDO::ERRMODE_EXCEPTION);

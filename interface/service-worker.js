@@ -1,5 +1,5 @@
-const CACHE_NAME = "trace-shell-20261126-rota-tcp-02";
-const APPLICATION_ASSET_VERSION = "202611260002";
+const CACHE_NAME = "trace-shell-20261125-cancelamento-01";
+const APPLICATION_ASSET_VERSION = "202611250001";
 const PRECACHE_CONCURRENCY = 4;
 const SHELL = [
   "/",
@@ -142,7 +142,6 @@ const SHELL = [
   "/js/funcoes/estado-comando.js",
   "/js/funcoes/html.js",
   "/js/funcoes/leituras-sem-passagem.js",
-  "/js/funcoes/leitor-rota-tcp.js",
   "/js/funcoes/regras-carregamento.js",
   "/js/funcoes/relogio.js",
   "/js/funcoes/romaneio.js",
