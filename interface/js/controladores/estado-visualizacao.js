@@ -1,9 +1,9 @@
-import { apresentacaoConectividadePc, apresentacaoStatusDispositivo, renderStatusDalaBinario, resumoStatusDispositivos } from "../../telas/configuracoes/configuracoes.js?v=202611250001";
-import { operationStructureSignature, renderDalaStatuses } from "./operacao.js?v=202611250001";
-import { numero, relativo, dataHora } from "../funcoes/formato.js?v=202611250001";
+import { apresentacaoConectividadePc, apresentacaoStatusDispositivo, renderStatusDalaBinario, resumoStatusDispositivos } from "../../telas/configuracoes/configuracoes.js?v=202611260003";
+import { operationStructureSignature, renderDalaStatuses } from "./operacao.js?v=202611260003";
+import { numero, relativo, dataHora } from "../funcoes/formato.js?v=202611260003";
 import { el } from "../funcoes/html.js";
-import { refreshCompanyStatusCards } from "../funcoes/view.js?v=202611250001";
-import { motivoBloqueioFinalizacao, podeFinalizarCarregamento } from "../funcoes/regras-carregamento.js?v=202611250001";
+import { refreshCompanyStatusCards } from "../funcoes/view.js?v=202611260003";
+import { motivoBloqueioFinalizacao, podeFinalizarCarregamento } from "../funcoes/regras-carregamento.js?v=202611260003";
 
 /** Mantém as regiões de estado sincronizadas sem recriar formulários ou a tela toda. */
 export function createLiveViewController({

@@ -6,40 +6,23 @@ require_once __DIR__ . "/temporizacao_leitor.php";
 /**
  * Regra que liga a leitura do código à passagem do M2052.
  *
- * - "janela" (padrão): só liga quando exatamente uma passagem pendente cabe na
- *   janela de horário; duas ou mais candidatas são recusadas como ambíguas.
- * - "sequencial": quando duas ou mais passagens pendentes cabem na janela, a
- *   leitura vai para a MAIS ANTIGA (fila). As sacas passam em ordem pelo sensor
- *   e pelo leitor, então com sacas coladas a leitura pertence à primeira saca
- *   ainda sem código. A janela de horário continua como conferência: passagem
- *   fora dela nunca é candidata e é fechada como SEM_LEITURA no prazo normal.
+ * - "sequencial" (padrão): quando duas ou mais passagens pendentes cabem na
+ *   janela, a leitura vai na hora para a MAIS ANTIGA ainda sem leitura (fila),
+ *   sem espera. As sacas passam em ordem pelo sensor e pelo leitor, e o leitor
+ *   responde a cada disparo com um resultado (código ou ERROR), que a tela envia
+ *   um por vez: com sacas próximas, o código pertence à primeira saca ainda sem
+ *   leitura. A janela de horário continua como conferência: passagem fora dela
+ *   nunca é candidata e é fechada como SEM_LEITURA no prazo normal, o que limita
+ *   a uma ou duas sacas o efeito de um resultado que se perdeu.
+ * - "janela": só liga quando exatamente uma passagem pendente cabe na janela;
+ *   duas ou mais candidatas são recusadas como ambíguas (regra até a v1.0.284).
  *
- * A fila só é segura se nenhuma passagem se perde e o leitor responde a toda
- * saca (código ou ERROR). Por isso o modo sequencial só age quando o sensor
- * informa que está no modo contador do CLP (signal_source = COUNTER no
- * heartbeat). Sem o contador, a regra volta a ser a janela.
+ * Funciona no modo pulso do M2052, sem contador no CLP.
  */
 function trace_scanner_link_mode(): string
 {
     $raw = strtolower(trim((string) (getenv("TRACE_SCANNER_LINK_MODE") ?: "")));
-    return $raw === "sequencial" ? "sequencial" : "janela";
-}
-
-/** O sensor desta Dala está online e contando sacas no CLP (modo contador)? */
-function trace_sensor_counter_active(PDO $pdo, int $equipmentId): bool
-{
-    $statement = $pdo->prepare(
-        "SELECT status, details FROM status_dispositivos
-         WHERE equipment_id = :equipment_id AND device_type = 'SENSOR'
-         LIMIT 1",
-    );
-    $statement->execute(["equipment_id" => $equipmentId]);
-    $row = $statement->fetch(PDO::FETCH_ASSOC);
-    if (!is_array($row) || strtoupper((string) ($row["status"] ?? "")) !== "ONLINE") {
-        return false;
-    }
-    $details = json_decode((string) ($row["details"] ?? ""), true);
-    return is_array($details) && ($details["signal_source"] ?? null) === "COUNTER";
+    return $raw === "janela" ? "janela" : "sequencial";
 }
 
 /**
@@ -69,9 +52,6 @@ function trace_scanner_event_match(
     if (!$match["ambiguous"] || trace_scanner_link_mode() !== "sequencial") {
         return $match;
     }
-    if (!trace_sensor_counter_active($pdo, $equipmentId)) {
-        return $match;
-    }
 
     $queue = trace_sequential_queue($pdo, $loadingId, $match["candidates"]);
     if ($queue === null) {
@@ -97,10 +77,11 @@ const TRACE_SEQUENTIAL_MAX_ARRIVAL_DELAY_MS = 1000;
  *   ordem de inserção: um reenvio do Node-RED pode inserir uma passagem depois
  *   da seguinte.
  * - Toda candidata precisa ser precisa e pontual: ter o intervalo Modbus da
- *   detecção (as passagens interpoladas da recuperação do contador não têm) e
- *   ter chegado ao servidor em até TRACE_SEQUENTIAL_MAX_ARRIVAL_DELAY_MS. Uma
- *   passagem atrasada pode ter perdido o próprio código (o worker do leitor
- *   desiste depois de 1.250 ms), e a fila deslocaria as sacas seguintes.
+ *   detecção (passagens sem esse intervalo, como as interpoladas, ficam de
+ *   fora) e ter chegado ao servidor em até TRACE_SEQUENTIAL_MAX_ARRIVAL_DELAY_MS.
+ *   Uma passagem atrasada pode ter perdido o próprio código (a tela desiste de
+ *   esperar a passagem 3 s depois da captura), e a fila deslocaria as sacas
+ *   seguintes. Nos carregamentos reais as passagens chegam em até ~0,8 s.
  *
  * @param list<array{sensor_event_id:int}> $candidates
  * @return ?list<array>

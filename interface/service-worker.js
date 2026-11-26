@@ -1,5 +1,5 @@
-const CACHE_NAME = "trace-shell-20261125-cancelamento-01";
-const APPLICATION_ASSET_VERSION = "202611250001";
+const CACHE_NAME = "trace-shell-20261126-fila-01";
+const APPLICATION_ASSET_VERSION = "202611260003";
 const PRECACHE_CONCURRENCY = 4;
 const SHELL = [
   "/",

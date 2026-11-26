@@ -171,15 +171,20 @@ janela de aceitação        = de (chegada prevista − 250 ms) até (chegada pr
 | **Velocidade da esteira** | **0,7 m/s** | `TRACE_BELT_SPEED_M_S` (0,05–5 m/s) |
 | Tolerância antes da chegada | 250 ms | `TRACE_SCANNER_EARLY_TOLERANCE_MS` (0–2.000 ms) |
 | Folga depois da chegada | 1.500 ms | `TRACE_SCANNER_NO_READ_TIMEOUT_MS` |
+| Regra com duas ou mais passagens na janela | fila (`sequencial`) | `TRACE_SCANNER_LINK_MODE` (`sequencial` ou `janela`) |
 
 Regras:
 
 - **Uma passagem na janela** → o código é ligado a ela.
 - **Nenhuma passagem na janela** → a tela espera até 3 s pela passagem; se não
   vier, a leitura fica como "leitura sem passagem" (saca fora da contagem).
-- **Duas ou mais passagens na janela** → **recusa** com "Leitura ambígua entre
-  passagens do sensor". O software não chuta para não gravar o código na saca
-  errada.
+- **Duas ou mais passagens na janela** → o código vai **na hora** para a
+  passagem **mais antiga ainda sem leitura** (fila, `TRACE_SCANNER_LINK_MODE=sequencial`,
+  padrão desde a v1.0.285), pela hora em que o sensor viu cada saca. Se alguma
+  candidata chegou ao servidor mais de 1 s depois da detecção ou não tem o
+  intervalo Modbus, vale a regra antiga: **recusa** com "Leitura ambígua entre
+  passagens do sensor". Com `TRACE_SCANNER_LINK_MODE=janela` a recusa volta a
+  valer sempre (regra até a v1.0.284).
 - Passagem que não recebeu código até ~4,7 s depois vira **SEM_LEITURA**.
 
 **Consequência para o espaçamento das sacas.** Os números abaixo valem só para
@@ -271,6 +276,16 @@ disparado pelo sensor, e o Keyence manda um resultado por disparo (o código, ou
   3. a leitura de uma saca chegar antes da leitura da saca seguinte.
 - O software mantém só um limite de segurança genérico (ex.: leitura sem
   passagem há vários segundos é descartada), não ligado à esteira.
+
+**v1.0.285 — fila dentro da janela.** Nos carregamentos 148 e 149 (26/11/2026)
+as sacas passaram com 0,4–1,2 s de vão e o código chegou 0,9–1,5 s depois da
+própria passagem: duas ou três passagens cabiam na janela e quase todas as
+leituras foram recusadas como ambíguas (16 válidas de 136 no 148). A partir da
+v1.0.285, nesse caso o código vai na hora para a passagem mais antiga ainda sem
+leitura, no modo pulso, sem contador no CLP. A janela continua como limite: só
+passagens dentro dela entram na fila, então um resultado perdido afeta no
+máximo as sacas dos ~1,7 s seguintes, e não a sequência toda como na fila pura
+do PR #97 (que valia por até ~6,7 s e seguia a ordem de inserção).
 
 **Histórico importante:** essa ligação pela ordem já foi implementada uma vez
 (PR #97, 23/11/2026, "passagem pendente mais antiga") e **revertida no mesmo

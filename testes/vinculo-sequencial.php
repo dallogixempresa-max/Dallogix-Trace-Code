@@ -1,11 +1,12 @@
 <?php
 declare(strict_types=1);
 
-// Ligação sequencial (fila) do código à passagem: só com o contador do CLP.
+// Ligação sequencial (fila) do código à passagem, no modo pulso do M2052 (sem contador no CLP).
 require __DIR__ . '/../servidor/api/operacoes/vinculo_leitor.php';
 date_default_timezone_set('UTC');
 putenv('TRACE_SENSOR_TO_READER_DISTANCE_M=0.125');
 putenv('TRACE_SCANNER_NO_READ_TIMEOUT_MS=1500');
+putenv('TRACE_SCANNER_LINK_MODE');
 
 function banco(): PDO
 {
@@ -16,7 +17,6 @@ function banco(): PDO
     $db->$fn('FROM_UNIXTIME', static fn(float $seconds): string => trace_epoch_ms_to_sql_datetime((int) round($seconds * 1000)));
     $db->exec('CREATE TABLE eventos_sensor (id INTEGER, carregamento_id INTEGER, equipment_id INTEGER, device_detected_at TEXT, detected_at TEXT, modbus_passage_from_epoch_ms INTEGER)');
     $db->exec('CREATE TABLE leituras (sensor_event_id INTEGER UNIQUE, result TEXT)');
-    $db->exec('CREATE TABLE status_dispositivos (equipment_id INTEGER, device_type TEXT, status TEXT, details TEXT)');
     return $db;
 }
 
@@ -36,12 +36,6 @@ function leitura(PDO $db, int $passagem, string $resultado = 'VALIDO'): void
     $db->prepare('INSERT INTO leituras VALUES (?, ?)')->execute([$passagem, $resultado]);
 }
 
-function sensor(PDO $db, string $status, array $details): void
-{
-    $db->exec('DELETE FROM status_dispositivos');
-    $db->prepare("INSERT INTO status_dispositivos VALUES (1, 'SENSOR', ?, ?)")->execute([$status, json_encode($details)]);
-}
-
 $verificacoes = 0;
 function confere(bool $ok, string $mensagem): void
 {
@@ -53,8 +47,6 @@ function confere(bool $ok, string $mensagem): void
 }
 
 $base = 1795116546000;
-$contador = ['signal_source' => 'COUNTER', 'counter_value' => 10];
-$pulso = ['signal_value' => 1, 'signal_mode' => 'rising_edge'];
 
 // Sacas de 0,60 m com 5 cm de vão a 0,7 m/s: passagens a cada ~929 ms. O código
 // no fundo da saca 1 é lido ~1.036 ms depois dela, quando a saca 2 já passou
@@ -64,37 +56,55 @@ passagem($db, 1, $base);
 passagem($db, 2, $base + 929);
 $scan = $base + 1036;
 
-putenv('TRACE_SCANNER_LINK_MODE');
-sensor($db, 'ONLINE', $contador);
+// Sem configuração, a regra é a fila, no modo pulso (sem contador nem heartbeat do sensor).
 $match = trace_scanner_event_match($db, 1, 1, $scan);
-confere($match['ambiguous'] && $match['best'] === null && $match['link_rule'] === 'JANELA', 'Sem configuração a regra deve continuar sendo a janela.');
-
-putenv('TRACE_SCANNER_LINK_MODE=sequencial');
-$match = trace_scanner_event_match($db, 1, 1, $scan);
-confere(!$match['ambiguous'] && ($match['best']['sensor_event_id'] ?? null) === 1 && $match['link_rule'] === 'SEQUENCIAL', 'A fila deve ligar a leitura à passagem pendente mais antiga.');
+confere(!$match['ambiguous'] && ($match['best']['sensor_event_id'] ?? null) === 1 && $match['link_rule'] === 'SEQUENCIAL', 'Sem configuração, a fila deve ligar a leitura à passagem pendente mais antiga.');
 confere(count($match['candidates']) === 2, 'As candidatas da janela devem continuar visíveis para auditoria.');
 
-sensor($db, 'ONLINE', $pulso);
+// TRACE_SCANNER_LINK_MODE=janela volta à regra antiga, que recusa como ambígua.
+putenv('TRACE_SCANNER_LINK_MODE=janela');
 $match = trace_scanner_event_match($db, 1, 1, $scan);
-confere($match['ambiguous'] && $match['best'] === null, 'Sem contador no CLP a fila não pode agir.');
-
-sensor($db, 'OFFLINE', $contador);
+confere($match['ambiguous'] && $match['best'] === null && $match['link_rule'] === 'JANELA', 'Com janela configurada, a leitura em duas passagens continua ambígua.');
+putenv('TRACE_SCANNER_LINK_MODE=qualquer-outro-valor');
 $match = trace_scanner_event_match($db, 1, 1, $scan);
-confere($match['ambiguous'] && $match['best'] === null, 'Com o sensor offline a fila não pode agir.');
-
-$db->exec('DELETE FROM status_dispositivos');
-$match = trace_scanner_event_match($db, 1, 1, $scan);
-confere($match['ambiguous'] && $match['best'] === null, 'Sem heartbeat do sensor a fila não pode agir.');
+confere($match['link_rule'] === 'SEQUENCIAL', 'Valor desconhecido mantém a fila.');
+putenv('TRACE_SCANNER_LINK_MODE');
 
 // Sequência: a saca 1 recebe o código do fundo e a saca 2 o seu, sem troca.
-sensor($db, 'ONLINE', $contador);
 leitura($db, 1);
 $match = trace_scanner_event_match($db, 1, 1, $base + 929 + 180);
 confere(($match['best']['sensor_event_id'] ?? null) === 2 && $match['link_rule'] === 'JANELA', 'Candidata única deve seguir a janela, sem mudança.');
 
+// Carregamento 149 (26/11/2026, vídeo da fábrica): grupos de três sacas com
+// ~505 ms entre passagens e o código chegando ~1.354 ms depois da própria
+// passagem. Hoje as três caem na janela e tudo era recusado como ambíguo; com a
+// fila cada código vai para a sua saca, inclusive com um ERROR no meio.
+$db = banco();
+passagem($db, 1, $base);
+passagem($db, 2, $base + 505);
+passagem($db, 3, $base + 1010);
+$codigo1 = trace_scanner_event_match($db, 1, 1, $base + 1354);
+confere(count($codigo1['candidates']) === 3 && ($codigo1['best']['sensor_event_id'] ?? null) === 1, 'Com três sacas na janela, o 1º código vai para a 1ª saca.');
+leitura($db, 1);
+$erro2 = trace_scanner_event_match($db, 1, 1, $base + 505 + 1540, false, true);
+confere(($erro2['best']['sensor_event_id'] ?? null) === 2, 'O ERROR da 2ª saca vai para a 2ª saca.');
+leitura($db, 2, 'SEM_LEITURA');
+$codigo3 = trace_scanner_event_match($db, 1, 1, $base + 1010 + 1354);
+confere(($codigo3['best']['sensor_event_id'] ?? null) === 3 && !$codigo3['ambiguous'], 'O 3º código vai para a 3ª saca.');
+
+// Mesmo carregamento, com o maior atraso medido (1.543 ms) e o menor vão (401 ms).
+$db = banco();
+passagem($db, 1, $base);
+passagem($db, 2, $base + 401);
+passagem($db, 3, $base + 802);
+foreach ([1, 2, 3] as $saca) {
+    $match = trace_scanner_event_match($db, 1, 1, $base + ($saca - 1) * 401 + 1543);
+    confere(($match['best']['sensor_event_id'] ?? null) === $saca && !$match['ambiguous'], "Com atraso de 1.543 ms, o código da saca {$saca} vai para ela.");
+    leitura($db, $saca);
+}
+
 // Passagem que já saiu da janela nunca é candidata, mesmo sendo a mais antiga.
 $db = banco();
-sensor($db, 'ONLINE', $contador);
 passagem($db, 1, $base - 3000);
 passagem($db, 2, $base);
 passagem($db, 3, $base + 929);
@@ -103,14 +113,12 @@ confere(($match['best']['sensor_event_id'] ?? null) === 2, 'Passagem fora da jan
 
 // Nenhuma passagem pendente: continua sem vínculo (a tela espera a passagem).
 $db = banco();
-sensor($db, 'ONLINE', $contador);
 $match = trace_scanner_event_match($db, 1, 1, $base);
 confere($match['best'] === null && !$match['ambiguous'], 'Sem passagem pendente não há vínculo.');
 
 // Defeito 1: um reenvio do Node-RED insere a saca k (id 12) depois da saca
 // k+1 (id 11). A fila segue a hora da detecção, não o id.
 $db = banco();
-sensor($db, 'ONLINE', $contador);
 passagem($db, 11, $base + 929, 30);
 passagem($db, 12, $base, 900);
 $match = trace_scanner_event_match($db, 1, 1, $base + 1036);
@@ -119,7 +127,6 @@ confere(($match['best']['sensor_event_id'] ?? null) === 12 && $match['link_rule'
 // Defeito 2: com ERROR (sem código) a janela inclui passagens já fechadas como
 // SEM_LEITURA. O ERROR da saca 2 não pode ir para a saca 1, já fechada.
 $db = banco();
-sensor($db, 'ONLINE', $contador);
 passagem($db, 1, $base);
 passagem($db, 2, $base + 929);
 leitura($db, 1, 'SEM_LEITURA');
@@ -128,10 +135,9 @@ confere(($erroDaSaca2['best']['sensor_event_id'] ?? null) === 2, 'O ERROR da sac
 $statusDoWorker = trace_scanner_event_match($db, 1, 1, $base + 929 + 750);
 confere(($statusDoWorker['best']['sensor_event_id'] ?? null) === 2, 'Tela e worker do leitor devem apontar a mesma passagem.');
 
-// Defeito 3a: passagens da recuperação do contador (horário interpolado, sem
-// intervalo Modbus) não são confiáveis para a fila: volta para a janela.
+// Defeito 3a: passagens sem o intervalo Modbus da detecção não são
+// confiáveis para a fila: volta para a janela.
 $db = banco();
-sensor($db, 'ONLINE', $contador);
 passagem($db, 1, $base, 30, false);
 passagem($db, 2, $base + 929, 30, false);
 $match = trace_scanner_event_match($db, 1, 1, $base + 1036);
@@ -140,7 +146,6 @@ confere($match['ambiguous'] && $match['best'] === null && $match['link_rule'] ==
 // Defeito 3b: passagem que chegou ao servidor muito depois da detecção pode
 // ter perdido o próprio código: a fila não age.
 $db = banco();
-sensor($db, 'ONLINE', $contador);
 passagem($db, 1, $base, 1400);
 passagem($db, 2, $base + 929, 30);
 $match = trace_scanner_event_match($db, 1, 1, $base + 1036);
@@ -148,11 +153,9 @@ confere($match['ambiguous'] && $match['best'] === null && $match['link_rule'] ==
 
 // Atraso dentro do limite continua valendo para a fila.
 $db = banco();
-sensor($db, 'ONLINE', $contador);
 passagem($db, 1, $base, 900);
 passagem($db, 2, $base + 929, 30);
 $match = trace_scanner_event_match($db, 1, 1, $base + 1036);
 confere(($match['best']['sensor_event_id'] ?? null) === 1 && $match['link_rule'] === 'SEQUENCIAL', 'Atraso dentro do limite não deve desligar a fila.');
 
-putenv('TRACE_SCANNER_LINK_MODE');
 echo "Ligação sequencial: {$verificacoes} verificações passaram.\n";
