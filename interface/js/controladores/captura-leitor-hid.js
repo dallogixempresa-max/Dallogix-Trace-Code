@@ -14,6 +14,58 @@ export function separarTempoDeLeitura(value) {
   return tempoMs <= 10000 ? { codigo: partes[1].trim(), tempoMs } : { codigo: texto, tempoMs: null };
 }
 
+function gtinValido(digitos) {
+  if (![8, 12, 13, 14].includes(digitos.length)) return false;
+  let soma = 0;
+  for (let i = digitos.length - 2, peso = 3; i >= 0; i -= 1, peso = peso === 3 ? 1 : 3) {
+    soma += Number(digitos[i]) * peso;
+  }
+  return (10 - (soma % 10)) % 10 === Number(digitos[digitos.length - 1]);
+}
+
+/**
+ * Quando o Wedge não manda Enter entre dois resultados próximos, eles chegam
+ * grudados ("7898250782479ERROR", "ERROR7898250782943", dois códigos
+ * seguidos). Separa o texto só se ele for inteiro uma sequência de resultados
+ * completos: GTIN com dígito verificador válido ou ERROR, cada um com o tempo
+ * de leitura opcional (",0420"). Devolve [{ texto, inicio }] na ordem; texto
+ * que não se encaixa volta como um resultado só.
+ */
+export function separarResultadosDoLeitor(value) {
+  const texto = String(value || "").trim();
+  const resultados = [];
+  const sufixo = (pos) => {
+    const opcoes = [];
+    const m = /^[,;](\d{1,5})/.exec(texto.slice(pos));
+    if (m) for (let n = m[1].length; n >= 1; n -= 1) opcoes.push(pos + 1 + n);
+    opcoes.push(pos);
+    return opcoes;
+  };
+  const analisar = (pos) => {
+    if (pos === texto.length) return true;
+    if (/^ERROR/i.test(texto.slice(pos))) {
+      for (const fim of sufixo(pos + 5)) {
+        resultados.push({ texto: texto.slice(pos, fim), inicio: pos });
+        if (analisar(fim)) return true;
+        resultados.pop();
+      }
+      return false;
+    }
+    for (const tamanho of [13, 14, 12, 8]) {
+      const digitos = texto.slice(pos, pos + tamanho);
+      if (!/^\d+$/.test(digitos) || digitos.length !== tamanho || !gtinValido(digitos)) continue;
+      for (const fim of sufixo(pos + tamanho)) {
+        resultados.push({ texto: texto.slice(pos, fim), inicio: pos });
+        if (analisar(fim)) return true;
+        resultados.pop();
+      }
+    }
+    return false;
+  };
+  if (texto && analisar(0) && resultados.length > 1) return resultados;
+  return [{ texto, inicio: 0 }];
+}
+
 export function isScannerNoReadMarker(value) {
   return /^ERROR(?:[\s:_-]?\d{8,14})?$/i.test(separarTempoDeLeitura(value).codigo);
 }
@@ -40,6 +92,7 @@ export function createHidScannerCapture({
   clearTimer = (timer) => globalThis.clearTimeout(timer),
 } = {}) {
   let buffer = "";
+  let keyTimes = [];
   let startedAt = 0;
   let loadingIdAtStart = null;
   let lastKeyAt = 0;
@@ -66,6 +119,7 @@ export function createHidScannerCapture({
     const previousStartedAt = startedAt;
     clearTimerIfSet();
     buffer = "";
+    keyTimes = [];
     startedAt = 0;
     lastKeyAt = 0;
     awaitingUnicodeKeypress = false;
@@ -85,7 +139,10 @@ export function createHidScannerCapture({
     clearTimerIfSet();
     const barcode = buffer.trim();
     const capturedAtEpochMs = startedAt || now();
+    const leadingSpaces = buffer.length - buffer.trimStart().length;
+    const timesOfKeys = keyTimes;
     buffer = "";
+    keyTimes = [];
     startedAt = 0;
     lastKeyAt = 0;
     if (!terminatedByEnter) suppressTrailingEnterUntil = now() + 500;
@@ -102,10 +159,15 @@ export function createHidScannerCapture({
     }
 
     publishBuffer("", capturedAtEpochMs);
-    try {
-      Promise.resolve(onBarcode(barcode, capturedAtEpochMs, loadingIdAtStart)).catch(onError);
-    } catch (error) {
-      onError(error);
+    // Resultados grudados viram envios separados, na ordem, cada um com a hora
+    // da sua primeira tecla.
+    for (const parte of separarResultadosDoLeitor(barcode)) {
+      const horaDaParte = timesOfKeys[leadingSpaces + parte.inicio] || capturedAtEpochMs;
+      try {
+        Promise.resolve(onBarcode(parte.texto, horaDaParte, loadingIdAtStart)).catch(onError);
+      } catch (error) {
+        onError(error);
+      }
     }
     return true;
   }
@@ -151,6 +213,7 @@ export function createHidScannerCapture({
       loadingIdAtStart = getLoadingId();
     }
     buffer += event.key;
+    keyTimes.push(timestamp);
     lastKeyAt = timestamp;
     event.preventDefault?.();
     event.stopImmediatePropagation?.();

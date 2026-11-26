@@ -1,5 +1,5 @@
-const CACHE_NAME = "trace-shell-20261126-disparo-01";
-const APPLICATION_ASSET_VERSION = "202611260004";
+const CACHE_NAME = "trace-shell-20261126-grudados-01";
+const APPLICATION_ASSET_VERSION = "202611260005";
 const PRECACHE_CONCURRENCY = 4;
 const SHELL = [
   "/",
