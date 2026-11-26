@@ -156,8 +156,10 @@ if ($action === "PENDING_IMAGES") {
             "requested_at_epoch_ms" => (int) $row["requested_at_epoch_ms"],
             "sensor_detected_at_epoch_ms" => $sensorDetectedAtMs,
             "image_expected_at_epoch_ms" => ($eventAtMs ?: $sensorDetectedAtMs) + $travelMs,
-            "image_valid_from_epoch_ms" => $eventAtMs > 0 ? $eventAtMs + $travelMs : null,
-            "image_valid_until_epoch_ms" => $nextAtMs > 0 ? $nextAtMs + $travelMs : null,
+            // A foto de falha vale do disparo desta saca até o da seguinte. O
+            // leitor é disparado na passagem, então o intervalo começa nela.
+            "image_valid_from_epoch_ms" => $eventAtMs > 0 ? $eventAtMs : null,
+            "image_valid_until_epoch_ms" => $nextAtMs > 0 ? $nextAtMs : null,
         ];
     }, $statement->fetchAll(PDO::FETCH_ASSOC));
     json_response([
@@ -248,9 +250,8 @@ try {
         $passage = $timing->fetch(PDO::FETCH_ASSOC) ?: [];
         $from = (int) ($passage["event_at_epoch_ms"] ?? 0);
         $until = (int) ($passage["next_event_at_epoch_ms"] ?? 0);
-        $travelMs = trace_scanner_timing()["travel_ms"];
-        if ($capturedAtEpochMs === null || ($from > 0 && $capturedAtEpochMs < $from + $travelMs)
-            || ($until > 0 && $capturedAtEpochMs >= $until + $travelMs)) {
+        if ($capturedAtEpochMs === null || ($from > 0 && $capturedAtEpochMs < $from)
+            || ($until > 0 && $capturedAtEpochMs >= $until)) {
             $pdo->rollBack();
             json_response(["error" => "A foto do arquivo Keyence está fora do intervalo desta passagem."], 409);
         }
