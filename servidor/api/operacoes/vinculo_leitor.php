@@ -43,6 +43,7 @@ function trace_scanner_event_match(
     int $scanObservedAtMs,
     bool $forUpdate = false,
     bool $includeFinalizedNoRead = false,
+    ?int $readTimeMs = null,
 ): array {
     if (trace_scanner_link_mode() === "janela") {
         $match = trace_pending_scanner_event_match(
@@ -58,12 +59,130 @@ function trace_scanner_event_match(
     }
 
     $queue = trace_sequential_open_passages($pdo, $loadingId, $equipmentId, $scanObservedAtMs, $forUpdate);
+    $calibration = $readTimeMs !== null ? trace_trigger_offset_calibration($pdo, $loadingId) : null;
+    if ($readTimeMs !== null && $calibration !== null) {
+        // Ligação pelo disparo: a hora do disparo é a captura menos o tempo de
+        // leitura informado pelo Keyence. A passagem certa é a cujo pulso M2052
+        // tem o mesmo afastamento já medido neste carregamento. Não depende da
+        // ordem: se o resultado de B se perdeu, o código de C vai para C.
+        $best = null;
+        $bestError = null;
+        foreach ($queue as $passage) {
+            $offsetMs = $scanObservedAtMs - $readTimeMs - $passage["pulse_start_epoch_ms"];
+            $error = abs($offsetMs - $calibration);
+            if ($bestError === null || $error < $bestError) {
+                $best = $passage + ["trigger_offset_ms" => $offsetMs];
+                $bestError = $error;
+            }
+        }
+        $matched = $best !== null && $bestError <= trace_trigger_tolerance_ms();
+        return [
+            "candidates" => $queue,
+            // Sem passagem com esse disparo: ela ainda não chegou ao Trace; a
+            // tela espera. Nunca liga a uma passagem de outro disparo.
+            "best" => $matched ? $best : null,
+            "ambiguous" => false,
+            "link_rule" => "DISPARO",
+        ];
+    }
+
+    $best = $queue[0] ?? null;
+    if ($best !== null && $readTimeMs !== null) {
+        $best["trigger_offset_ms"] = $scanObservedAtMs - $readTimeMs - $best["pulse_start_epoch_ms"];
+    }
     return [
         "candidates" => $queue,
-        "best" => $queue[0] ?? null,
+        "best" => $best,
         "ambiguous" => false,
         "link_rule" => "SEQUENCIAL",
     ];
+}
+
+/** Tolerância entre o afastamento medido e o calibrado (metade do menor intervalo realista entre sacas). */
+function trace_trigger_tolerance_ms(): int
+{
+    $raw = filter_var(getenv("TRACE_SCANNER_TRIGGER_TOLERANCE_MS") ?: 300, FILTER_VALIDATE_INT);
+    return max(50, min(1000, $raw === false ? 300 : (int) $raw));
+}
+
+/** Quantos vínculos recentes do carregamento formam a calibração. */
+const TRACE_TRIGGER_CALIBRATION_SAMPLES = 5;
+
+/**
+ * Mediana do afastamento disparo→pulso dos últimos vínculos deste carregamento
+ * (captura − tempo de leitura − início do pulso M2052). É constante na linha:
+ * soma o atraso do CLP até o IN1 do leitor e o do Wedge até a tela. Sem
+ * vínculos ainda (início do carregamento), devolve null e vale a ordem.
+ */
+function trace_trigger_offset_calibration(PDO $pdo, int $loadingId): ?int
+{
+    try {
+        $statement = $pdo->prepare(
+            "SELECT offset_ms FROM vinculos_disparo_leitor
+             WHERE carregamento_id = :loading_id
+             ORDER BY id DESC LIMIT " . TRACE_TRIGGER_CALIBRATION_SAMPLES,
+        );
+        $statement->execute(["loading_id" => $loadingId]);
+        $offsets = array_map("intval", $statement->fetchAll(PDO::FETCH_COLUMN));
+    } catch (PDOException) {
+        return null;
+    }
+    // Só calibra com pelo menos 3 vínculos; a mediana absorve até 2 errados.
+    if (count($offsets) < 3) {
+        return null;
+    }
+    sort($offsets);
+    return $offsets[intdiv(count($offsets), 2)];
+}
+
+/** Guarda o afastamento do vínculo feito, para calibrar os próximos do carregamento. */
+function trace_record_trigger_link(PDO $pdo, int $loadingId, int $sensorEventId, int $offsetMs): void
+{
+    if (abs($offsetMs) > 10000) {
+        return;
+    }
+    $pdo->prepare(
+        "INSERT INTO vinculos_disparo_leitor (carregamento_id, sensor_event_id, offset_ms)
+         VALUES (:loading_id, :sensor_event_id, :offset_ms)",
+    )->execute([
+        "loading_id" => $loadingId,
+        "sensor_event_id" => $sensorEventId,
+        "offset_ms" => $offsetMs,
+    ]);
+}
+
+/** Tempo de leitura (ms do disparo até a leitura) anexado pelo Keyence, ou null. */
+function trace_scanner_read_time_ms(mixed $value): ?int
+{
+    if ($value === null || $value === "") {
+        return null;
+    }
+    // O Keyence manda com zeros à esquerda ("0420"), que FILTER_VALIDATE_INT recusa.
+    if (is_int($value)) {
+        $parsed = $value;
+    } elseif (is_string($value) && preg_match('/^\d{1,5}$/', $value) === 1) {
+        $parsed = (int) $value;
+    } else {
+        return null;
+    }
+    return $parsed < 0 || $parsed > 10000 ? null : $parsed;
+}
+
+/**
+ * Separa o tempo de leitura que o Keyence anexa ao resultado
+ * ("7898250782479,0420" ou "ERROR,1000"). Sem sufixo, devolve o texto como veio.
+ *
+ * @return array{0:string,1:?int}
+ */
+function trace_split_scanner_read_time(string $raw): array
+{
+    if (preg_match('/^(.+?)[,;](\d{1,5})$/', trim($raw), $parts) === 1) {
+        $readTime = trace_scanner_read_time_ms($parts[2]);
+        if ($readTime !== null) {
+            return [trim($parts[1]), $readTime];
+        }
+    }
+    return [$raw, null];
 }
 
 /** Quantas passagens em aberto a fila examina (o prazo de segurança fecha as antigas). */
@@ -143,6 +262,7 @@ function trace_sequential_open_passages(
         $open[] = [
             "sensor_event_id" => (int) $row["id"],
             "detected_at_epoch_ms" => $detectedAtMs,
+            "pulse_start_epoch_ms" => $fromMs ?? $detectedAtMs,
         ];
     }
     usort(

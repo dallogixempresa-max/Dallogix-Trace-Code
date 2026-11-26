@@ -1,17 +1,17 @@
-import { OfflineOperationBuffer, secureRandomId } from "./OfflineOperationBuffer.js?v=202611260003";
-import { ClienteApi, erroRespostaHttp } from "../api/ClienteApi.js?v=202611260003";
-import { ServicoSincronizacao } from "../servicos/ServicoSincronizacao.js?v=202611260003";
-import { ServicoDalas } from "../servicos/ServicoDalas.js?v=202611260003";
-import { ServicoObservabilidade } from "../servicos/ServicoObservabilidade.js?v=202611260003";
-import { ServicoCarregamentoAtivo } from "../servicos/ServicoCarregamentoAtivo.js?v=202611260003";
-import { ServicoComandosMaquina } from "../servicos/ServicoComandosMaquina.js?v=202611260003";
-import { ServicoLeiturasOperacionais } from "../servicos/ServicoLeiturasOperacionais.js?v=202611260003";
-import { logFrontend } from "../utilitarios/LogFrontend.js?v=202611260003";
-import { resolverComandoAtual } from "../funcoes/estado-comando.js?v=202611260003";
+import { OfflineOperationBuffer, secureRandomId } from "./OfflineOperationBuffer.js?v=202611260004";
+import { ClienteApi, erroRespostaHttp } from "../api/ClienteApi.js?v=202611260004";
+import { ServicoSincronizacao } from "../servicos/ServicoSincronizacao.js?v=202611260004";
+import { ServicoDalas } from "../servicos/ServicoDalas.js?v=202611260004";
+import { ServicoObservabilidade } from "../servicos/ServicoObservabilidade.js?v=202611260004";
+import { ServicoCarregamentoAtivo } from "../servicos/ServicoCarregamentoAtivo.js?v=202611260004";
+import { ServicoComandosMaquina } from "../servicos/ServicoComandosMaquina.js?v=202611260004";
+import { ServicoLeiturasOperacionais } from "../servicos/ServicoLeiturasOperacionais.js?v=202611260004";
+import { logFrontend } from "../utilitarios/LogFrontend.js?v=202611260004";
+import { resolverComandoAtual } from "../funcoes/estado-comando.js?v=202611260004";
 import {
   buscarTodasPaginas,
   validarCursorPaginacao as validarCursorPaginacaoApi,
-} from "../funcoes/paginacao-api.js?v=202611260003";
+} from "../funcoes/paginacao-api.js?v=202611260004";
 
 const LIMITE_IDADE_MONITORAMENTO_OPERACIONAL_MS = 6000;
 
@@ -211,7 +211,7 @@ export class ArmazenamentoTrace {
   obterServicoRomaneios() {
     return this.obterServicoSobDemanda(
       "servicoRomaneios",
-      () => import("../servicos/ServicoRomaneios.js?v=202611260003"),
+      () => import("../servicos/ServicoRomaneios.js?v=202611260004"),
       ({ ServicoRomaneios }) => new ServicoRomaneios({
         api: this.api,
         state: this.state,
@@ -225,7 +225,7 @@ export class ArmazenamentoTrace {
   obterServicoCatalogoProdutos() {
     return this.obterServicoSobDemanda(
       "servicoCatalogoProdutos",
-      () => import("../servicos/ServicoCatalogoProdutos.js?v=202611260003"),
+      () => import("../servicos/ServicoCatalogoProdutos.js?v=202611260004"),
       ({ ServicoCatalogoProdutos }) => new ServicoCatalogoProdutos({
         api: this.api,
         state: this.state,
@@ -238,7 +238,7 @@ export class ArmazenamentoTrace {
   obterServicoAdministracaoContas() {
     return this.obterServicoSobDemanda(
       "servicoAdministracaoContas",
-      () => import("../servicos/ServicoAdministracaoContas.js?v=202611260003"),
+      () => import("../servicos/ServicoAdministracaoContas.js?v=202611260004"),
       ({ ServicoAdministracaoContas }) => new ServicoAdministracaoContas({
         api: this.api,
         state: this.state,
@@ -252,7 +252,7 @@ export class ArmazenamentoTrace {
   obterServicoInstalacoesIndustriais() {
     return this.obterServicoSobDemanda(
       "servicoInstalacoesIndustriais",
-      () => import("../servicos/ServicoInstalacoesIndustriais.js?v=202611260003"),
+      () => import("../servicos/ServicoInstalacoesIndustriais.js?v=202611260004"),
       ({ ServicoInstalacoesIndustriais }) => new ServicoInstalacoesIndustriais({
         api: this.api,
         state: this.state,
@@ -265,7 +265,7 @@ export class ArmazenamentoTrace {
   obterServicoAcoesDala() {
     return this.obterServicoSobDemanda(
       "servicoAcoesDala",
-      () => import("../servicos/ServicoAcoesDala.js?v=202611260003"),
+      () => import("../servicos/ServicoAcoesDala.js?v=202611260004"),
       ({ ServicoAcoesDala }) => new ServicoAcoesDala({
         api: this.api,
         state: this.state,

@@ -17,6 +17,7 @@ function banco(): PDO
     $db->$fn('FROM_UNIXTIME', static fn(float $seconds): string => (new DateTimeImmutable('@' . sprintf('%.3F', $seconds)))->format('Y-m-d H:i:s.v'));
     $db->exec('CREATE TABLE eventos_sensor (id INTEGER, carregamento_id INTEGER, equipment_id INTEGER, device_detected_at TEXT, detected_at TEXT, modbus_passage_from_epoch_ms INTEGER)');
     $db->exec('CREATE TABLE leituras (sensor_event_id INTEGER UNIQUE, result TEXT)');
+    $db->exec('CREATE TABLE vinculos_disparo_leitor (id INTEGER PRIMARY KEY AUTOINCREMENT, carregamento_id INTEGER, sensor_event_id INTEGER UNIQUE, offset_ms INTEGER)');
     return $db;
 }
 
@@ -171,5 +172,89 @@ passagem($db, 2, $base + 1000);
 passagem($db, 3, $base + 2000);
 leitura($db, 1);
 confere(vinculo($db, $base + 2000 + 1300) === 2, 'Sem o resultado de B, o código de C vai para B (requisito: um resultado por saca).');
+
+// ===== Ligação pelo disparo (o Keyence anexa o tempo de leitura) =====
+// A passagem tem pulso começando 20 ms antes da detecção (passagem()).
+// Afastamento disparo→pulso medido na linha: 50 ms.
+function calibra(PDO $db, int ...$offsets): void
+{
+    foreach ($offsets as $i => $offset) {
+        $db->prepare('INSERT INTO vinculos_disparo_leitor (carregamento_id, sensor_event_id, offset_ms) VALUES (1, ?, ?)')->execute([9000 + $i, $offset]);
+    }
+}
+function disparo(PDO $db, int $pulsoMs, int $tempoLeituraMs): int
+{
+    return $pulsoMs + 50 + $tempoLeituraMs; // hora da captura na tela
+}
+function vinculoDisparo(PDO $db, int $scanMs, int $tempoLeituraMs, bool $erro = false): array
+{
+    return trace_scanner_event_match($db, 1, 1, $scanMs, false, $erro, $tempoLeituraMs);
+}
+
+// Separação do texto do leitor.
+confere(trace_split_scanner_read_time('7898250782479,0420') === ['7898250782479', 420], 'Separa código e tempo de leitura.');
+confere(trace_split_scanner_read_time('ERROR,1000') === ['ERROR', 1000], 'Separa ERROR e tempo de leitura.');
+confere(trace_split_scanner_read_time('7898250782479') === ['7898250782479', null], 'Sem sufixo, o código fica como veio.');
+confere(trace_split_scanner_read_time('ABC,99999') === ['ABC,99999', null], 'Tempo absurdo não é separado.');
+
+// Antes de 3 vínculos no carregamento vale a ordem, e o afastamento é guardado.
+$db = banco();
+passagem($db, 1, $base);
+passagem($db, 2, $base + 1000);
+$m = vinculoDisparo($db, disparo($db, $base - 20, 400), 400);
+confere(($m['best']['sensor_event_id'] ?? null) === 1 && $m['link_rule'] === 'SEQUENCIAL' && ($m['best']['trigger_offset_ms'] ?? null) === 50, 'Sem calibração, vale a ordem e o afastamento é medido.');
+trace_record_trigger_link($db, 1, 1, 50);
+confere((int) $db->query('SELECT COUNT(*) FROM vinculos_disparo_leitor')->fetchColumn() === 1, 'O vínculo guarda o afastamento.');
+
+// O caso que a ordem não resolve: A ok, resultado de B perdido, chega o de C.
+$db = banco();
+calibra($db, 40, 50, 60);
+passagem($db, 1, $base);
+passagem($db, 2, $base + 1000);
+passagem($db, 3, $base + 2000);
+leitura($db, 1);
+$m = vinculoDisparo($db, disparo($db, $base + 2000 - 20, 400), 400);
+confere(($m['best']['sensor_event_id'] ?? null) === 3 && $m['link_rule'] === 'DISPARO', 'Com o resultado de B perdido, o código de C vai para C.');
+leitura($db, 3);
+// B continua em aberto e será fechada como SEM_LEITURA pelo prazo.
+confere(array_column(trace_sequential_open_passages($db, 1, 1, $base + 2600), 'sensor_event_id') === [2], 'B fica em aberto para o prazo de SEM_LEITURA.');
+
+// Resultado atrasado (tempo de leitura de 980 ms) vai para a própria saca,
+// mesmo com a seguinte já registrada.
+$db = banco();
+calibra($db, 50, 50, 50);
+passagem($db, 1, $base);
+passagem($db, 2, $base + 1000);
+$m = vinculoDisparo($db, disparo($db, $base - 20, 980), 980);
+confere(($m['best']['sensor_event_id'] ?? null) === 1, 'Resultado lento vai para a própria saca.');
+
+// ERROR com tempo de leitura vai para o disparo dele.
+$m = vinculoDisparo($db, disparo($db, $base + 1000 - 20, 1000), 1000, true);
+confere(($m['best']['sensor_event_id'] ?? null) === 2, 'ERROR vai para o próprio disparo.');
+
+// Passagem do disparo ainda não registrada: não liga a outra; a tela espera.
+$db = banco();
+calibra($db, 50, 50, 50);
+passagem($db, 1, $base);
+$m = vinculoDisparo($db, disparo($db, $base + 1000 - 20, 300), 300);
+confere($m['best'] === null && !$m['ambiguous'], 'Sem a passagem do disparo, não liga a outra saca.');
+passagem($db, 2, $base + 1000);
+$m = vinculoDisparo($db, disparo($db, $base + 1000 - 20, 300), 300);
+confere(($m['best']['sensor_event_id'] ?? null) === 2, 'Com a passagem registrada, liga ao disparo certo.');
+
+// A mediana ignora um afastamento errado entre os últimos vínculos.
+$db = banco();
+calibra($db, 50, 1050, 50);
+passagem($db, 1, $base);
+passagem($db, 2, $base + 1000);
+$m = vinculoDisparo($db, disparo($db, $base + 1000 - 20, 400), 400);
+confere(($m['best']['sensor_event_id'] ?? null) === 2, 'A mediana absorve um vínculo errado.');
+
+// Sem tempo de leitura (leitor ainda não configurado), vale a ordem mesmo calibrado.
+$db = banco();
+calibra($db, 50, 50, 50);
+passagem($db, 1, $base);
+passagem($db, 2, $base + 1000);
+confere(vinculo($db, $base + 1500) === 1, 'Sem tempo de leitura, vale a ordem.');
 
 echo "Ligação sequencial: {$verificacoes} verificações passaram.\n";

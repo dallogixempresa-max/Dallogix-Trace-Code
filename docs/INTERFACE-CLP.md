@@ -298,7 +298,20 @@ Tempos que continuam existindo, e por quê:
 - **Distância e velocidade**: não entram mais na ligação; seguem só para casar
   as fotos de falha do Keyence.
 
-Requisito: **um resultado do leitor por saca**. Um resultado que se perde (ex.: o
+**Ligação pelo disparo (mesma versão).** Se o Keyence anexar ao resultado o
+**tempo de leitura** (ms do disparo até a leitura, "Additional data → Read time"
+do SR-X, com vírgula: `7898250782479,0420`, `ERROR,1000`), o Trace calcula a
+hora do disparo (captura − tempo de leitura) e liga o resultado à passagem cujo
+pulso M2052 tem o mesmo afastamento já medido no carregamento (mediana dos
+últimos 5 vínculos, tabela `vinculos_disparo_leitor`, tolerância
+`TRACE_SCANNER_TRIGGER_TOLERANCE_MS`, padrão 300 ms). Assim um resultado perdido
+não desloca os seguintes: com A ok e o resultado de B perdido, o código de C vai
+para C e B fecha como SEM_LEITURA. Os 3 primeiros resultados do carregamento, e
+qualquer resultado sem o tempo de leitura, seguem a ordem. Se a passagem do
+disparo ainda não chegou ao Trace, o resultado não é ligado a outra saca: a tela
+espera a passagem.
+
+Requisito sem o tempo de leitura: **um resultado do leitor por saca**. Um resultado que se perde (ex.: o
 Wedge digitando em outra janela) ou uma passagem a mais desloca os códigos
 seguintes de uma saca até a sequência ter uma pausa maior que o prazo de
 segurança; a contagem por produto não muda, porque cada código continua
