@@ -1,8 +1,21 @@
 const MAX_BARCODE_LENGTH = 128;
 const MIN_BARCODE_LENGTH = 3;
 
+/**
+ * O Keyence pode anexar o tempo de leitura (ms do disparo até a leitura) ao
+ * resultado: "7898250782479,0420" ou "ERROR,1000". Ele identifica o disparo e
+ * vai ao servidor junto com o texto; aqui só separa o código para exibição.
+ */
+export function separarTempoDeLeitura(value) {
+  const texto = String(value || "").trim();
+  const partes = /^(.+?)[,;](\d{1,5})$/.exec(texto);
+  if (!partes) return { codigo: texto, tempoMs: null };
+  const tempoMs = Number(partes[2]);
+  return tempoMs <= 10000 ? { codigo: partes[1].trim(), tempoMs } : { codigo: texto, tempoMs: null };
+}
+
 export function isScannerNoReadMarker(value) {
-  return /^ERROR(?:[\s:_-]?\d{8,14})?$/i.test(String(value || "").trim());
+  return /^ERROR(?:[\s:_-]?\d{8,14})?$/i.test(separarTempoDeLeitura(value).codigo);
 }
 
 function isEditableTarget(target) {

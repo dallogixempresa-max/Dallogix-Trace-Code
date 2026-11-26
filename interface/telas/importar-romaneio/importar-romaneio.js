@@ -1,14 +1,14 @@
 import { button, esc } from "../../js/funcoes/html.js";
-import { data, numero } from "../../js/funcoes/formato.js?v=202611260002";
-import { agora } from "../../js/funcoes/relogio.js?v=202611260002";
-import { rotuloComando, rotuloEstado, rotuloStatusComando, rotuloStatusRomaneio } from "../../js/funcoes/rotulos.js?v=202611260002";
+import { data, numero } from "../../js/funcoes/formato.js?v=202611260004";
+import { agora } from "../../js/funcoes/relogio.js?v=202611260004";
+import { rotuloComando, rotuloEstado, rotuloStatusComando, rotuloStatusRomaneio } from "../../js/funcoes/rotulos.js?v=202611260004";
 import {
   pageHeader,
   manifestsTable,
   statuses,
-} from "../../js/funcoes/view.js?v=202611260002";
+} from "../../js/funcoes/view.js?v=202611260004";
 
-import { itemRow, industrialPcDate, listaBuscaProdutos } from "../../js/funcoes/romaneio.js?v=202611260002";
+import { itemRow, industrialPcDate, listaBuscaProdutos } from "../../js/funcoes/romaneio.js?v=202611260004";
 export function importScreen(store) {
   const products = store.state.products || [];
   const today = industrialPcDate();

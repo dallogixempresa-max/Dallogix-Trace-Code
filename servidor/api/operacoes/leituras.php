@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . "/../../configuracao/bootstrap.php";
 require_once __DIR__ . "/temporizacao_leitor.php";
+require_once __DIR__ . "/vinculo_leitor.php";
 require_once __DIR__ . "/../../src/Aplicacao/ClassificadorLeitura.php";
 require_once __DIR__ . "/../../src/Aplicacao/ValidadorCodigoBarras.php";
 require_once __DIR__ . "/../../src/Aplicacao/SolicitacaoLeitura.php";
@@ -51,6 +52,13 @@ if ($dispositivoScanner === null) {
 session_write_close();
 
 $payload = ler_json_da_requisicao();
+// O Keyence pode anexar o tempo de leitura ao resultado ("código,0420",
+// "ERROR,1000"): ele identifica o disparo e não faz parte do código.
+[$barcodeSemTempo, $tempoAnexado] = trace_split_scanner_read_time((string) ($payload["barcode"] ?? ""));
+if ($tempoAnexado !== null) {
+    $payload["barcode"] = $barcodeSemTempo;
+}
+$scannerReadTimeMs = trace_scanner_read_time_ms($payload["scanner_read_time_ms"] ?? null) ?? $tempoAnexado;
 try {
     $scannerObservedAtMs = trace_scanner_observed_at_ms($payload["scanner_received_at_epoch_ms"] ?? null);
 } catch (InvalidArgumentException $exception) {
@@ -162,13 +170,14 @@ if (!in_array($loading["state"], ["CARREGANDO", "FINALIZANDO", "PAUSADO", "FINAL
 $loadingValidCount = 0;
 $scannerMatch = null;
 if (($barcode !== "" || $noRead) && ($dispositivoScanner !== null || !$sensorEventId)) {
-    $scannerMatch = trace_pending_scanner_event_match(
+    $scannerMatch = trace_scanner_event_match(
         $pdo,
         (int) $loadingId,
         (int) $loading["equipment_id"],
         $scannerObservedAtMs,
         false,
         $noRead,
+        $scannerReadTimeMs,
     );
 }
 
@@ -433,6 +442,13 @@ try {
     throw $exception;
 }
 $readingId = (int) $pdo->lastInsertId();
+if (
+    $scannerReadTimeMs !== null && $sensorEventId
+    && isset($scannerMatch["best"]["trigger_offset_ms"])
+    && (int) $scannerMatch["best"]["sensor_event_id"] === (int) $sensorEventId
+) {
+    trace_record_trigger_link($pdo, (int) $loadingId, (int) $sensorEventId, (int) $scannerMatch["best"]["trigger_offset_ms"]);
+}
 if ($result === "VALIDO" && $countsTowardPlan) {
     $validCounter = $pdo->prepare(
         "UPDATE carregamentos SET leituras_validas = leituras_validas + 1 WHERE id = :id AND company_id = :company_id",

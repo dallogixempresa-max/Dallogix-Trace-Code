@@ -12,7 +12,7 @@ configurável por cliente.
 Sensor de passagem ──► CLP ──Modbus TCP──► Node-RED (PC industrial) ──HTTP──► Servidor Trace (PC industrial) ──► Nuvem
                         ▲                         │
                         └──── comandos (coils) ◄──┘
-Leitor Keyence ──TCP 19000──► keyence-worker (PC industrial) ──HTTP──► Servidor Trace
+Leitor Keyence ──► código de barras ──► navegador da tela de operação (HID) ──HTTP──► Servidor Trace
 ```
 
 - O **Node-RED** é o único que conversa com o CLP. A leitura do sensor usa
@@ -22,11 +22,8 @@ Leitor Keyence ──TCP 19000──► keyence-worker (PC industrial) ──HTT
   de comando ou sinal de vida).
 - O **servidor Trace** recebe as passagens do Node-RED e as leituras do leitor,
   liga cada código a uma passagem, conta e decide paradas.
-- O **leitor de código** não passa pelo CLP: o SR-X100W conecta por TCP na
-  porta `19000` do PC e o `keyence-worker` entrega cada resultado ao servidor.
-  Na contingência, o código chega pela tela de operação (AutoID Keyboard Wedge
-  em HID); nunca as duas rotas ao mesmo tempo. Detalhes em
-  `docs/KEYENCE-SR-X100W.md`.
+- O **leitor de código** não passa pelo CLP: o código chega pela tela de
+  operação (leitor HID) e vai direto ao servidor.
 
 ## 2. O que o Trace LÊ do CLP
 
@@ -174,6 +171,7 @@ janela de aceitação        = de (chegada prevista − 250 ms) até (chegada pr
 | **Velocidade da esteira** | **0,7 m/s** | `TRACE_BELT_SPEED_M_S` (0,05–5 m/s) |
 | Tolerância antes da chegada | 250 ms | `TRACE_SCANNER_EARLY_TOLERANCE_MS` (0–2.000 ms) |
 | Folga depois da chegada | 1.500 ms | `TRACE_SCANNER_NO_READ_TIMEOUT_MS` |
+| Regra de ligação do código à passagem | pela ordem, sem tempo (`sequencial`) | `TRACE_SCANNER_LINK_MODE` (`sequencial` ou `janela`) |
 
 Regras:
 
@@ -181,8 +179,9 @@ Regras:
 - **Nenhuma passagem na janela** → a tela espera até 3 s pela passagem; se não
   vier, a leitura fica como "leitura sem passagem" (saca fora da contagem).
 - **Duas ou mais passagens na janela** → **recusa** com "Leitura ambígua entre
-  passagens do sensor". O software não chuta para não gravar o código na saca
-  errada.
+  passagens do sensor". **Desde a v1.0.285 esta regra só vale com
+  `TRACE_SCANNER_LINK_MODE=janela`**; o padrão passou a ser a ligação pela ordem,
+  sem tempo (seção 8).
 - Passagem que não recebeu código até ~4,7 s depois vira **SEM_LEITURA**.
 
 **Consequência para o espaçamento das sacas.** Os números abaixo valem só para
@@ -238,10 +237,6 @@ seguinte: com sacas coladas, **um erro vira uma sequência de erros**.
 **Hoje:** o código de barras é ligado à saca **pelo horário**. O software
 calcula quando cada saca chega ao leitor usando a velocidade da esteira e a
 distância sensor → leitor, e aceita leituras numa janela de 1,5 s.
-Isso vale para as duas rotas do leitor: na rota TCP, o `keyence-worker` pede ao
-servidor (ação `STATUS`) a passagem compatível com o horário de chegada do
-quadro, e o servidor aplica a mesma janela; candidatos ambíguos não são
-associados.
 
 **Já resolvido nesta versão:**
 
@@ -261,7 +256,7 @@ parte das leituras ainda fica ambígua — o código no fundo de uma saca e o da
 frente da seguinte passam pelo leitor quase juntos. Consultar o CLP mais rápido
 **não** resolve isso.
 
-**Proposta universal — ligar pela ordem, não pelo horário.** O leitor já é
+**Proposta universal — ligar pela ordem, não pelo horário** (implementada na v1.0.285 no modo pulso, sem contador; ver acima). O leitor já é
 disparado pelo sensor, e o Keyence manda um resultado por disparo (o código, ou
 `ERROR` quando não lê). Então:
 
@@ -272,12 +267,55 @@ disparado pelo sensor, e o Keyence manda um resultado por disparo (o código, ou
 - **Sacas coladas deixam de ser problema**, desde que o sensor separe uma saca
   da outra.
 - O que passa a ser obrigação do CLP/leitor, e precisa ser garantido:
-  1. **nenhuma passagem perdida** — por isso o **modo contador** (seção 2.2)
-     vira obrigatório: uma passagem perdida desalinha todas as seguintes;
+  1. **nenhuma passagem perdida** — uma passagem perdida desalinha as seguintes
+     (o modo contador, seção 2.2, ajudaria, mas a v1.0.285 funciona no modo pulso);
   2. **um resultado do leitor por disparo**, inclusive `ERROR` na falha;
   3. a leitura de uma saca chegar antes da leitura da saca seguinte.
 - O software mantém só um limite de segurança genérico (ex.: leitura sem
   passagem há vários segundos é descartada), não ligado à esteira.
+
+**v1.0.285 — ligação pela ordem, sem tempo (padrão).** Nos carregamentos 148 e
+149 (26/11/2026) as sacas passaram com 10 cm livres entre elas (~0,14 s a
+0,7 m/s; ~1 s de uma passagem à seguinte) e o código chegou 0,9–1,7 s depois da
+própria passagem: duas ou três passagens cabiam na janela e quase todas as
+leituras foram recusadas como ambíguas (16 válidas de 136 no 148). A partir da
+v1.0.285 o resultado do leitor (código ou `ERROR`) vai **na hora** para a
+passagem **mais antiga do carregamento ainda sem resultado**, pela hora em que
+o sensor viu cada saca. Não há distância, velocidade, tolerância nem janela na
+ligação; a única condição é a saca ter passado pelo sensor antes do resultado.
+Funciona no modo pulso do M2052, sem contador no CLP.
+
+Tempos que continuam existindo, e por quê:
+
+- **Prazo de segurança (~4,7 s)**: só fecha como SEM_LEITURA a passagem para a
+  qual o leitor não mandou nada. Não pode ser zero: fechar antes do resultado
+  chegar mandaria o código para a saca seguinte. O `ERROR` do leitor fecha a
+  passagem na hora.
+- **Espera da tela (até 3 s)**: só quando o código chega antes da passagem
+  existir no Trace; nos carregamentos reais isso não aconteceu.
+- **Antiduplicação do sensor (400 ms)**: não atrasa nada, descarta um segundo
+  pulso da mesma saca; duas sacas reais a 0,7 m/s nunca ficam a menos de 400 ms.
+- **Distância e velocidade**: não entram mais na ligação; seguem só para casar
+  as fotos de falha do Keyence.
+
+**Ligação pelo disparo (mesma versão).** Se o Keyence anexar ao resultado o
+**tempo de leitura** (ms do disparo até a leitura, "Additional data → Read time"
+do SR-X, com vírgula: `7898250782479,0420`, `ERROR,1000`), o Trace calcula a
+hora do disparo (captura − tempo de leitura) e liga o resultado à passagem cujo
+pulso M2052 tem o mesmo afastamento já medido no carregamento (mediana dos
+últimos 5 vínculos, tabela `vinculos_disparo_leitor`, tolerância
+`TRACE_SCANNER_TRIGGER_TOLERANCE_MS`, padrão 300 ms). Assim um resultado perdido
+não desloca os seguintes: com A ok e o resultado de B perdido, o código de C vai
+para C e B fecha como SEM_LEITURA. Os 3 primeiros resultados do carregamento, e
+qualquer resultado sem o tempo de leitura, seguem a ordem. Se a passagem do
+disparo ainda não chegou ao Trace, o resultado não é ligado a outra saca: a tela
+espera a passagem.
+
+Requisito sem o tempo de leitura: **um resultado do leitor por saca**. Um resultado que se perde (ex.: o
+Wedge digitando em outra janela) ou uma passagem a mais desloca os códigos
+seguintes de uma saca até a sequência ter uma pausa maior que o prazo de
+segurança; a contagem por produto não muda, porque cada código continua
+registrado. `TRACE_SCANNER_LINK_MODE=janela` volta à regra antiga sem nova versão.
 
 **Histórico importante:** essa ligação pela ordem já foi implementada uma vez
 (PR #97, 23/11/2026, "passagem pendente mais antiga") e **revertida no mesmo

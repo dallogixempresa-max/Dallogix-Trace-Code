@@ -1,8 +1,7 @@
 import { button, esc } from "../../js/funcoes/html.js";
-import { descreverRotaTcp } from "../../js/funcoes/leitor-rota-tcp.js?v=202611260002";
 
 const DEVICE_TYPES = [
-  ["SCANNER", "Leitor", "Rede e rota TCP do leitor; código no visor"],
+  ["SCANNER", "Leitor", "Rede do leitor; código HID no visor"],
   ["CLP", "CLP", "Controle da esteira"],
   ["SERVER", "Servidor", "API desta instalação"],
 ];
@@ -18,16 +17,8 @@ export function apresentacaoStatusDispositivo(value, type = "", device = {}) {
         tone: "unknown",
         label: "SEM VÍNCULO",
         detail: "O leitor ainda não está vinculado a uma Dala.",
-        route: "",
       };
     }
-    // O ping confirma só a rede; a rota TCP diz se o leitor está entregando
-    // códigos ao PC. Só o erro recente de associação pede atenção, sem trocar
-    // o estado ONLINE/OFFLINE da sondagem. "Rota TCP conectada" exige que o
-    // leitor também responda à sondagem (status ONLINE).
-    const tcpRoute = descreverRotaTcp(device?.tcp_route, Date.now(), { leitorRespondeNaRede: normalized === "ONLINE" });
-    const route = tcpRoute?.texto || "";
-    const routeAttention = tcpRoute?.atencao === true;
     const probeMethod = String(device?.reader_probe_method || (device?.reader_probe_port ? "TCP_CONNECT" : "")).toUpperCase();
     const ftpError = Boolean(device?.ftp_transfer_error_code);
     const imageQueueFailed = device?.image_queue_status === "ERRO";
@@ -54,12 +45,10 @@ export function apresentacaoStatusDispositivo(value, type = "", device = {}) {
           || imageQueueFailed
           || Boolean(ftpError)
           || device?.ftp_image_receiver_listening === false
-          || device?.image_archive_directory_available === false
-          || routeAttention,
-        tone: routeAttention ? "attention" : "online",
+          || device?.image_archive_directory_available === false,
+        tone: "online",
         label: probeMethod === "ICMP_PING" ? "REDE ONLINE" : "ONLINE",
         detail: subsystemDetails || "Leitor acessível na rede",
-        route,
       };
     }
     if (normalized === "OFFLINE") {
@@ -69,7 +58,6 @@ export function apresentacaoStatusDispositivo(value, type = "", device = {}) {
         tone: "offline",
         label: "SEM RESPOSTA",
         detail: ["Sem resposta do leitor", subsystemDetails].filter(Boolean).join(" · "),
-        route,
       };
     }
     if (normalized === "ERRO") {
@@ -79,7 +67,6 @@ export function apresentacaoStatusDispositivo(value, type = "", device = {}) {
         tone: "error",
         label: "FALHA NO PC",
         detail: subsystemDetails || "Verifique a integração do leitor no PC",
-        route,
       };
     }
     return {
@@ -88,7 +75,6 @@ export function apresentacaoStatusDispositivo(value, type = "", device = {}) {
       tone: "unknown",
       label: "NÃO CONFIRMADO",
       detail: ["Aguardando resposta do leitor", subsystemDetails].filter(Boolean).join(" · "),
-      route,
     };
   }
   const online = ["ONLINE", "LOCAL", "OK"].includes(normalized);
@@ -169,14 +155,14 @@ function deviceStatusPanel(store) {
       : "";
     return `<article class="settings-device-status-card ${status.tone}" data-device-status-card="${type}"${equipmentAttribute}>
       <div class="settings-device-status-identity"><span class="settings-device-status-mark" aria-hidden="true">${esc(label.slice(0, 1))}</span><div><strong>${esc(label)}</strong><small>${esc(description)}</small><small>${esc(equipmentLabel)}</small></div></div>
-      <div class="settings-device-status-result"><b class="status-value status-${status.tone}" data-live-status="${type}" data-live-status-mode="binary">${status.label}</b><span class="settings-device-status-detail" data-live-status-detail="${type}">${esc(status.detail)}</span>${type === "SCANNER" ? `<span class="settings-device-status-detail settings-device-status-route" data-live-status-route="${type}"${status.route ? "" : " hidden"}>${esc(status.route || "")}</span>` : ""}</div>
+      <div class="settings-device-status-result"><b class="status-value status-${status.tone}" data-live-status="${type}" data-live-status-mode="binary">${status.label}</b><span class="settings-device-status-detail" data-live-status-detail="${type}">${esc(status.detail)}</span></div>
     </article>`;
   }).join("");
   return `<section class="panel settings-device-status-panel" aria-label="Status dos dispositivos">
     <div class="settings-device-status-heading"><div><span class="kicker">Status da máquina</span><h3>Dispositivos e serviços</h3><p>Atualização automática enquanto esta tela estiver aberta.</p></div></div>
     <div class="settings-device-status-summary"><div><strong data-device-summary="online-count">${onlineCount}</strong><span>online</span></div><div><strong data-device-summary="attention-count">${attentionCount}</strong><span data-device-summary="attention-label">com alerta</span></div><div><strong data-device-summary="unmonitored-count">${unmonitoredCount}</strong><span>não confirmado</span></div></div>
     <div class="settings-device-status-grid">${cards}</div>
-    <p class="settings-device-status-note">Os totais de online e com alerta são independentes e podem se sobrepor. Leitor: o ping confirma resposta na rede; a rota TCP mostra se o leitor está conectado ao PC e entregando códigos. Cada código lido aparece no visor da operação. A fila FTP de fotos de falha é monitorada separadamente.</p>
+    <p class="settings-device-status-note">Os totais de online e com alerta são independentes e podem se sobrepor. Leitor: o ping confirma resposta na rede; a leitura do código é confirmada no visor da operação, pelo fluxo HID. A fila FTP de fotos de falha é monitorada separadamente.</p>
   </section><br>`;
 }
 
