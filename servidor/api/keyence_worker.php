@@ -107,6 +107,9 @@ if ($action === "STATUS") {
     ]]);
 }
 
+/** Atraso máximo entre a passagem da saca e a foto de falha do leitor. */
+const TRACE_FAILURE_PHOTO_MAX_DELAY_MS = 10000;
+
 $proximaPassagem = "(SELECT MIN(next_event.event_at_epoch_ms)
     FROM eventos_sensor next_event
     WHERE next_event.carregamento_id = s.carregamento_id
@@ -122,6 +125,11 @@ if ($action === "PENDING_IMAGES") {
     expirar_solicitacoes_imagem_keyence($pdo, (int) $device["equipment_id"]);
     $statement = $pdo->prepare(
         "SELECT r.id, r.sensor_event_id, r.status, r.reason, r.image_sha256,
+                (SELECT COUNT(*) FROM leituras lt
+                   JOIN logs_auditoria a ON a.company_id = c.company_id AND a.entity_type = 'leitura'
+                    AND a.entity_id = lt.id AND a.action = 'LEITURA_REGISTRADA'
+                  WHERE lt.sensor_event_id = r.sensor_event_id
+                    AND JSON_UNQUOTE(JSON_EXTRACT(a.metadata, '$.source')) = 'sensor_timeout') > 0 AS closed_by_timeout,
                 CAST(ROUND(UNIX_TIMESTAMP(r.requested_at) * 1000) AS UNSIGNED) AS requested_at_epoch_ms,
                 s.event_at_epoch_ms, s.device_detected_at,
                 {$proximaPassagem} AS next_event_at_epoch_ms,
@@ -152,6 +160,11 @@ if ($action === "PENDING_IMAGES") {
             "id" => (int) $row["id"],
             "sensor_event_id" => (int) $row["sensor_event_id"],
             "status" => $row["status"],
+            "reason" => (string) $row["reason"],
+            // SEM_LEITURA fechada só pelo prazo, sem ERROR do leitor: o leitor
+            // não tirou foto dela, então ela não deve receber a foto de outra falha.
+            "closed_by_timeout" => (int) ($row["closed_by_timeout"] ?? 0) === 1,
+            "passage_at_epoch_ms" => $eventAtMs > 0 ? $eventAtMs : $sensorDetectedAtMs,
             "image_sha256" => preg_match('/^[a-f0-9]{64}$/', $imageHash) === 1 ? $imageHash : null,
             "requested_at_epoch_ms" => (int) $row["requested_at_epoch_ms"],
             "sensor_detected_at_epoch_ms" => $sensorDetectedAtMs,
@@ -250,8 +263,13 @@ try {
         $passage = $timing->fetch(PDO::FETCH_ASSOC) ?: [];
         $from = (int) ($passage["event_at_epoch_ms"] ?? 0);
         $until = (int) ($passage["next_event_at_epoch_ms"] ?? 0);
+        // A foto de falha é tirada quando a saca termina de passar, e com sacas
+        // próximas isso acontece depois da passagem seguinte. Vale qualquer foto
+        // tirada depois desta passagem, até TRACE_FAILURE_PHOTO_MAX_DELAY_MS; a
+        // escolha da saca é feita pela ordem no worker.
+        unset($until);
         if ($capturedAtEpochMs === null || ($from > 0 && $capturedAtEpochMs < $from)
-            || ($until > 0 && $capturedAtEpochMs >= $until)) {
+            || ($from > 0 && $capturedAtEpochMs > $from + TRACE_FAILURE_PHOTO_MAX_DELAY_MS)) {
             $pdo->rollBack();
             json_response(["error" => "A foto do arquivo Keyence está fora do intervalo desta passagem."], 409);
         }
