@@ -210,14 +210,9 @@ try {
         if ((int) ($entry["next_attempt"] ?? 0) > $now) {
             continue;
         }
-        // Espera a última leitura e as fotos chegarem antes da primeira geração.
-        // A foto do Keyence pode levar até 120 s (KEYENCE_IMAGE_RECEIVE_TIMEOUT_MS):
-        // com foto ainda aguardando, espera até 150 s para não publicar um PDF
-        // sem ela e logo outro com ela.
-        $updatedAgo = $now - (int) $candidate["romaneio_updated"];
-        if ($updatedAgo < 30 || ((int) ($candidate["photos_waiting"] ?? 0) > 0 && $updatedAgo < 150)) {
-            continue;
-        }
+        // Sem espera: ao finalizar, as fotos do leitor já estão na pasta e,
+        // em geral, já ligadas às sacas. O PDF sai na hora; uma foto que chegar
+        // depois muda a impressão digital e o PDF é refeito no próximo ciclo.
 
         $result = relatorio_executar_filho(
             [PHP_BINARY, "-d", "memory_limit=384M", __DIR__ . "/gerar_relatorio_auditoria_interno.php", (string) $companyId, (string) $romaneioId],
