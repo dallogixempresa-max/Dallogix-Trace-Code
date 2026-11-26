@@ -125,6 +125,32 @@ export class ServicoLeiturasOperacionais {
     return null;
   }
 
+  /**
+   * Guarda no servidor o resultado do leitor que não foi ligado a nenhuma
+   * passagem (sem passagem, esteira parada ou captura descartada pela tela),
+   * para que ele apareça no relatório de auditoria e não só no contador.
+   */
+  async registrarLeituraSemPassagem(loadingId, barcode, capturedAtEpochMs, motivo, { noRead = false } = {}) {
+    const id = Number(loadingId) || 0;
+    if (!id) return null;
+    const offlineEventId = String(this.createEventId() || "");
+    const response = await this.api.fetch("/api/leituras_sem_passagem.php", {
+      method: "POST",
+      headers: {
+        ...this.jsonHeaders(),
+        ...(/^[a-f0-9-]{16,36}$/i.test(offlineEventId) ? { "X-Trace-Offline-ID": offlineEventId } : {}),
+      },
+      body: JSON.stringify({
+        carregamento_id: id,
+        barcode: noRead ? "" : String(barcode || "").trim(),
+        no_read: Boolean(noRead),
+        motivo,
+        scanner_received_at_epoch_ms: Number(capturedAtEpochMs) || Date.now(),
+      }),
+    });
+    return this.jsonResponse(response, "Não foi possível registrar a leitura sem passagem.");
+  }
+
   async confirmStopRemoval(loadingId = this.state.loadingId) {
     const id = Number(loadingId) || 0;
     if (!id) throw new Error("Nenhum carregamento selecionado.");

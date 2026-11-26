@@ -161,6 +161,13 @@ final class RepositorioRomaneiosRemotos
     {
         $remoteIds = [];
         foreach ($finishedManifests as $manifest) {
+            // Só encerramentos válidos: id, número e status FINALIZADO. Os
+            // inválidos são ignorados sem derrubar o instantâneo.
+            if (!is_array($manifest)
+                || trim((string) ($manifest["number"] ?? "")) === ""
+                || strtoupper(trim((string) ($manifest["status"] ?? ""))) !== "FINALIZADO") {
+                continue;
+            }
             $remoteId = (int) ($manifest["id"] ?? 0);
             if ($remoteId > 0) {
                 $remoteIds[$remoteId] = true;
@@ -191,8 +198,10 @@ final class RepositorioRomaneiosRemotos
                )",
         );
         $audit = $this->connection->prepare(
-            "INSERT INTO logs_auditoria (event_uuid, company_id, user_id, action, entity_type, entity_id, metadata)
-             VALUES (:event_uuid, :company_id, NULL, 'ROMANEIO_FINALIZADO', 'romaneio', :entity_id, :metadata)",
+            // Veio da central, não vai para a fila: já nasce entregue, para a
+            // limpeza de dados operacionais poder removê-lo no prazo normal.
+            "INSERT INTO logs_auditoria (event_uuid, company_id, user_id, action, entity_type, entity_id, metadata, delivered_at)
+             VALUES (:event_uuid, :company_id, NULL, 'ROMANEIO_FINALIZADO', 'romaneio', :entity_id, :metadata, NOW(3))",
         );
 
         $closed = [];

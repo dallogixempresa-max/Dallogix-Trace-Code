@@ -39,7 +39,8 @@ $pdo = new PDO("sqlite::memory:", null, null, [
 $pdo->exec("CREATE TABLE romaneios (id INTEGER PRIMARY KEY, company_id INTEGER NOT NULL, remote_romaneio_id INTEGER, number TEXT NOT NULL, scheduled_date TEXT, expedidor TEXT, status TEXT NOT NULL)");
 $pdo->exec("CREATE TABLE carregamentos (id INTEGER PRIMARY KEY, company_id INTEGER NOT NULL, remote_carregamento_id INTEGER, romaneio_id INTEGER, state TEXT NOT NULL, finished_at TEXT)");
 $pdo->exec("CREATE TABLE fila_sincronizacao (id INTEGER PRIMARY KEY AUTOINCREMENT, company_id INTEGER NOT NULL, aggregate_type TEXT NOT NULL, aggregate_id INTEGER NOT NULL, status TEXT NOT NULL, payload TEXT NOT NULL DEFAULT '{}')");
-$pdo->exec("CREATE TABLE logs_auditoria (id INTEGER PRIMARY KEY AUTOINCREMENT, event_uuid TEXT NOT NULL, company_id INTEGER, user_id INTEGER, action TEXT NOT NULL, entity_type TEXT NOT NULL, entity_id INTEGER NOT NULL, metadata TEXT)");
+$pdo->exec("CREATE TABLE logs_auditoria (id INTEGER PRIMARY KEY AUTOINCREMENT, event_uuid TEXT NOT NULL, company_id INTEGER, user_id INTEGER, action TEXT NOT NULL, entity_type TEXT NOT NULL, entity_id INTEGER NOT NULL, metadata TEXT, delivered_at TEXT)");
+$pdo->{method_exists($pdo, 'createFunction') ? 'createFunction' : 'sqliteCreateFunction'}('NOW', static fn($precisao = null): string => gmdate('Y-m-d H:i:s'));
 
 $fila = new RepositorioFilaSincronizacao($pdo);
 $romaneios = new RepositorioRomaneiosRemotos($pdo, $fila);
@@ -57,6 +58,7 @@ $closed = $romaneios->sincronizarRomaneiosFinalizados(1, [$aviso(152, "teste nov
 verificar($closed === [149], "O romaneio encerrado no central deve ser encerrado no PC.");
 verificar($status(149) === "FINALIZADO", "Romaneio local fica FINALIZADO e o relatório com fotos pode ser gerado no PC.");
 $audit = $pdo->query("SELECT action, entity_id, user_id, metadata FROM logs_auditoria")->fetchAll();
+verificar($pdo->query("SELECT COUNT(*) FROM logs_auditoria WHERE delivered_at IS NULL")->fetchColumn() == 0, "Encerramento vindo da central já nasce entregue (não vai para a fila).");
 verificar(count($audit) === 1 && $audit[0]["action"] === "ROMANEIO_FINALIZADO" && (int) $audit[0]["entity_id"] === 149 && $audit[0]["user_id"] === null, "O encerramento fica na auditoria local.");
 verificar(json_decode((string) $audit[0]["metadata"], true)["origin"] === "CENTRAL", "A auditoria indica a origem central.");
 verificar((int) $pdo->query("SELECT COUNT(*) FROM fila_sincronizacao")->fetchColumn() === 0, "Nada é reenviado ao central, que é quem encerrou.");
@@ -106,11 +108,11 @@ ValidadorInstantaneoRemoto::validar($installation, $snapshot);
 unset($snapshot["romaneios_finalizados"]);
 ValidadorInstantaneoRemoto::validar($installation, $snapshot); // central antigo, sem a lista
 foreach ([["id" => 0, "number" => "x", "status" => "FINALIZADO"], ["id" => 1, "number" => "", "status" => "FINALIZADO"], ["id" => 1, "number" => "x", "status" => "CANCELADO"]] as $invalid) {
+    // Um encerramento inválido é ignorado, sem derrubar o instantâneo (e os comandos).
     $snapshot["romaneios_finalizados"] = [$invalid];
-    try {
-        ValidadorInstantaneoRemoto::validar($installation, $snapshot);
-        throw new LogicException("Aviso de encerramento inválido foi aceito.");
-    } catch (RuntimeException $expected) {
+    ValidadorInstantaneoRemoto::validar($installation, $snapshot);
+    if ($invalid["id"] > 0) {
+        verificar($romaneios->sincronizarRomaneiosFinalizados(1, [$invalid]) === [], "Encerramento inválido não pode encerrar romaneio no PC.");
     }
 }
 

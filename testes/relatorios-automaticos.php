@@ -94,7 +94,9 @@ verificar(str_contains($worker, "ORDER BY r.updated_at DESC, r.id DESC"), "O rom
 foreach (["solicitacoes_imagens_evidencia e", "imagens i", "leituras l", "eventos_sensor s", "retornos t", "ocorrencias o"] as $fonte) {
     verificar(str_contains($worker, "FROM {$fonte} JOIN carregamentos c"), "A impressão digital precisa cobrir {$fonte}.");
 }
-verificar(str_contains($worker, 'if ((int) $candidate["romaneio_updated"] > $now - 30) {'), "A primeira geração espera 30 s depois do encerramento.");
+verificar(str_contains($worker, '$updatedAgo < 30 || ((int) ($candidate["photos_waiting"] ?? 0) > 0 && $updatedAgo < 150)'), "A primeira geração espera 30 s, ou até 150 s com foto do Keyence ainda aguardando.");
+verificar(str_contains($worker, "e.status IN ('PENDENTE', 'CAPTURANDO')"), "A geração conta as fotos ainda aguardando.");
+verificar(str_contains($worker, "e.status = 'ERRO'"), "Foto que expirou muda a impressão digital e regenera o PDF.");
 verificar(str_contains($worker, 'relatorio_saida_indica_sucesso($result["exit"], $result["stdout"])'), "O sucesso é lido só da saída normal.");
 verificar(preg_match('/\} catch \(Throwable \$exception\) \{\s*fwrite\(STDERR, "Geração automática de relatórios falhou/', $worker) === 1, "Erro no orquestrador sai com falha.");
 $child = (string) file_get_contents(__DIR__ . "/../scripts/gerar_relatorio_auditoria_interno.php");

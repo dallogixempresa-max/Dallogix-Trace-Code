@@ -428,6 +428,7 @@ $itemRows = $items->fetchAll();
 $occurrences = [];
 $incidentImages = [];
 $noReadRows = [];
+$unmatchedReaderRows = [];
 $wrongProductRows = [];
 $unregisteredCodeEvents = [];
 $sackReferencesByEvent = [];
@@ -610,6 +611,26 @@ if ($loadIds !== []) {
         $noRead["sack_reference"] = $sackReferencesByEvent[$sensorEventId] ?? "Passagem não vinculada";
     }
     unset($noRead);
+    // Resultados do leitor que não foram ligados a nenhuma passagem (código sem
+    // passagem, captura com a esteira parada ou descartada pela tela). Antes
+    // eles ficavam só no contador da tela de operação.
+    try {
+        $unmatchedQuery = $pdo->prepare(
+            "SELECT u.captured_at, u.barcode, u.no_read, u.motivo,
+                    (SELECT p.name FROM codigos_produtos pc
+                       JOIN produtos p ON p.id = pc.product_id AND p.company_id = pc.company_id
+                      WHERE pc.company_id = u.company_id AND pc.barcode = u.barcode
+                      LIMIT 1) AS product_name
+             FROM leituras_sem_passagem u
+             WHERE u.carregamento_id IN ({$placeholders})
+             ORDER BY u.captured_at, u.id",
+        );
+        $unmatchedQuery->execute($loadIds);
+        $unmatchedReaderRows = $unmatchedQuery->fetchAll(PDO::FETCH_ASSOC);
+    } catch (PDOException) {
+        // Tabela ainda não criada (migração 085 pendente): o relatório sai sem a seção.
+        $unmatchedReaderRows = [];
+    }
     $wrongProductQuery = $pdo->prepare(
         "SELECT l.id, l.sensor_event_id, l.carregamento_id, l.read_at, l.barcode,
                 -- Produto do catálogo fora do romaneio é gravado sem product_id;
@@ -981,9 +1002,34 @@ if ($noReadRows === []) {
                 $formatDateTime($row["read_at"]),
                 $row["product_name"] ?? "Não identificado",
                 $row["barcode"] ?? "—",
-                $row["sack_reference"] . (!empty($row["return_reason"]) ? " · Retirada: " . $row["return_reason"] : ""),
+                $row["sack_reference"] . (!empty($row["return_reason"]) ? " · Retirada: " . $row["return_reason"] : "")
+                    . (array_key_exists("has_image", $row) && empty($row["has_image"])
+                        ? " · O leitor não registrou falha nesta saca: o código chegou atrasado, se perdeu ou foi para outra saca"
+                        : ""),
             ],
             $noReadRows,
+        ),
+        [90, 140, 110, 175],
+    );
+}
+if (($unmatchedReaderRows ?? []) !== []) {
+    $motivosSemPassagem = [
+        "SEM_PASSAGEM" => "Sem passagem do sensor correspondente",
+        "ESTEIRA_PARADA" => "Capturado com a esteira parada",
+        "DESCARTADA_TELA" => "Descartado pela tela (sem foco ou fora da operação)",
+    ];
+    $report->escreverTitulo("Leituras do leitor sem passagem");
+    $report->escreverParagrafo("Resultados que o leitor enviou e que não foram ligados a nenhuma saca registrada pelo sensor. Não entram na quantidade carregada nem na meta; servem para conferir sacas que passaram sem passagem registrada ou códigos que chegaram fora de hora.");
+    $report->escreverTabela(
+        ["Data/hora", "Produto", "Código recebido", "Situação"],
+        array_map(
+            static fn(array $row): array => [
+                $formatDateTime($row["captured_at"]),
+                (int) $row["no_read"] === 1 ? "Falha de leitura (ERROR)" : ($row["product_name"] ?? "Código sem cadastro"),
+                $row["barcode"] ?? "—",
+                $motivosSemPassagem[$row["motivo"]] ?? $row["motivo"],
+            ],
+            $unmatchedReaderRows ?? [],
         ),
         [90, 140, 110, 175],
     );

@@ -1,14 +1,14 @@
 import { button, esc } from "../../js/funcoes/html.js";
-import { data, numero } from "../../js/funcoes/formato.js?v=202611260005";
-import { agora } from "../../js/funcoes/relogio.js?v=202611260005";
-import { rotuloComando, rotuloEstado, rotuloStatusComando, rotuloStatusRomaneio } from "../../js/funcoes/rotulos.js?v=202611260005";
+import { data, numero } from "../../js/funcoes/formato.js?v=202611260006";
+import { agora } from "../../js/funcoes/relogio.js?v=202611260006";
+import { rotuloComando, rotuloEstado, rotuloStatusComando, rotuloStatusRomaneio } from "../../js/funcoes/rotulos.js?v=202611260006";
 import {
   pageHeader,
   manifestsTable,
   statuses,
-} from "../../js/funcoes/view.js?v=202611260005";
+} from "../../js/funcoes/view.js?v=202611260006";
 
-import { itemRow, industrialPcDate, listaBuscaProdutos } from "../../js/funcoes/romaneio.js?v=202611260005";
+import { itemRow, industrialPcDate, listaBuscaProdutos } from "../../js/funcoes/romaneio.js?v=202611260006";
 export function importScreen(store) {
   const products = store.state.products || [];
   const today = industrialPcDate();
@@ -31,5 +31,5 @@ export function importScreen(store) {
 </section>
 <div class="manifest-submit-actions">${button("Cadastrar", "submit-manifest")}</div><p class="form-feedback" data-form-feedback role="status" aria-live="polite" hidden></p>
 </form>
-<details class="panel csv-legacy"><summary>Importar romaneios por CSV</summary><p>Use o modelo CSV. O sistema aceita arquivos separados por vírgula ou ponto e vírgula. Campos obrigatórios: <b>romaneio, data, placa, produto e quantidade</b>. Motorista e expedidor são opcionais. A data pode ser <b>DD/MM/AAAA</b> ou <b>AAAA-MM-DD</b>.</p><p><a class="text-link" href="/assets/modelo-romaneio.csv" download="modelo-romaneio.csv">Baixar modelo CSV</a></p><form id="csv-form"><div class="file-picker"><input id="csv-file" class="file-input" name="file" type="file" accept=".csv,text/csv" required /><label class="button primary file-picker-button" for="csv-file">Escolher arquivo</label><span class="file-name" data-file-name>Nenhum arquivo escolhido</span></div><small>Máximo: 5 MB ou 10.000 linhas. Linhas repetidas do mesmo produto são somadas automaticamente.</small><div class="actions">${button("Importar e validar", "import-csv")}</div><div id="csv-import-feedback" class="import-feedback" role="status" aria-live="polite"></div></form></details>`;
+<details class="panel csv-legacy"><summary>Importar romaneios por CSV</summary><p>Use o modelo CSV. O sistema aceita arquivos separados por vírgula ou ponto e vírgula. Campos obrigatórios: <b>romaneio, data, placa, produto e quantidade</b>. Motorista e expedidor são opcionais: se não vierem, o romaneio entra e o campo aparece como pendência. Um romaneio com erro é rejeitado sozinho, sem impedir os demais. A data pode ser <b>DD/MM/AAAA</b> ou <b>AAAA-MM-DD</b>.</p><p><a class="text-link" href="/assets/modelo-romaneio.csv" download="modelo-romaneio.csv">Baixar modelo CSV</a></p><form id="csv-form"><div class="file-picker"><input id="csv-file" class="file-input" name="file" type="file" accept=".csv,text/csv" required /><label class="button primary file-picker-button" for="csv-file">Escolher arquivo</label><span class="file-name" data-file-name>Nenhum arquivo escolhido</span></div><small>Máximo: 5 MB ou 10.000 linhas. Linhas repetidas do mesmo produto são somadas automaticamente.</small><div class="actions">${button("Importar e validar", "import-csv")}</div><div id="csv-import-feedback" class="import-feedback" role="status" aria-live="polite"></div></form></details>`;
 }

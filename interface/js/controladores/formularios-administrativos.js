@@ -1,4 +1,4 @@
-import { setFormFeedback } from "../componentes/form-feedback.js?v=202611260005";
+import { setFormFeedback } from "../componentes/form-feedback.js?v=202611260006";
 
 function registrarFormulario({
   form,

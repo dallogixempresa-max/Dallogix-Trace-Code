@@ -165,6 +165,9 @@ try {
                   (SELECT CONCAT(COUNT(*), ':', COALESCE(MAX(e.id), 0), ':', COALESCE(UNIX_TIMESTAMP(MAX(e.updated_at)), 0))
                      FROM solicitacoes_imagens_evidencia e JOIN carregamentos c ON c.id = e.carregamento_id
                     WHERE c.romaneio_id = r.id AND e.status = 'CAPTURADA'),
+                  (SELECT CONCAT('erro:', COUNT(*))
+                     FROM solicitacoes_imagens_evidencia e JOIN carregamentos c ON c.id = e.carregamento_id
+                    WHERE c.romaneio_id = r.id AND e.status = 'ERRO'),
                   (SELECT CONCAT(COUNT(*), ':', COALESCE(MAX(i.id), 0))
                      FROM imagens i JOIN carregamentos c ON c.id = i.carregamento_id
                     WHERE c.romaneio_id = r.id AND i.reason <> 'NORMAL'),
@@ -180,7 +183,10 @@ try {
                   (SELECT CONCAT(COUNT(*), ':', COALESCE(MAX(o.id), 0))
                      FROM ocorrencias o JOIN carregamentos c ON c.id = o.carregamento_id
                     WHERE c.romaneio_id = r.id)
-                ) AS content_fingerprint
+                ) AS content_fingerprint,
+                (SELECT COUNT(*)
+                   FROM solicitacoes_imagens_evidencia e JOIN carregamentos c ON c.id = e.carregamento_id
+                  WHERE c.romaneio_id = r.id AND e.status IN ('PENDENTE', 'CAPTURANDO')) AS photos_waiting
          FROM romaneios r
          WHERE r.status IN ('FINALIZADO', 'CANCELADO')
            AND r.updated_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
@@ -202,13 +208,18 @@ try {
             continue;
         }
         // Espera a última leitura e as fotos chegarem antes da primeira geração.
-        if ((int) $candidate["romaneio_updated"] > $now - 30) {
+        // A foto do Keyence pode levar até 120 s (KEYENCE_IMAGE_RECEIVE_TIMEOUT_MS):
+        // com foto ainda aguardando, espera até 150 s para não publicar um PDF
+        // sem ela e logo outro com ela.
+        $updatedAgo = $now - (int) $candidate["romaneio_updated"];
+        if ($updatedAgo < 30 || ((int) ($candidate["photos_waiting"] ?? 0) > 0 && $updatedAgo < 150)) {
             continue;
         }
 
         $result = relatorio_executar_filho(
             [PHP_BINARY, "-d", "memory_limit=384M", __DIR__ . "/gerar_relatorio_auditoria_interno.php", (string) $companyId, (string) $romaneioId],
-            180,
+            // Com 0,5 CPU, um romaneio com muitas fotos pode passar de 3 min.
+            300,
         );
         if (relatorio_saida_indica_sucesso($result["exit"], $result["stdout"])) {
             // Guarda a impressão calculada antes da geração: foto que chegou

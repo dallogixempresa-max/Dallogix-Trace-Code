@@ -1,17 +1,17 @@
-import { OfflineOperationBuffer, secureRandomId } from "./OfflineOperationBuffer.js?v=202611260005";
-import { ClienteApi, erroRespostaHttp } from "../api/ClienteApi.js?v=202611260005";
-import { ServicoSincronizacao } from "../servicos/ServicoSincronizacao.js?v=202611260005";
-import { ServicoDalas } from "../servicos/ServicoDalas.js?v=202611260005";
-import { ServicoObservabilidade } from "../servicos/ServicoObservabilidade.js?v=202611260005";
-import { ServicoCarregamentoAtivo } from "../servicos/ServicoCarregamentoAtivo.js?v=202611260005";
-import { ServicoComandosMaquina } from "../servicos/ServicoComandosMaquina.js?v=202611260005";
-import { ServicoLeiturasOperacionais } from "../servicos/ServicoLeiturasOperacionais.js?v=202611260005";
-import { logFrontend } from "../utilitarios/LogFrontend.js?v=202611260005";
-import { resolverComandoAtual } from "../funcoes/estado-comando.js?v=202611260005";
+import { OfflineOperationBuffer, secureRandomId } from "./OfflineOperationBuffer.js?v=202611260006";
+import { ClienteApi, erroRespostaHttp } from "../api/ClienteApi.js?v=202611260006";
+import { ServicoSincronizacao } from "../servicos/ServicoSincronizacao.js?v=202611260006";
+import { ServicoDalas } from "../servicos/ServicoDalas.js?v=202611260006";
+import { ServicoObservabilidade } from "../servicos/ServicoObservabilidade.js?v=202611260006";
+import { ServicoCarregamentoAtivo } from "../servicos/ServicoCarregamentoAtivo.js?v=202611260006";
+import { ServicoComandosMaquina } from "../servicos/ServicoComandosMaquina.js?v=202611260006";
+import { ServicoLeiturasOperacionais } from "../servicos/ServicoLeiturasOperacionais.js?v=202611260006";
+import { logFrontend } from "../utilitarios/LogFrontend.js?v=202611260006";
+import { resolverComandoAtual } from "../funcoes/estado-comando.js?v=202611260006";
 import {
   buscarTodasPaginas,
   validarCursorPaginacao as validarCursorPaginacaoApi,
-} from "../funcoes/paginacao-api.js?v=202611260005";
+} from "../funcoes/paginacao-api.js?v=202611260006";
 
 const LIMITE_IDADE_MONITORAMENTO_OPERACIONAL_MS = 6000;
 
@@ -211,7 +211,7 @@ export class ArmazenamentoTrace {
   obterServicoRomaneios() {
     return this.obterServicoSobDemanda(
       "servicoRomaneios",
-      () => import("../servicos/ServicoRomaneios.js?v=202611260005"),
+      () => import("../servicos/ServicoRomaneios.js?v=202611260006"),
       ({ ServicoRomaneios }) => new ServicoRomaneios({
         api: this.api,
         state: this.state,
@@ -225,7 +225,7 @@ export class ArmazenamentoTrace {
   obterServicoCatalogoProdutos() {
     return this.obterServicoSobDemanda(
       "servicoCatalogoProdutos",
-      () => import("../servicos/ServicoCatalogoProdutos.js?v=202611260005"),
+      () => import("../servicos/ServicoCatalogoProdutos.js?v=202611260006"),
       ({ ServicoCatalogoProdutos }) => new ServicoCatalogoProdutos({
         api: this.api,
         state: this.state,
@@ -238,7 +238,7 @@ export class ArmazenamentoTrace {
   obterServicoAdministracaoContas() {
     return this.obterServicoSobDemanda(
       "servicoAdministracaoContas",
-      () => import("../servicos/ServicoAdministracaoContas.js?v=202611260005"),
+      () => import("../servicos/ServicoAdministracaoContas.js?v=202611260006"),
       ({ ServicoAdministracaoContas }) => new ServicoAdministracaoContas({
         api: this.api,
         state: this.state,
@@ -252,7 +252,7 @@ export class ArmazenamentoTrace {
   obterServicoInstalacoesIndustriais() {
     return this.obterServicoSobDemanda(
       "servicoInstalacoesIndustriais",
-      () => import("../servicos/ServicoInstalacoesIndustriais.js?v=202611260005"),
+      () => import("../servicos/ServicoInstalacoesIndustriais.js?v=202611260006"),
       ({ ServicoInstalacoesIndustriais }) => new ServicoInstalacoesIndustriais({
         api: this.api,
         state: this.state,
@@ -265,7 +265,7 @@ export class ArmazenamentoTrace {
   obterServicoAcoesDala() {
     return this.obterServicoSobDemanda(
       "servicoAcoesDala",
-      () => import("../servicos/ServicoAcoesDala.js?v=202611260005"),
+      () => import("../servicos/ServicoAcoesDala.js?v=202611260006"),
       ({ ServicoAcoesDala }) => new ServicoAcoesDala({
         api: this.api,
         state: this.state,
@@ -627,6 +627,9 @@ export class ArmazenamentoTrace {
   }
   async registerReturn(readingId, reason) {
     return this.servicoLeiturasOperacionais.registerReturn(readingId, reason);
+  }
+  async registrarLeituraSemPassagem(loadingId, barcode, capturedAtEpochMs, motivo, opcoes = {}) {
+    return this.servicoLeiturasOperacionais.registrarLeituraSemPassagem(loadingId, barcode, capturedAtEpochMs, motivo, opcoes);
   }
   async registerScannerReading(barcode, scannerReceivedAtEpochMs = Date.now()) {
     return this.servicoLeiturasOperacionais.registerScannerReading(barcode, scannerReceivedAtEpochMs);

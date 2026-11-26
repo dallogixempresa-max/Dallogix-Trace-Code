@@ -1,5 +1,5 @@
 /* Estilos da tela importar-romaneio; a base responsiva é compartilhada. */
-@import url("/css/responsive.css?v=202611260005");
+@import url("/css/responsive.css?v=202611260006");
 
 /* Mantém o formulário equilibrado: três campos principais e dois campos
    complementares que ocupam a largura disponível sem deixar uma coluna vazia. */
@@ -166,4 +166,37 @@
   .pdf-import-card .actions {
     justify-content: stretch;
   }
+}
+
+/* Relatório por romaneio da importação CSV. */
+#csv-import-feedback .csv-import-summary {
+  margin: 0 0 6px;
+}
+
+#csv-import-feedback .csv-import-report {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+#csv-import-feedback .csv-import-report ul {
+  margin: 2px 0 0;
+  padding-left: 18px;
+}
+
+#csv-import-feedback .csv-import-report-item.is-imported {
+  color: var(--green);
+}
+
+#csv-import-feedback .csv-import-report-item.is-pending {
+  color: #8a6100;
+}
+
+#csv-import-feedback .csv-import-report-item.is-rejected {
+  color: var(--red);
+}
+
+#csv-import-feedback .csv-import-report-item.is-ignored {
+  color: var(--muted);
 }

@@ -82,6 +82,7 @@ export function createHidScannerCapture({
   getLoadingId = () => null,
   onBarcode = () => {},
   onBufferChange = () => {},
+  onDiscard = () => {},
   onError = (error) => console.error("Falha ao processar evento HID do leitor.", error),
   idleMs = 180,
   maxInterKeyMs = 160,
@@ -114,9 +115,19 @@ export function createHidScannerCapture({
     }
   }
 
-  function reset({ clearDisplay = true } = {}) {
+  function reportDiscard(texto, capturedAtEpochMs, motivo) {
+    if (!texto || !motivo) return;
+    try {
+      onDiscard(texto, capturedAtEpochMs, motivo);
+    } catch (error) {
+      onError(error);
+    }
+  }
+
+  function reset({ clearDisplay = true, motivo = "" } = {}) {
     const previousBuffer = buffer;
     const previousStartedAt = startedAt;
+    reportDiscard(previousBuffer.trim(), previousStartedAt, motivo);
     clearTimerIfSet();
     buffer = "";
     keyTimes = [];
@@ -155,6 +166,7 @@ export function createHidScannerCapture({
 
     if (!scannerCaptureEnabled()) {
       publishBuffer("", capturedAtEpochMs);
+      reportDiscard(barcode, capturedAtEpochMs, "tela fora da operação");
       return false;
     }
 
@@ -176,7 +188,7 @@ export function createHidScannerCapture({
     if (disposed) return false;
 
     if (!scannerCaptureEnabled()) {
-      reset();
+      reset({ motivo: "tela fora da operação" });
       return false;
     }
     if (event.defaultPrevented || event.ctrlKey || event.altKey || event.metaKey || isEditableTarget(event.target)) {
