@@ -94,7 +94,7 @@ verificar(str_contains($worker, "ORDER BY r.updated_at DESC, r.id DESC"), "O rom
 foreach (["solicitacoes_imagens_evidencia e", "imagens i", "leituras l", "eventos_sensor s", "retornos t", "ocorrencias o"] as $fonte) {
     verificar(str_contains($worker, "FROM {$fonte} JOIN carregamentos c"), "A impressão digital precisa cobrir {$fonte}.");
 }
-verificar(str_contains($worker, '$updatedAgo < 30 || ((int) ($candidate["photos_waiting"] ?? 0) > 0 && $updatedAgo < 150)'), "A primeira geração espera 30 s, ou até 150 s com foto do Keyence ainda aguardando.");
+verificar(!str_contains($worker, '$updatedAgo') && str_contains($worker, 'O PDF sai na hora'), "O PDF é gerado na hora da finalização, sem esperar 30 s ou 150 s.");
 verificar(str_contains($worker, "e.status IN ('PENDENTE', 'CAPTURANDO')"), "A geração conta as fotos ainda aguardando.");
 verificar(str_contains($worker, "e.status = 'ERRO'"), "Foto que expirou muda a impressão digital e regenera o PDF.");
 verificar(str_contains($worker, 'relatorio_saida_indica_sucesso($result["exit"], $result["stdout"])'), "O sucesso é lido só da saída normal.");

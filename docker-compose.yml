@@ -455,12 +455,12 @@ services:
       SCANNER_SIGNAL_LIMIT_SECONDS: ${SCANNER_SIGNAL_LIMIT_SECONDS:-15}
       KEYENCE_IMAGE_RECEIVE_TIMEOUT_MS: ${KEYENCE_IMAGE_RECEIVE_TIMEOUT_MS:-120000}
       KEYENCE_IMAGE_ARCHIVE_MATCH_WINDOW_MS: ${KEYENCE_IMAGE_ARCHIVE_MATCH_WINDOW_MS:-1500}
-      REPORT_WORKER_INTERVAL_SECONDS: ${REPORT_WORKER_INTERVAL_SECONDS:-15}
+      REPORT_WORKER_INTERVAL_SECONDS: ${REPORT_WORKER_INTERVAL_SECONDS:-5}
     command:
       [
         "sh",
         "-c",
-        "while true; do if php /var/www/scripts/gerar_relatorios_auditoria.php; then php /var/www/scripts/write_heartbeat.php /tmp/trace-report-worker-heartbeat || echo 'Falha ao gravar heartbeat dos relatórios' >&2; else echo 'Falha na geração automática de relatórios; heartbeat não atualizado' >&2; fi; sleep \"$${REPORT_WORKER_INTERVAL_SECONDS:-15}\"; done",
+        "while true; do if php /var/www/scripts/gerar_relatorios_auditoria.php; then php /var/www/scripts/write_heartbeat.php /tmp/trace-report-worker-heartbeat || echo 'Falha ao gravar heartbeat dos relatórios' >&2; else echo 'Falha na geração automática de relatórios; heartbeat não atualizado' >&2; fi; sleep \"$${REPORT_WORKER_INTERVAL_SECONDS:-5}\"; done",
       ]
     healthcheck:
       test:
