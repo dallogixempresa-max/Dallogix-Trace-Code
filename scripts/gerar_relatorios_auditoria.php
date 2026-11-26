@@ -180,6 +180,9 @@ try {
                   (SELECT CONCAT(COUNT(*), ':', COALESCE(MAX(t.id), 0))
                      FROM retornos t JOIN carregamentos c ON c.id = t.carregamento_id
                     WHERE c.romaneio_id = r.id),
+                  (SELECT CONCAT('sp:', COUNT(*), ':', COALESCE(MAX(u.id), 0))
+                     FROM leituras_sem_passagem u JOIN carregamentos c ON c.id = u.carregamento_id
+                    WHERE c.romaneio_id = r.id),
                   (SELECT CONCAT(COUNT(*), ':', COALESCE(MAX(o.id), 0))
                      FROM ocorrencias o JOIN carregamentos c ON c.id = o.carregamento_id
                     WHERE c.romaneio_id = r.id)

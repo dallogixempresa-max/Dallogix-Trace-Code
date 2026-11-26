@@ -31,6 +31,12 @@ function gtinValido(digitos) {
  * de leitura opcional (",0420"). Devolve [{ texto, inicio }] na ordem; texto
  * que não se encaixa volta como um resultado só.
  */
+/** Código completo: GTIN de 8, 12, 13 ou 14 dígitos com dígito verificador válido. */
+export function resultadoCompletoDoLeitor(value) {
+  const texto = String(value || "").trim();
+  return /^\d+$/.test(texto) && gtinValido(texto);
+}
+
 export function separarResultadosDoLeitor(value) {
   const texto = String(value || "").trim();
   const resultados = [];

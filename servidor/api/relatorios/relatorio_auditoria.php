@@ -1003,8 +1003,8 @@ if ($noReadRows === []) {
                 $row["product_name"] ?? "Não identificado",
                 $row["barcode"] ?? "—",
                 $row["sack_reference"] . (!empty($row["return_reason"]) ? " · Retirada: " . $row["return_reason"] : "")
-                    . (array_key_exists("has_image", $row) && empty($row["has_image"])
-                        ? " · O leitor não registrou falha nesta saca: o código chegou atrasado, se perdeu ou foi para outra saca"
+                    . (empty($row["has_image"]) && ($row["evidence_status"] ?? null) === "ERRO"
+                        ? " · Foto de falha não recebida: o leitor pode não ter registrado falha nesta saca (código atrasado ou em outra saca) ou a foto não chegou"
                         : ""),
             ],
             $noReadRows,

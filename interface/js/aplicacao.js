@@ -23,7 +23,7 @@ import { criarTratadorAcoesRelatorios } from "./controladores/acoes-relatorios.j
 import { criarDelegacaoAcoes, criarDespachanteAcoes } from "./controladores/despachante-acoes.js?v=202611260006";
 import { criarCarregadorPaginas } from "./controladores/carregador-paginas.js?v=202611260006";
 import { createLiveViewController } from "./controladores/estado-visualizacao.js?v=202611260006";
-import { createHidScannerCapture, isScannerNoReadMarker, separarTempoDeLeitura } from "./controladores/captura-leitor-hid.js?v=202611260006";
+import { createHidScannerCapture, isScannerNoReadMarker, resultadoCompletoDoLeitor, separarResultadosDoLeitor, separarTempoDeLeitura } from "./controladores/captura-leitor-hid.js?v=202611260006";
 import { aguardandoPassagemM2052 } from "./funcoes/leituras-sem-passagem.js?v=202611260006";
 import { createLocalConnectivityController } from "./controladores/conectividade-local.js?v=202611260006";
 import { bindManifestCreationForm, bindManifestEditForm } from "./controladores/formulario-romaneio.js?v=202611260006";
@@ -572,8 +572,14 @@ function installScannerHidReceiver() {
     onDiscard: (texto, capturedAtEpochMs, motivo) => {
       logFrontend.aviso("leitor.hid.descartada", new Error(`Captura do leitor descartada (${motivo}): ${texto}`));
       const loadingId = Number(store.state.loadingId);
-      if (loadingId && /^(?:\d{8,14}|ERROR)/i.test(texto)) {
-        registrarSemPassagem(loadingId, texto, capturedAtEpochMs, "DESCARTADA_TELA", isScannerNoReadMarker(texto));
+      if (!loadingId) return;
+      // Só resultados completos (GTIN com dígito verificador ou ERROR): trecho
+      // cortado no meio da digitação fica apenas no log.
+      for (const parte of separarResultadosDoLeitor(texto)) {
+        const codigo = separarTempoDeLeitura(parte.texto).codigo;
+        if (isScannerNoReadMarker(codigo) || resultadoCompletoDoLeitor(codigo)) {
+          registrarSemPassagem(loadingId, parte.texto, capturedAtEpochMs, "DESCARTADA_TELA", isScannerNoReadMarker(codigo));
+        }
       }
     },
     getLoadingId: () => Number(store.state.loadingId),

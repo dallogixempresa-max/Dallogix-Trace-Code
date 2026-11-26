@@ -67,7 +67,7 @@ test("a operação grava sem passagem e esteira parada; o servidor guarda e o PD
   const relatorio = await ler("servidor/api/relatorios/relatorio_auditoria.php");
   assert.match(relatorio, /Leituras do leitor sem passagem/);
   assert.match(relatorio, /FROM leituras_sem_passagem u/);
-  assert.match(relatorio, /O leitor não registrou falha nesta saca/);
+  assert.match(relatorio, /Foto de falha não recebida/);
   const sensor = await ler("servidor/api/operacoes/sensor_eventos.php");
   assert.match(sensor, /'sensor\.passagem\.antiduplicacao'/);
 });
