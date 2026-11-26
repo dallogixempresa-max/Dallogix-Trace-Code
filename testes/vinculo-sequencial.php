@@ -77,17 +77,31 @@ putenv('TRACE_SCANNER_LINK_MODE');
 
 // Geometria da fábrica: sacas de ~0,60 m com 10 cm livres a 0,7 m/s → 0,14 s
 // livres e ~1.000 ms de uma passagem à seguinte. O resultado chega 0,9–2,3 s
-// depois da própria passagem; uma saca dá ERROR. Cada saca recebe o seu.
+// depois da própria passagem; uma saca dá ERROR. O leitor responde na ordem dos
+// disparos, então os resultados são entregues pela hora de chegada.
 $db = banco();
-$atrasos = [1 => 900, 2 => 1500, 3 => 1680, 4 => 2300, 5 => 1100, 6 => 2200];
-foreach ($atrasos as $saca => $_) {
-    passagem($db, $saca, $base + ($saca - 1) * 1000);
-}
+$atrasos = [1 => 900, 2 => 1500, 3 => 1680, 4 => 2300, 5 => 2200, 6 => 1700];
+$chegadas = [];
 foreach ($atrasos as $saca => $atraso) {
+    passagem($db, $saca, $base + ($saca - 1) * 1000);
+    $chegadas[$saca] = $base + ($saca - 1) * 1000 + $atraso;
+}
+asort($chegadas);
+confere(array_keys($chegadas) === [1, 2, 3, 4, 5, 6], 'Os resultados do cenário chegam na ordem dos disparos.');
+foreach ($chegadas as $saca => $chegada) {
     $erro = $saca === 4;
-    confere(vinculo($db, $base + ($saca - 1) * 1000 + $atraso, $erro) === $saca, "Saca {$saca} (atraso {$atraso} ms" . ($erro ? ', ERROR' : '') . ') recebe o próprio resultado.');
+    confere(vinculo($db, $chegada, $erro) === $saca, "Saca {$saca} (atraso {$atrasos[$saca]} ms" . ($erro ? ', ERROR' : '') . ') recebe o próprio resultado.');
     leitura($db, $saca, $erro ? 'SEM_LEITURA' : 'VALIDO');
 }
+
+// Uma passagem anterior entregue com atraso pelo Node-RED (id maior) não fica
+// escondida por muitas passagens posteriores ao resultado.
+$db = banco();
+for ($id = 1; $id <= 600; $id++) {
+    passagem($db, $id, $base + 60000 + $id * 1000);
+}
+passagem($db, 601, $base, 900);
+confere(vinculo($db, $base + 1300) === 601, 'Passagens posteriores ao resultado não escondem a passagem anterior.');
 
 // Carregamento 149 (vídeo de 26/11): três sacas a ~505 ms, código ~1.354 ms
 // depois da própria passagem e um ERROR no meio. Antes tudo era recusado.
@@ -108,6 +122,13 @@ passagem($db, 1, $base);
 passagem($db, 2, $base + 1000);
 passagem($db, 3, $base + 2000);
 confere(vinculo($db, $base + 3500) === 1, 'Resultado atrasado vai para a própria saca.');
+
+// Passagem que já venceu o prazo de segurança (~4,7 s) e ainda não foi varrida
+// não recebe o código da saca seguinte.
+$db = banco();
+passagem($db, 1, $base);
+passagem($db, 2, $base + 5000);
+confere(vinculo($db, $base + 6000) === 2, 'Passagem vencida e não varrida não recebe código.');
 
 // Causa: a saca precisa ter passado pelo sensor antes do resultado. Código que
 // chega antes da passagem não é ligado (a tela espera a passagem chegar).
@@ -142,11 +163,13 @@ passagem($db, 1, $base, 40, false);
 passagem($db, 2, $base + 1000, 40, true);
 confere(vinculo($db, $base + 1500) === 1, 'Passagem só com a hora do servidor entra na ordem certa.');
 
-// Requisito documentado: um resultado perdido desloca o código seguinte
-// para a saca anterior (a contagem por produto não muda).
+// Limite conhecido (sem identificador do disparo não há como detectar): se o
+// resultado de B se perde em silêncio, o código de C vai para B.
 $db = banco();
 passagem($db, 1, $base);
 passagem($db, 2, $base + 1000);
-confere(vinculo($db, $base + 1000 + 1300) === 1, 'Sem o resultado da saca 1, o código seguinte vai para ela (requisito: um resultado por saca).');
+passagem($db, 3, $base + 2000);
+leitura($db, 1);
+confere(vinculo($db, $base + 2000 + 1300) === 2, 'Sem o resultado de B, o código de C vai para B (requisito: um resultado por saca).');
 
 echo "Ligação sequencial: {$verificacoes} verificações passaram.\n";

@@ -67,7 +67,7 @@ function trace_scanner_event_match(
 }
 
 /** Quantas passagens em aberto a fila examina (o prazo de segurança fecha as antigas). */
-const TRACE_SEQUENTIAL_QUEUE_LIMIT = 50;
+const TRACE_SEQUENTIAL_QUEUE_LIMIT = 500;
 
 /**
  * Passagens do carregamento ainda sem resultado, já vistas pelo sensor antes
@@ -92,12 +92,21 @@ function trace_sequential_open_passages(
 ): array {
     $lockSql = $forUpdate ? " FOR UPDATE" : "";
     $limit = TRACE_SEQUENTIAL_QUEUE_LIMIT;
+    // A condição de causa entra no WHERE, antes do LIMIT: passagens posteriores
+    // ao resultado não podem ocupar o limite e esconder uma passagem anterior
+    // que o Node-RED entregou com atraso (id maior). O pulso Modbus começa até
+    // TRACE_MODBUS_PASSAGE_WINDOW_MAX_MS antes da detecção; a conferência exata
+    // continua abaixo.
     $statement = $pdo->prepare(
         "SELECT s.id, s.device_detected_at, s.modbus_passage_from_epoch_ms,
                 CAST(ROUND(UNIX_TIMESTAMP(s.detected_at) * 1000) AS UNSIGNED) AS server_detected_at_epoch_ms
          FROM eventos_sensor s
          WHERE s.carregamento_id = :loading_id
            AND s.equipment_id = :equipment_id
+           AND (
+             (s.device_detected_at IS NOT NULL AND s.device_detected_at <= :device_scan_limit)
+             OR (s.device_detected_at IS NULL AND s.detected_at <= FROM_UNIXTIME(:server_scan_ms / 1000.0))
+           )
            AND NOT EXISTS (SELECT 1 FROM leituras l WHERE l.sensor_event_id = s.id)
          ORDER BY s.id ASC
          LIMIT {$limit}{$lockSql}",
@@ -105,6 +114,8 @@ function trace_sequential_open_passages(
     $statement->execute([
         "loading_id" => $loadingId,
         "equipment_id" => $equipmentId,
+        "device_scan_limit" => trace_epoch_ms_to_sql_datetime($scanObservedAtMs + TRACE_MODBUS_PASSAGE_WINDOW_MAX_MS),
+        "server_scan_ms" => $scanObservedAtMs,
     ]);
 
     $open = [];
@@ -121,6 +132,12 @@ function trace_sequential_open_passages(
             ? trace_modbus_passage_from_ms($row["modbus_passage_from_epoch_ms"], $detectedAtMs)
             : null;
         if (($fromMs ?? $detectedAtMs) > $scanObservedAtMs) {
+            continue;
+        }
+        // Passagem que já venceu o prazo de segurança (o mesmo do
+        // FINALIZE_EXPIRED) não recebe código só porque a varredura ainda não
+        // rodou (heartbeat falhou, emergência, reenvio antigo).
+        if ($detectedAtMs <= $scanObservedAtMs - (trace_scanner_timing()["no_read_deadline_ms"] + 3000)) {
             continue;
         }
         $open[] = [
