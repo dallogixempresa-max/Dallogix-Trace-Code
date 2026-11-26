@@ -68,8 +68,15 @@ if ($action === "STATUS") {
     } catch (InvalidArgumentException $exception) {
         json_response(["error" => $exception->getMessage()], 422);
     }
+    // Falha de leitura (ERROR) pode ocupar a passagem que o prazo já finalizou
+    // como SEM_LEITURA, como em leituras.php. Sem o mesmo critério, em duas
+    // falhas seguidas o STATUS escolhia outra passagem e o POST respondia 409.
+    $noRead = $payload["no_read"] ?? false;
+    if (!is_bool($noRead)) {
+        json_response(["error" => "Indicador de falha de leitura inválido."], 422);
+    }
     $active = $pdo->prepare(
-        "SELECT c.id FROM carregamentos c
+        "SELECT c.id, c.state FROM carregamentos c
          WHERE equipment_id = :equipment_id AND company_id = :company_id
            AND (state IN ('CARREGANDO', 'FINALIZANDO', 'PAUSADO')
              OR (state = 'FINALIZADO' AND EXISTS (
@@ -85,7 +92,14 @@ if ($action === "STATUS") {
         "equipment_id" => $device["equipment_id"],
         "company_id" => $device["company_id"],
     ]);
-    $loadingId = (int) ($active->fetchColumn() ?: 0);
+    $activeLoading = $active->fetch(PDO::FETCH_ASSOC) ?: null;
+    $loadingId = (int) ($activeLoading["id"] ?? 0);
+    // Estado do carregamento escolhido: o worker só conta como "sem passagem"
+    // o código recebido com a esteira em CARREGANDO, como a rota HID, que
+    // descarta a captura com a esteira parada.
+    $activeLoadingState = $loadingId > 0 && is_string($activeLoading["state"] ?? null)
+        ? (string) $activeLoading["state"]
+        : null;
     $pendingSensorEventIds = [];
     if ($loadingId > 0) {
         $match = trace_pending_scanner_event_match(
@@ -93,6 +107,8 @@ if ($action === "STATUS") {
             $loadingId,
             (int) $device["equipment_id"],
             $scannerObservedAtMs,
+            false,
+            $noRead,
         );
         if ($match["best"] !== null) {
             $pendingSensorEventIds = [$match["best"]["sensor_event_id"]];
@@ -101,6 +117,7 @@ if ($action === "STATUS") {
     json_response(["data" => [
         "equipment_id" => $device["equipment_id"],
         "active_loading_id" => $loadingId ?: null,
+        "active_loading_state" => $activeLoadingState,
         "pending_sensor_event_id" => $pendingSensorEventIds[0] ?? null,
         "pending_sensor_event_ids" => $pendingSensorEventIds,
     ]]);

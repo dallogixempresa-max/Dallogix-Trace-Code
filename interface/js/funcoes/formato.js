@@ -1,4 +1,4 @@
-import { agora } from "./relogio.js?v=202611250001";
+import { agora } from "./relogio.js?v=202611260002";
 
 const traceTimeZone = "America/Sao_Paulo";
 const dateOnly = new Intl.DateTimeFormat("pt-BR", {
@@ -48,6 +48,22 @@ export function data(value, fallback = "—") {
 export function dataHora(value, fallback = "—") {
   const parsed = parseDate(value);
   return parsed ? dateTime.format(parsed) : fallback;
+}
+
+const timeOnly = new Intl.DateTimeFormat("pt-BR", {
+  hour: "2-digit",
+  minute: "2-digit",
+  timeZone: traceTimeZone,
+});
+
+export function hora(value, fallback = "—") {
+  const parsed = parseDate(value);
+  return parsed ? timeOnly.format(parsed) : fallback;
+}
+
+/** Instante em milissegundos com a mesma regra de fuso da exibição; null se inválido. */
+export function instanteMs(value) {
+  return parseDate(value)?.getTime() ?? null;
 }
 
 export function numero(value, fallback = "0") {

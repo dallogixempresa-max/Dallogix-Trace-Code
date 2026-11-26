@@ -296,7 +296,7 @@ test("uma passagem ausente permanece sinalizada quando chega um código válido"
     scannerUnmatchedCount: 1,
     latestScannerReading: { result: "VALIDO", value: "7898538751531" },
   });
-  assert.match(markup, /data-live="scanner-unmatched-notice" role="status">Leituras sem passagem nesta tela/);
+  assert.match(markup, /data-live="scanner-unmatched-notice" role="status">Leituras sem passagem neste carregamento/);
   assert.match(markup, /data-live="scanner-unmatched-count">1<\/strong>/);
   assert.match(markup, /7898538751531/);
 });

@@ -1,3 +1,5 @@
+import { criarAvaliadorLeiturasDoServidor } from "../funcoes/leitor-rota-tcp.js?v=202611260002";
+
 export class ServicoCarregamentoAtivo {
   constructor({
     api,
@@ -13,6 +15,10 @@ export class ServicoCarregamentoAtivo {
     setRefreshQueue,
     applySnapshotFromStore,
     applyListFromStore,
+    notifyServerReading = () => {},
+    // Sem relógio injetado, o avaliador usa o relógio da tela (relogio.js),
+    // o mesmo que compara os horários gravados pelo servidor.
+    now = undefined,
   }) {
     this.api = api;
     this.state = state;
@@ -27,6 +33,8 @@ export class ServicoCarregamentoAtivo {
     this.setRefreshQueue = setRefreshQueue;
     this.applySnapshotFromStore = applySnapshotFromStore;
     this.applyListFromStore = applyListFromStore;
+    this.notifyServerReading = notifyServerReading;
+    this.avaliadorLeituras = criarAvaliadorLeiturasDoServidor({ agora: now });
   }
 
   async prepareLoading(payload) {
@@ -180,6 +188,7 @@ export class ServicoCarregamentoAtivo {
       this.state.latestScannerReading = null;
       this.lastServerScannerReadAt = undefined;
       this.state.scannerUnmatchedCount = 0;
+      this.avaliadorLeituras.reiniciar();
       return null;
     }
 
@@ -247,6 +256,16 @@ export class ServicoCarregamentoAtivo {
     this.state.equipmentId = Number(loading.equipment_id) || null;
     this.state.loadingItems = Array.isArray(loading.items) ? loading.items : [];
     this.applyCommandIntent();
+    // Leitura gravada sem passar por esta tela (rota TCP): mesmos avisos que a
+    // rota HID mostra pela resposta do POST, uma vez por leitura.
+    const avisos = this.avaliadorLeituras.avaliar(this.state, loading, selectionChanged);
+    if (avisos.length) {
+      try {
+        this.notifyServerReading(avisos, loading);
+      } catch {
+        // Aviso visual não pode impedir a atualização do estado do carregamento.
+      }
+    }
     return loading;
   }
 }
