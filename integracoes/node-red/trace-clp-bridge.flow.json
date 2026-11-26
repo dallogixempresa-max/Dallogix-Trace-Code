@@ -251,6 +251,85 @@
     ]
   },
   {
+    "id": "command-stop-tick",
+    "type": "inject",
+    "z": "trace-clp-bridge",
+    "name": "Aguardar parada de segurança • consulta longa",
+    "props": [],
+    "repeat": "0.1",
+    "crontab": "",
+    "once": true,
+    "onceDelay": "2.5",
+    "topic": "",
+    "x": 200,
+    "y": 330,
+    "wires": [
+      [
+        "command-stop-claim-build"
+      ]
+    ]
+  },
+  {
+    "id": "command-stop-claim-build",
+    "type": "function",
+    "z": "trace-clp-bridge",
+    "name": "Aguardar parada de segurança",
+    "func": "// Parada de segurança decidida pelo servidor (produto incorreto, acima da\n// quantidade, meta) sai em ~100 ms, inclusive a que nasce da leitura do\n// Keyence, que não tem o CLAIM imediato da passagem. O servidor segura a\n// consulta até 1,5 s esperando a pausa, então são menos de 1 requisição por\n// segundo por Dala. Ligar a esteira e a parada manual continuam na consulta de 2 s.\nconst baseUrl = String(env.get('TRACE_API_URL') || '').replace(/\\/$/, '');\nconst token = String(env.get('TRACE_DEVICE_TOKEN') || '').trim();\nif (!baseUrl || !token || /[,;\\n]/.test(token)) return null;\nconst ids = flow.get('trace_sensor_equipment_ids') || [];\nconst now = Date.now();\nconst claims = [];\nfor (const id of ids) {\n    const config = flow.get(`trace_sensor_equipment_${id}`);\n    // Só com carga ativa (CARREGANDO, FINALIZANDO ou PAUSADO): fora dela não há pausa de segurança.\n    if (!config || !(Number(config.activeLoadingId) > 0) || !config.traceEquipment) continue;\n    const waitKey = `trace_safety_stop_claim_until_${config.equipmentId}`;\n    const seqKey = `trace_safety_stop_claim_seq_${config.equipmentId}`;\n    const blockedUntil = Number(flow.get(waitKey) || 0);\n    // Uma consulta por Dala de cada vez. Resposta perdida libera em 4 s (a\n    // requisição desiste em 3,5 s); relógio que voltou (marca mais de 4 s no\n    // futuro) também libera.\n    if (blockedUntil > now && blockedUntil - now <= 4000) continue;\n    const seq = (Number(flow.get(seqKey)) || 0) + 1;\n    flow.set(seqKey, seq);\n    flow.set(waitKey, now + 4000);\n    claims.push({\n        traceToken: token,\n        equipmentId: config.equipmentId,\n        traceEquipment: config.traceEquipment,\n        modbusHost: config.host,\n        modbusPort: config.port,\n        modbusUnit: config.unit,\n        stopClaimSeq: seq,\n        stopClaimSentAt: now,\n        requestTimeout: 3500,\n        url: `${baseUrl}/api/plc_gateway.php`,\n        method: 'POST',\n        headers: { 'X-Device-Token': token, 'Content-Type': 'application/json' },\n        // O servidor não reserva depois de wait_until: requisição atrasada na\n        // fila do PHP deixa a pausa PENDENTE para a próxima consulta.\n        payload: { action: 'CLAIM', equipment_id: Number(config.equipmentId), priority_stop_only: true, wait_until_epoch_ms: now + 1500 },\n    });\n}\nreturn claims.length ? [claims] : null;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 460,
+    "y": 330,
+    "wires": [
+      [
+        "command-stop-claim-http"
+      ]
+    ]
+  },
+  {
+    "id": "command-stop-claim-http",
+    "type": "http request",
+    "z": "trace-clp-bridge",
+    "name": "POST CLAIM parada de segurança",
+    "method": "use",
+    "ret": "obj",
+    "paytoqs": "ignore",
+    "url": "",
+    "persist": false,
+    "authType": "",
+    "senderr": false,
+    "x": 720,
+    "y": 330,
+    "wires": [
+      [
+        "command-stop-claim-release"
+      ]
+    ]
+  },
+  {
+    "id": "command-stop-claim-release",
+    "type": "function",
+    "z": "trace-clp-bridge",
+    "name": "Liberar consulta de parada",
+    "func": "const status = Number(msg.statusCode);\nconst equipmentId = Number(msg.equipmentId);\nconst waitKey = `trace_safety_stop_claim_until_${equipmentId}`;\nconst seqKey = `trace_safety_stop_claim_seq_${equipmentId}`;\n// Só a resposta da consulta atual mexe na espera: uma resposta atrasada de uma\n// consulta anterior não pode liberar a que está em voo (duas consultas longas\n// presas nos 5 processos PHP).\nif (Number(flow.get(seqKey)) === Number(msg.stopClaimSeq)) {\n    if (status === 200) {\n        flow.set(waitKey, 0);\n    } else if (status === 204) {\n        // Nenhuma pausa na espera. No mínimo 1,6 s entre consultas, mesmo se o\n        // servidor responder na hora: abaixo de 1 requisição por segundo.\n        const sentAt = Number(msg.stopClaimSentAt) || 0;\n        flow.set(waitKey, sentAt > 0 ? sentAt + 1600 : 0);\n    } else {\n        // Falha de rede, tempo esgotado, 4xx ou 5xx: espera 2 s, como a\n        // consulta normal, para o log não receber um erro a cada volta.\n        flow.set(waitKey, Date.now() + 2000);\n    }\n}\n// Pausa reservada segue para a escrita mesmo se a resposta chegou atrasada.\nif (status !== 200) return null;\nreturn msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 960,
+    "y": 330,
+    "wires": [
+      [
+        "command-safe-gate"
+      ]
+    ]
+  },
+  {
     "id": "command-claim-build",
     "type": "function",
     "z": "trace-clp-bridge",

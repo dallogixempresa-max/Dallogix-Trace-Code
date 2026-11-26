@@ -9,6 +9,9 @@ require_once __DIR__ . "/../../src/Aplicacao/ServicoGatewayClp.php";
 use App\Aplicacao\ExcecaoGatewayClp;
 use App\Aplicacao\ServicoGatewayClp;
 
+// Menor que o tempo limite de 3,5 s da requisição do node-red (command-stop-claim-build).
+const TRACE_ESPERA_PARADA_DE_SEGURANCA_MS = 1500;
+
 // Este endpoint é exclusivo do gateway industrial instalado no PC da máquina.
 // A credencial identifica o dispositivo e limita a fila à sua própria Dala.
 $device = require_device_token(["CLP"]);
@@ -38,11 +41,27 @@ try {
                 json_response(["error" => "Solicitação de parada prioritária inválida."], 422);
             }
         }
-        $request = $service->reservarComando(
-            $device["equipment_id"],
-            $device["id"],
-            $priorityStopRequestId === null ? null : (int) $priorityStopRequestId,
+        // Consulta longa do node-red durante a carga: espera até 1,5 s por uma
+        // pausa de segurança já decidida pelo servidor (leitura ou sensor) e a
+        // entrega em ~100 ms. Ligar a esteira fica na consulta normal de 2 s.
+        $safetyStopOnly = ($payload["priority_stop_only"] ?? false) === true;
+        $clientDeadline = ServicoGatewayClp::prazoDoCliente(
+            $payload["wait_until_epoch_ms"] ?? null,
+            (int) round(microtime(true) * 1000),
         );
+        $request = $safetyStopOnly && $priorityStopRequestId === null
+            ? $service->aguardarParadaDeSeguranca(
+                $device["equipment_id"],
+                $device["id"],
+                TRACE_ESPERA_PARADA_DE_SEGURANCA_MS,
+                100,
+                $clientDeadline,
+            )
+            : $service->reservarComando(
+                $device["equipment_id"],
+                $device["id"],
+                $priorityStopRequestId === null ? null : (int) $priorityStopRequestId,
+            );
         if (!$request) {
             http_response_code(204);
             exit();
