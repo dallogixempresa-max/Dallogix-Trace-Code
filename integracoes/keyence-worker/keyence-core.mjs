@@ -88,6 +88,39 @@ export function matchPendingImage(receivedAt, requests, windowMs, timestampField
  * window. FTP filenames do not carry a Trace passage ID, so choosing the
  * nearest of multiple candidates can attach the photo to the wrong sack.
  */
+/** Atraso máximo entre a passagem de uma saca e a foto de falha tirada pelo leitor. */
+export const FAILURE_PHOTO_MAX_DELAY_MS = 10000;
+
+/**
+ * Foto de falha do Keyence ligada pela ORDEM, conferida pelo horário.
+ *
+ * O leitor tira exatamente uma foto por falha, em sequência, quando a saca
+ * termina de passar; com sacas próximas isso acontece depois da passagem da
+ * saca seguinte, então "a saca mais próxima do horário" erra. A foto vai para
+ * a saca sem leitura MAIS ANTIGA que ainda não tem foto e que passou antes da
+ * foto (até FAILURE_PHOTO_MAX_DELAY_MS antes). Saca com foto sai da fila.
+ * Sacas fechadas só pelo prazo (sem ERROR do leitor, sem foto a esperar) só
+ * entram se não houver falha com ERROR elegível.
+ */
+export function matchFailurePhotoInOrder(capturedAt, requests, reserved = new Set()) {
+  const elegiveis = (Array.isArray(requests) ? requests : []).filter((request) => {
+    if (request?.reason !== "SEM_LEITURA") return false;
+    if (request.status === "CAPTURADA" || request.image_sha256) return false;
+    if (reserved.has(Number(request.id))) return false;
+    const passagem = Number(request.passage_at_epoch_ms);
+    return Number.isFinite(passagem) && passagem > 0
+      && Number(capturedAt) >= passagem
+      && Number(capturedAt) - passagem <= FAILURE_PHOTO_MAX_DELAY_MS;
+  });
+  const ordenar = (lista) => lista.slice().sort((a, b) =>
+    Number(a.passage_at_epoch_ms) - Number(b.passage_at_epoch_ms) || Number(a.id) - Number(b.id));
+  const comErro = ordenar(elegiveis.filter((request) => !request.closed_by_timeout));
+  const escolhida = comErro[0] ?? ordenar(elegiveis)[0] ?? null;
+  return escolhida
+    ? { request: escolhida, reason: null, candidateCount: elegiveis.length }
+    : { request: null, reason: "sem_falha_sem_foto", candidateCount: 0 };
+}
+
 /** Última saca do carregamento (sem passagem seguinte): foto aceita até este tempo depois dela. */
 export const ARCHIVE_IMAGE_OPEN_INTERVAL_MAX_MS = 10000;
 

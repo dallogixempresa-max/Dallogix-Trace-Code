@@ -6,7 +6,7 @@ import { link, mkdir, readFile, readdir, rename, unlink, writeFile } from "node:
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { createFtpReceiver } from "./ftp-receiver.mjs";
-import { isAllowedSourceAddress, isKeyenceNoReadFrame, loadPendingImagePages, matchUniquePendingImage, nextUnreservedSensorEventId, parseBarcodeFrame, parseLinuxDefaultGateway, scanEventId, sha256 } from "./keyence-core.mjs";
+import { isAllowedSourceAddress, isKeyenceNoReadFrame, loadPendingImagePages, matchFailurePhotoInOrder, matchUniquePendingImage, nextUnreservedSensorEventId, parseBarcodeFrame, parseLinuxDefaultGateway, scanEventId, sha256 } from "./keyence-core.mjs";
 import { importArchivedImages, readRecoveryImage, scanArchiveForRecovery } from "./image-archive.mjs";
 
 const SERVICE_NAME = "keyence-worker";
@@ -625,7 +625,13 @@ async function processImageQueue() {
       const matchWindowMs = timestampField === "image_expected_at_epoch_ms"
         ? IMAGE_ARCHIVE_MATCH_WINDOW_MS
         : IMAGE_MATCH_WINDOW_MS;
-      const match = matchUniquePendingImage(receivedAt, pendingRequests, matchWindowMs, timestampField);
+      // Foto do arquivo de falhas do Keyence: pela ordem das falhas sem foto;
+      // as demais (FTP direto, produto incorreto, excesso) seguem a janela.
+      // Sem volta à janela para as fotos de falha: foi ela que pôs duas fotos
+      // numa saca e deixou outras sem foto com sacas próximas.
+      const match = archived
+        ? matchFailurePhotoInOrder(receivedAt, pendingRequests, reserved)
+        : matchUniquePendingImage(receivedAt, pendingRequests, matchWindowMs, timestampField);
       const imageHash = name.slice(15, 79).toLowerCase();
       const groupKey = name;
       if (!match.request) {
@@ -659,6 +665,9 @@ async function processImageQueue() {
         if (error.status === 404 || error.status === 409) {
           // Uma solicitação concorrente pode ter concluído o vínculo. Reavalie
           // no próximo ciclo; não descarte a imagem com base apenas no horário.
+          // Foto de falha: as seguintes também esperam o próximo ciclo, para a
+          // ordem não pular para a saca seguinte enquanto esta não foi ligada.
+          if (archived) break;
           continue;
         }
         setError(error);
