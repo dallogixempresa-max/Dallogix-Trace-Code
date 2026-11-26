@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { createServer as createHttpServer } from "node:http";
 import { execFile as execFileCallback } from "node:child_process";
-import { createServer as createTcpServer, isIP } from "node:net";
+import { isIP } from "node:net";
 import { link, mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { createFtpReceiver } from "./ftp-receiver.mjs";
-import { isAllowedSourceAddress, isKeyenceNoReadFrame, loadPendingImagePages, matchUniquePendingImage, nextUnreservedSensorEventId, parseBarcodeFrame, parseLinuxDefaultGateway, scanEventId, sha256 } from "./keyence-core.mjs";
+import { COUNTED_LOADING_STATE, createKeyenceTcpReceiver, createTcpRouteStats, drainScanQueue, loadPendingImagePages, matchUniquePendingImage, nextUnreservedSensorEventId, normalizeLoadingState, parseLinuxDefaultGateway, recoverInFlightScans, rejectedFrameRecord, scanEventId, sha256, traceRejectionReason, writeInFlightScan, writeScanRecord } from "./keyence-core.mjs";
 import { importArchivedImages, readRecoveryImage, scanArchiveForRecovery } from "./image-archive.mjs";
 
 const SERVICE_NAME = "keyence-worker";
@@ -37,6 +37,8 @@ const IMAGE_ARCHIVE_DIRS = [...new Set((process.env.KEYENCE_IMAGE_ARCHIVE_DIRS
   .filter(Boolean))];
 const SCAN_QUEUE_DIR = join(INBOX_DIR, "scans");
 const FAILED_SCAN_DIR = join(INBOX_DIR, "failed-scans");
+// Quadros aceitos ficam aqui até irem para a fila ou para failed-scans.
+const IN_FLIGHT_SCAN_DIR = join(INBOX_DIR, "in-flight-scans");
 const QUARANTINE_DIR = join(INBOX_DIR, "quarantine");
 const TCP_BIND_ADDRESS = process.env.KEYENCE_SERVICE_BIND || "0.0.0.0";
 const IMAGE_MATCH_WINDOW_MS = boundedInteger(process.env.KEYENCE_IMAGE_MATCH_WINDOW_MS, 3000, 1000, 60000);
@@ -49,12 +51,23 @@ const ARCHIVE_RECOVERY_ENABLED = process.env.KEYENCE_ARCHIVE_RECOVERY_ENABLED ==
 const IMAGE_MAX_AGE_MS = boundedInteger(process.env.KEYENCE_IMAGE_MAX_AGE_MS, 300000, 30000, 86400000);
 const POLL_MS = boundedInteger(process.env.KEYENCE_POLL_MS, 500, 100, 5000);
 const HEARTBEAT_MS = boundedInteger(process.env.KEYENCE_HEARTBEAT_MS, 5000, 1000, 60000);
-const SCANNER_NO_READ_TIMEOUT_MS = boundedInteger(process.env.TRACE_SCANNER_NO_READ_TIMEOUT_MS, 1500, 500, 10000);
-const SCAN_ASSOCIATION_WAIT_MS = Math.max(100, SCANNER_NO_READ_TIMEOUT_MS - 250);
 // Quando o Trace não responde, a passagem só é encerrada como SEM_LEITURA
 // depois do prazo do sensor (~4,7 s). Tente associar até pouco antes disso.
-const SCAN_ASSOCIATION_UNAVAILABLE_WAIT_MS = boundedInteger(process.env.KEYENCE_ASSOCIATION_UNAVAILABLE_WAIT_MS, 4000, SCAN_ASSOCIATION_WAIT_MS, 30000);
+const SCAN_ASSOCIATION_UNAVAILABLE_WAIT_MS = boundedInteger(process.env.KEYENCE_ASSOCIATION_UNAVAILABLE_WAIT_MS, 4000, 1000, 30000);
+// A passagem pode chegar ao Trace ~1,5 s atrasada quando o Node-RED a reenvia
+// depois de um deadlock; a rota HID espera até 3 s por ela e o servidor só a
+// encerra como SEM_LEITURA (FINALIZE_EXPIRED) depois de ~4,7 s. A espera não
+// depende mais do prazo de não leitura do leitor.
+const SCAN_ASSOCIATION_WAIT_MS = Math.min(
+  boundedInteger(process.env.KEYENCE_ASSOCIATION_WAIT_MS, 3000, 100, SCAN_ASSOCIATION_UNAVAILABLE_WAIT_MS),
+  SCAN_ASSOCIATION_UNAVAILABLE_WAIT_MS,
+);
+// O nginx limita /api a 10 req/s por IP, com rajada de 5 em keyence_worker.php.
+// Durante a espera o STATUS é consultado no máximo a cada 250 ms (4 req/s), e
+// a consulta periódica do laço principal é suspensa enquanto houver associação.
+const SCAN_ASSOCIATION_POLL_MS = 250;
 const MAX_SCAN_BYTES = 2048;
+const TCP_KEEPALIVE_INITIAL_DELAY_MS = 10000;
 const execFile = promisify(execFileCallback);
 
 let shuttingDown = false;
@@ -84,8 +97,12 @@ let processingImages = false;
 let scanQueuePromise = null;
 let scanFrameQueue = Promise.resolve();
 const reservedSensorEventIds = new Set();
+const scanQueueRetries = new Map();
+const tcpRouteStats = createTcpRouteStats();
+let failedScansPending = 0;
+let associationsInProgress = 0;
 let ftpReceiver = null;
-let tcpServer = null;
+let tcpReceiver = null;
 let healthServer = null;
 
 function log(level, message, details = {}) {
@@ -98,6 +115,27 @@ function log(level, message, details = {}) {
 
 function setError(error) {
   lastError = String(error instanceof Error ? error.message : error || "erro inesperado").slice(0, 240);
+}
+
+// Problemas de associação e registro ficam em scan_error, que o STATUS não
+// apaga (o lastError é limpo a cada STATUS bem-sucedido).
+function setScanError(message) {
+  tcpRouteStats.setScanError(message);
+}
+
+function tcpRouteSnapshot() {
+  return tcpRouteStats.snapshot(tcpReceiver?.state(), failedScansPending);
+}
+
+// Conta os arquivos de failed-scans uma vez por heartbeat; a saúde HTTP usa o
+// último valor para não ler o diretório a cada consulta.
+async function refreshFailedScansPending() {
+  try {
+    failedScansPending = (await readdir(FAILED_SCAN_DIR)).filter((name) => !name.endsWith(".tmp")).length;
+  } catch (error) {
+    if (error?.code === "ENOENT") failedScansPending = 0;
+    else log("warn", "Não foi possível contar os arquivos de failed-scans do Keyence.", { reason: String(error?.message || error) });
+  }
 }
 
 function apiUrl(path) {
@@ -133,11 +171,14 @@ async function apiRequest(path, { jsonBody = null, formBody = null, timeoutMs = 
   return data;
 }
 
-async function refreshActiveLoading(scannerObservedAtEpochMs = null, timeoutMs = 10000) {
+async function refreshActiveLoading(scannerObservedAtEpochMs = null, timeoutMs = 10000, { noRead = false } = {}) {
   const result = await apiRequest("/api/keyence_worker.php", {
     jsonBody: {
       action: "STATUS",
       ...(Number.isSafeInteger(scannerObservedAtEpochMs) ? { scanner_received_at_epoch_ms: scannerObservedAtEpochMs } : {}),
+      // Para o ERROR, o STATUS escolhe a passagem pelas mesmas regras de
+      // não leitura do POST de leituras.php, e os dois apontam a mesma passagem.
+      ...(noRead ? { no_read: true } : {}),
     },
     timeoutMs,
   });
@@ -148,9 +189,12 @@ async function refreshActiveLoading(scannerObservedAtEpochMs = null, timeoutMs =
   // As reservas só saem quando o arquivo da fila é confirmado ou descartado.
   // O STATUS devolve apenas a melhor passagem para o horário consultado, então
   // limpar reservas por ele liberava passagens cuja leitura ainda está na fila.
+  // active_loading_state decide se um código sem passagem é falha operacional
+  // e se entra no contador da tela (só em CARREGANDO).
   activeLoading = Number(data.active_loading_id) > 0
     ? {
       id: Number(data.active_loading_id),
+      state: normalizeLoadingState(data.active_loading_state),
       sensorEventIds: pendingSensorEventIds,
     }
     : null;
@@ -164,23 +208,30 @@ async function refreshActiveLoading(scannerObservedAtEpochMs = null, timeoutMs =
 // que a leitura não desapareça só num log e possa ser auditada depois.
 async function preserveUnassociatedScan(details) {
   try {
-    await mkdir(FAILED_SCAN_DIR, { recursive: true, mode: 0o770 });
-    const offlineId = scanEventId();
-    const file = join(FAILED_SCAN_DIR, `${Date.now()}-${offlineId}.unassociated.json`);
-    await writeFile(file, JSON.stringify({ offline_id: offlineId, ...details }), { flag: "wx", mode: 0o600 });
+    await writeScanRecord(FAILED_SCAN_DIR, ".unassociated.json", details);
+    return true;
   } catch (error) {
     log("error", "Não foi possível preservar em disco o código Keyence sem passagem.", { reason: String(error?.message || error) });
+    return false;
   }
 }
 
-async function queueBarcode(rawFrame, receivedAtMs = Date.now()) {
-  const decodedValue = parseBarcodeFrame(rawFrame);
-  if (!decodedValue) {
-    log("warn", "Quadro TCP ignorado: código vazio, longo ou com caracteres de controle.");
-    return;
-  }
-  const noRead = isKeyenceNoReadFrame(decodedValue);
-  const barcode = noRead ? "" : decodedValue;
+// Apaga a cópia em trânsito depois que o quadro chegou à fila ou a
+// failed-scans. Se a gravação falhou, não há o que apagar.
+async function releaseInFlightScan(inFlightWrite) {
+  const file = await inFlightWrite;
+  if (!file) return;
+  await unlink(file).catch((error) => {
+    if (error?.code !== "ENOENT") {
+      log("warn", "Não foi possível apagar a cópia em trânsito do código Keyence.", { reason: String(error?.message || error) });
+    }
+  });
+}
+
+async function queueBarcode(frame, inFlightWrite) {
+  const receivedAtMs = frame.receivedAtMs;
+  const noRead = frame.noRead === true;
+  const barcode = noRead ? "" : frame.barcode;
   // O horário da leitura é o da chegada do quadro TCP, não o do processamento:
   // quadros ficam em fila atrás de outros e o atraso deslocava a janela.
   readerLastReadAt = new Date(receivedAtMs).toISOString();
@@ -188,55 +239,89 @@ async function queueBarcode(rawFrame, receivedAtMs = Date.now()) {
   let loading = null;
   let sensorEventId = null;
   let lastAssociationError = "";
+  // Estado do carregamento no primeiro STATUS respondido, o mais próximo da
+  // captura: uma pausa durante a espera não muda como o código é contado.
+  let captureLoading = null;
+  const loadingStateAtCapture = () => (loading && captureLoading?.id === loading.id
+    ? captureLoading.state
+    : loading?.state ?? null);
   // Sem resposta do Trace, continue tentando enquanto a passagem ainda pode
   // estar aberta no servidor; com resposta, espere só a chegada do sensor.
   const associationDeadline = receivedAtMs + SCAN_ASSOCIATION_WAIT_MS;
   const unavailableDeadline = receivedAtMs + SCAN_ASSOCIATION_UNAVAILABLE_WAIT_MS;
-  for (;;) {
-    try {
-      loading = await refreshActiveLoading(receivedAtMs, 1500);
-      lastAssociationError = "";
-      sensorEventId = loading
-        ? nextUnreservedSensorEventId(loading.sensorEventIds, reservedSensorEventIds)
-        : null;
-      if (!loading || sensorEventId || Date.now() >= associationDeadline) break;
-      await new Promise((resolve) => setTimeout(resolve, Math.max(0, Math.min(100, associationDeadline - Date.now()))));
-    } catch (error) {
-      setError(error);
-      lastAssociationError = lastError;
-      loading = null;
-      sensorEventId = null;
-      if (Date.now() >= unavailableDeadline) break;
-      await new Promise((resolve) => setTimeout(resolve, Math.max(0, Math.min(250, unavailableDeadline - Date.now()))));
+  associationsInProgress += 1;
+  try {
+    for (;;) {
+      const attemptStartedAt = Date.now();
+      try {
+        loading = await refreshActiveLoading(receivedAtMs, 1500, { noRead });
+        if (loading && !captureLoading) captureLoading = { id: loading.id, state: loading.state ?? null };
+        lastAssociationError = "";
+        sensorEventId = loading
+          ? nextUnreservedSensorEventId(loading.sensorEventIds, reservedSensorEventIds)
+          : null;
+        if (!loading || sensorEventId || Date.now() >= associationDeadline) break;
+        await new Promise((resolve) => setTimeout(resolve,
+          Math.max(0, Math.min(attemptStartedAt + SCAN_ASSOCIATION_POLL_MS, associationDeadline) - Date.now())));
+      } catch (error) {
+        setError(error);
+        lastAssociationError = lastError;
+        loading = null;
+        sensorEventId = null;
+        if (Date.now() >= unavailableDeadline) break;
+        await new Promise((resolve) => setTimeout(resolve,
+          Math.max(0, Math.min(attemptStartedAt + SCAN_ASSOCIATION_POLL_MS, unavailableDeadline) - Date.now())));
+      }
     }
+  } finally {
+    associationsInProgress -= 1;
   }
   if (!loading || !sensorEventId) {
     const reason = lastAssociationError
       ? "Trace indisponível durante a associação"
       : !loading ? "sem carregamento ativo" : "sem passagem disponível";
+    const loadingState = loadingStateAtCapture();
+    // Sem carregamento ativo ou fora de CARREGANDO (pausa para retirar a saca,
+    // finalização, teste do leitor) o código não é falha operacional: fica em
+    // failed-scans e em scans_unassociated, sem deixar o cartão do leitor em
+    // alerta por 10 minutos nem entrar no contador da tela.
+    const operationalFault = Boolean(lastAssociationError) || loadingState === COUNTED_LOADING_STATE;
     if (lastAssociationError) setError("Código Keyence não associado: " + lastAssociationError);
-    log(lastAssociationError ? "error" : "warn", "Código Keyence não associado a uma passagem; preservado em failed-scans.", {
+    if (operationalFault) {
+      setScanError("Código Keyence não associado (" + reason + ")" + (lastAssociationError ? ": " + lastAssociationError : "."));
+    }
+    tcpRouteStats.recordUnassociated({ loadingId: loading?.id ?? null, loadingState, barcode, noRead, reason, receivedAtMs });
+    log(lastAssociationError ? "error" : operationalFault ? "warn" : "info", "Código Keyence não associado a uma passagem; preservado em failed-scans.", {
       reason,
       detail: lastAssociationError || undefined,
       loading_id: loading?.id,
+      loading_state: loadingState,
       no_read: noRead,
     });
-    await preserveUnassociatedScan({
+    const preserved = await preserveUnassociatedScan({
+      offline_id: frame.offlineId,
       reason,
       detail: lastAssociationError,
       barcode,
       no_read: noRead,
       loading_id: loading?.id ?? null,
+      loading_state: loadingState,
       received_at: readerLastReadAt,
       received_at_epoch_ms: receivedAtMs,
     });
+    // Sem a cópia em failed-scans, a cópia em trânsito continua em disco e é
+    // movida para failed-scans no próximo início do worker.
+    if (preserved) await releaseInFlightScan(inFlightWrite);
     return;
   }
   const event = {
-    offline_id: scanEventId(),
+    offline_id: frame.offlineId,
     barcode,
     no_read: noRead,
     loading_id: loading.id,
+    // Estado na associação: uma recusa posterior do Trace só entra no
+    // contador da tela se a leitura chegou com o carregamento em CARREGANDO.
+    loading_state: loadingStateAtCapture(),
     sensor_event_id: sensorEventId,
     received_at: readerLastReadAt,
     received_at_epoch_ms: receivedAtMs,
@@ -247,6 +332,7 @@ async function queueBarcode(rawFrame, receivedAtMs = Date.now()) {
   await writeFile(temporary, JSON.stringify(event), { flag: "wx", mode: 0o600 });
   await rename(temporary, file);
   reservedSensorEventIds.add(sensorEventId);
+  await releaseInFlightScan(inFlightWrite);
   log("info", "Código recebido do Keyence e enfileirado para o Trace.", {
     loading_id: event.loading_id,
     sensor_event_id: event.sensor_event_id,
@@ -279,56 +365,80 @@ function processScanQueue() {
     try {
       await mkdir(SCAN_QUEUE_DIR, { recursive: true, mode: 0o770 });
       await mkdir(FAILED_SCAN_DIR, { recursive: true, mode: 0o770 });
-      const files = (await readdir(SCAN_QUEUE_DIR)).filter((name) => name.endsWith(".json")).sort();
-      for (const name of files) {
-        const file = join(SCAN_QUEUE_DIR, name);
-        let event;
-        try { event = JSON.parse(await readFile(file, "utf8")); }
-        catch (error) {
+      // Uma leitura com erro temporário fica para a próxima passada sem
+      // bloquear as seguintes (ver drainScanQueue).
+      await drainScanQueue({
+        queueDirectory: SCAN_QUEUE_DIR,
+        failedDirectory: FAILED_SCAN_DIR,
+        retries: scanQueueRetries,
+        register: (event) => apiRequest("/api/leituras.php", {
+          jsonBody: {
+            carregamento_id: Number(event.loading_id),
+            sensor_event_id: Number(event.sensor_event_id) || null,
+            barcode: String(event.barcode),
+            no_read: event.no_read === true,
+            scanner_received_at_epoch_ms: Number(event.received_at_epoch_ms) || null,
+          },
+          timeoutMs: 10000,
+          idempotencyKey: String(event.offline_id),
+        }),
+        onInvalid: (name, error) => {
           setError(error);
-          await rename(file, join(FAILED_SCAN_DIR, name + ".invalid"));
-          continue;
-        }
-        try {
-          const result = await apiRequest("/api/leituras.php", {
-            jsonBody: {
-              carregamento_id: Number(event.loading_id),
-              sensor_event_id: Number(event.sensor_event_id) || null,
-              barcode: String(event.barcode),
-              no_read: event.no_read === true,
-              scanner_received_at_epoch_ms: Number(event.received_at_epoch_ms) || null,
-            },
-            timeoutMs: 10000,
-            idempotencyKey: String(event.offline_id),
-          });
-          if (!result?.data?.id) throw new Error("Trace não confirmou o registro da leitura.");
-          await unlink(file);
+          setScanError("Arquivo inválido na fila de leituras Keyence movido para failed-scans: " + name);
+          log("error", "Arquivo inválido na fila de leituras Keyence movido para failed-scans.", { file: name });
+        },
+        onRegistered: (event, result) => {
           reservedSensorEventIds.delete(Number(event.sensor_event_id));
+          tcpRouteStats.recordRegistered();
           log("info", "Leitura Keyence registrada no Trace.", {
             reading_id: result.data.id,
             loading_id: Number(event.loading_id),
             result: result.data.result,
             duplicate: Boolean(result.data.duplicate),
           });
-        } catch (error) {
-          // 401 (token trocado), 408, 423 (emergência) e 429 são temporários:
-          // a leitura continua na fila e será reenviada, em vez de descartada.
-          const retryableClientStatus = [401, 408, 423, 429].includes(Number(error.status));
-          if (Number(error.status) >= 400 && Number(error.status) < 500 && !retryableClientStatus) {
-            setError(error);
-            await rename(file, join(FAILED_SCAN_DIR, name));
-            reservedSensorEventIds.delete(Number(event.sensor_event_id));
-            log("error", "Leitura Keyence rejeitada pelo Trace e movida para a fila de falhas.", {
+        },
+        onRejected: (event, error) => {
+          setError(error);
+          reservedSensorEventIds.delete(Number(event.sensor_event_id));
+          const loadingId = Number(event.loading_id);
+          // Arquivos gravados antes do campo loading_state usam o estado atual
+          // do mesmo carregamento, quando conhecido.
+          const loadingState = Object.hasOwn(event, "loading_state")
+            ? event.loading_state
+            : activeLoading?.id === loadingId ? activeLoading.state : null;
+          // A recusa aparece no carregamento dela, como a rota HID mostra.
+          tcpRouteStats.recordRejectedByTrace({
+            loadingId,
+            loadingState,
+            barcode: String(event.barcode ?? ""),
+            noRead: event.no_read === true,
+            reason: traceRejectionReason(error),
+            receivedAtMs: Number(event.received_at_epoch_ms) || null,
+          });
+          setScanError("Leitura Keyence rejeitada pelo Trace (HTTP " + error.status + "): " + lastError);
+          log("error", "Leitura Keyence rejeitada pelo Trace e movida para a fila de falhas.", {
+            loading_id: loadingId,
+            loading_state: normalizeLoadingState(loadingState),
+            http_status: error.status,
+            reason: lastError,
+          });
+        },
+        // 401 (token trocado), 408, 423 (emergência), 429, 5xx e falhas de
+        // rede são temporários: a leitura continua na fila e será reenviada.
+        onRetryable: (event, error, { attempts, retryInMs }) => {
+          setError(error);
+          setScanError("Leitura Keyence aguardando reenvio ao Trace: " + lastError);
+          if (attempts === 1 || attempts % 10 === 0) {
+            log("warn", "Leitura Keyence mantida na fila para nova tentativa.", {
               loading_id: Number(event.loading_id),
               http_status: error.status,
+              attempts,
+              retry_in_ms: retryInMs,
               reason: lastError,
             });
-            continue;
           }
-          setError(error);
-          break;
-        }
-      }
+        },
+      });
     } finally {
       scanQueuePromise = null;
     }
@@ -336,12 +446,34 @@ function processScanQueue() {
   return scanQueuePromise;
 }
 
-function enqueueBarcodeFrame(rawFrame, receivedAtMs = Date.now()) {
-  scanFrameQueue = scanFrameQueue.then(() => queueBarcode(rawFrame, receivedAtMs)).catch((error) => {
+function enqueueBarcodeFrame(frame) {
+  const scan = { ...frame, offlineId: scanEventId() };
+  // A cópia em trânsito é gravada já na chegada, sem esperar a vez na fila de
+  // associação, para que um reinício do worker não perca o quadro.
+  const inFlightWrite = writeInFlightScan(IN_FLIGHT_SCAN_DIR, scan).catch((error) => {
+    log("error", "Não foi possível gravar em disco o código Keyence em trânsito.", { reason: String(error?.message || error) });
+    return null;
+  });
+  scanFrameQueue = scanFrameQueue.then(() => queueBarcode(scan, inFlightWrite)).catch((error) => {
     setError(error);
+    setScanError("Falha ao associar um quadro TCP do Keyence: " + lastError);
     log("error", "Falha ao associar um quadro TCP do Keyence.", { reason: lastError });
   });
   return scanFrameQueue;
+}
+
+// Quadro recusado pelo enquadramento ou pelas regras de código: fica em
+// failed-scans com o conteúdo bruto, para auditoria.
+function preserveRejectedFrame(rejected) {
+  setScanError("Quadro TCP do Keyence rejeitado (" + rejected.cause + ").");
+  log("warn", "Quadro TCP do Keyence rejeitado; preservado em failed-scans.", {
+    cause: rejected.cause,
+    raw_length: rejected.raw.length,
+    connection_id: rejected.connectionId,
+  });
+  return writeScanRecord(FAILED_SCAN_DIR, ".rejected-frame.json", rejectedFrameRecord(rejected)).catch((error) => {
+    log("error", "Não foi possível preservar em disco o quadro TCP rejeitado do Keyence.", { reason: String(error?.message || error) });
+  });
 }
 
 async function pendingImages() {
@@ -683,6 +815,7 @@ async function publishHeartbeat() {
   const archiveUnavailable = IMAGE_ARCHIVE_DIRS.length > 0 && imageArchiveAvailable === false;
   const imageQueueStale = unmatchedImageCount > 0 && oldestUnmatchedImageAgeMs >= IMAGE_UNMATCHED_GRACE_MS;
   const status = lastError || readerProbeError || archiveUnavailable || imageQueueStale || ftpTransferErrorCode ? "ERRO" : "ONLINE";
+  await refreshFailedScansPending();
   await apiRequest("/api/device_heartbeat.php", {
     jsonBody: {
       device_type: "SCANNER",
@@ -709,6 +842,7 @@ async function publishHeartbeat() {
         ftp_transfer_error_code: ftpTransferErrorCode,
         image_archive_directory_available: IMAGE_ARCHIVE_DIRS.length > 0 ? imageArchiveAvailable : null,
         ...(IMAGE_ARCHIVE_DIRS.length > 0 ? { image_archive_directories_configured: IMAGE_ARCHIVE_DIRS.length } : {}),
+        tcp_route: tcpRouteSnapshot(),
         ...(archiveUnavailable ? { reason_code: "keyence_image_archive_unavailable" } : {}),
         ...(imageQueueStale ? { reason_code: "keyence_images_unmatched" } : {}),
         ...(readerProbeError ? { reason_code: "keyence_reader_ping_failed" } : {}),
@@ -751,47 +885,17 @@ async function refreshReaderNetworkStatus() {
   await probeReaderNetwork();
 }
 
-function startTcpReceiver(allowedAddresses) {
-  tcpServer = createTcpServer((socket) => {
-    const remote = String(socket.remoteAddress || "").replace(/^::ffff:/, "");
-    if (!isAllowedSourceAddress(remote, allowedAddresses)) {
-      log("warn", "Conexão TCP Keyence rejeitada por endereço de origem.", { remote_address: remote });
-      socket.destroy();
-      return;
-    }
-    socket.setEncoding("utf8");
-    socket.setTimeout(30000, () => socket.destroy());
-    let buffer = "";
-    socket.on("data", (chunk) => {
-      const receivedAtMs = Date.now();
-      buffer += chunk;
-      if (Buffer.byteLength(buffer, "utf8") > MAX_SCAN_BYTES) {
-        log("warn", "Quadro TCP Keyence acima do limite; conexão encerrada.");
-        socket.destroy();
-        return;
-      }
-      const frames = buffer.split(/[\r\n]+/);
-      buffer = frames.pop() || "";
-      for (const frame of frames) {
-        if (!frame) continue;
-        void enqueueBarcodeFrame(frame, receivedAtMs);
-      }
-    });
-    socket.on("close", () => {
-      const finalFrame = buffer;
-      buffer = "";
-      if (finalFrame) void enqueueBarcodeFrame(finalFrame);
-    });
-    socket.on("error", (error) => log("warn", "Conexão TCP do Keyence encerrada com erro.", { reason: error.message }));
+async function startTcpReceiver(allowedAddresses) {
+  tcpReceiver = createKeyenceTcpReceiver({
+    allowedAddresses,
+    maxFrameBytes: MAX_SCAN_BYTES,
+    keepAliveInitialDelayMs: TCP_KEEPALIVE_INITIAL_DELAY_MS,
+    onFrame: (frame) => void enqueueBarcodeFrame(frame),
+    onRejectedFrame: (rejected) => preserveRejectedFrame(rejected),
+    log,
   });
-  return new Promise((resolve, reject) => {
-    tcpServer.once("error", reject);
-    tcpServer.listen(TCP_PORT, TCP_BIND_ADDRESS, () => {
-      tcpServer.removeListener("error", reject);
-      tcpReachable = true;
-      resolve();
-    });
-  });
+  await tcpReceiver.listen(TCP_PORT, TCP_BIND_ADDRESS);
+  tcpReachable = true;
 }
 
 async function start() {
@@ -825,6 +929,7 @@ async function start() {
       image_archive_directory_available: IMAGE_ARCHIVE_DIRS.length > 0 ? imageArchiveAvailable : null,
       image_archive_directories_configured: IMAGE_ARCHIVE_DIRS.length,
       scan_queue_directory: SCAN_QUEUE_DIR,
+      tcp_route: tcpRouteSnapshot(),
     }));
   });
   healthServer.listen(8091, "0.0.0.0");
@@ -844,8 +949,35 @@ async function start() {
   await mkdir(SCAN_QUEUE_DIR, { recursive: true, mode: 0o770 });
   await mkdir(FAILED_SCAN_DIR, { recursive: true, mode: 0o770 });
   await mkdir(QUARANTINE_DIR, { recursive: true, mode: 0o770 });
+  await mkdir(IN_FLIGHT_SCAN_DIR, { recursive: true, mode: 0o770 });
   await restoreRetryableQuarantine();
   await loadScanQueueReservations();
+  // Antes de abrir a porta TCP: quadros que ficaram em trânsito no último
+  // encerramento não têm mais passagem segura e vão para failed-scans.
+  const interruptedScans = await recoverInFlightScans({
+    inFlightDirectory: IN_FLIGHT_SCAN_DIR,
+    failedDirectory: FAILED_SCAN_DIR,
+    queueDirectory: SCAN_QUEUE_DIR,
+    reason: "worker reiniciado antes da associação",
+    log,
+  });
+  for (const scan of interruptedScans) {
+    tcpRouteStats.recordUnassociated({
+      loadingId: null,
+      barcode: scan.barcode,
+      noRead: scan.no_read === true,
+      reason: scan.reason,
+      receivedAtMs: Number(scan.received_at_epoch_ms) || null,
+    });
+  }
+  if (interruptedScans.length > 0) {
+    setScanError(`${interruptedScans.length} código(s) Keyence em trânsito preservado(s) em failed-scans: worker reiniciado antes da associação.`);
+    log("warn", "Códigos Keyence em trânsito no último encerramento preservados em failed-scans.", {
+      count: interruptedScans.length,
+      reason: "worker reiniciado antes da associação",
+    });
+  }
+  await refreshFailedScansPending();
   let dockerGateway = null;
   try {
     dockerGateway = parseLinuxDefaultGateway(await readFile("/proc/net/route", "utf8"));
@@ -901,7 +1033,9 @@ async function start() {
     if (shuttingDown) return;
     try {
       await refreshReaderNetworkStatus();
-      await refreshActiveLoading();
+      // Durante uma associação o próprio laço consulta o STATUS a cada 250 ms;
+      // pular esta consulta mantém o worker longe do limite do nginx.
+      if (associationsInProgress === 0) await refreshActiveLoading();
       await processScanQueue();
       await processImageQueue();
       void recoverFinalizedArchive();
@@ -924,7 +1058,7 @@ try {
   await start();
 } catch (error) {
   log("error", "Worker Keyence não iniciou.", { reason: error instanceof Error ? error.message : String(error) });
-  tcpServer?.close();
+  void tcpReceiver?.close();
   ftpReceiver?.close();
   healthServer?.close();
   process.exitCode = 1;
@@ -935,7 +1069,9 @@ function shutdown(signal) {
   shuttingDown = true;
   log("info", "Encerrando worker Keyence.", { signal });
   if (pollTimer) clearInterval(pollTimer);
-  if (tcpServer) tcpServer.close();
+  // Sem o encerramento por ociosidade, a conexão persistente do leitor
+  // precisa ser fechada aqui; o leitor reconecta no próximo resultado.
+  void tcpReceiver?.close("worker encerrando");
   ftpReceiver?.close();
   healthServer?.close();
 }

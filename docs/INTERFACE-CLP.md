@@ -12,7 +12,7 @@ configurável por cliente.
 Sensor de passagem ──► CLP ──Modbus TCP──► Node-RED (PC industrial) ──HTTP──► Servidor Trace (PC industrial) ──► Nuvem
                         ▲                         │
                         └──── comandos (coils) ◄──┘
-Leitor Keyence ──► código de barras ──► navegador da tela de operação (HID) ──HTTP──► Servidor Trace
+Leitor Keyence ──TCP 19000──► keyence-worker (PC industrial) ──HTTP──► Servidor Trace
 ```
 
 - O **Node-RED** é o único que conversa com o CLP. A leitura do sensor usa
@@ -22,8 +22,11 @@ Leitor Keyence ──► código de barras ──► navegador da tela de opera�
   de comando ou sinal de vida).
 - O **servidor Trace** recebe as passagens do Node-RED e as leituras do leitor,
   liga cada código a uma passagem, conta e decide paradas.
-- O **leitor de código** não passa pelo CLP: o código chega pela tela de
-  operação (leitor HID) e vai direto ao servidor.
+- O **leitor de código** não passa pelo CLP: o SR-X100W conecta por TCP na
+  porta `19000` do PC e o `keyence-worker` entrega cada resultado ao servidor.
+  Na contingência, o código chega pela tela de operação (AutoID Keyboard Wedge
+  em HID); nunca as duas rotas ao mesmo tempo. Detalhes em
+  `docs/KEYENCE-SR-X100W.md`.
 
 ## 2. O que o Trace LÊ do CLP
 
@@ -235,6 +238,10 @@ seguinte: com sacas coladas, **um erro vira uma sequência de erros**.
 **Hoje:** o código de barras é ligado à saca **pelo horário**. O software
 calcula quando cada saca chega ao leitor usando a velocidade da esteira e a
 distância sensor → leitor, e aceita leituras numa janela de 1,5 s.
+Isso vale para as duas rotas do leitor: na rota TCP, o `keyence-worker` pede ao
+servidor (ação `STATUS`) a passagem compatível com o horário de chegada do
+quadro, e o servidor aplica a mesma janela; candidatos ambíguos não são
+associados.
 
 **Já resolvido nesta versão:**
 

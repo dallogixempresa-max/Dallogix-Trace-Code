@@ -1,9 +1,10 @@
-import { apresentacaoConectividadePc, apresentacaoStatusDispositivo, renderStatusDalaBinario, resumoStatusDispositivos } from "../../telas/configuracoes/configuracoes.js?v=202611250001";
-import { operationStructureSignature, renderDalaStatuses } from "./operacao.js?v=202611250001";
-import { numero, relativo, dataHora } from "../funcoes/formato.js?v=202611250001";
+import { apresentacaoConectividadePc, apresentacaoStatusDispositivo, renderStatusDalaBinario, resumoStatusDispositivos } from "../../telas/configuracoes/configuracoes.js?v=202611260002";
+import { operationStructureSignature, renderDalaStatuses } from "./operacao.js?v=202611260002";
+import { numero, relativo, dataHora } from "../funcoes/formato.js?v=202611260002";
 import { el } from "../funcoes/html.js";
-import { refreshCompanyStatusCards } from "../funcoes/view.js?v=202611250001";
-import { motivoBloqueioFinalizacao, podeFinalizarCarregamento } from "../funcoes/regras-carregamento.js?v=202611250001";
+import { refreshCompanyStatusCards } from "../funcoes/view.js?v=202611260002";
+import { motivoBloqueioFinalizacao, podeFinalizarCarregamento } from "../funcoes/regras-carregamento.js?v=202611260002";
+import { leituraDoVisor, totalLeiturasSemPassagem } from "../funcoes/leitor-rota-tcp.js?v=202611260002";
 
 /** Mantém as regiões de estado sincronizadas sem recriar formulários ou a tela toda. */
 export function createLiveViewController({
@@ -61,10 +62,12 @@ export function createLiveViewController({
     const esteiraAtiva = ["CARREGANDO", "FINALIZANDO"].includes(operationalState);
     const leitorPodeConcluirPassagens = Boolean(store.state.loadingId)
       && ["CARREGANDO", "FINALIZANDO", "PAUSADO"].includes(operationalState);
+    // Visor e contador somam a rota HID desta tela e a rota TCP do PC.
+    const scannerReading = leituraDoVisor(store.state);
     values["scanner-value"] = leitorPodeConcluirPassagens
-      ? (store.state.latestScannerReading?.value || "Aguardando leitura…")
+      ? (scannerReading?.value || "Aguardando leitura…")
       : "Aguardando leitura…";
-    const scannerUnmatchedCount = Number(store.state.scannerUnmatchedCount) || 0;
+    const scannerUnmatchedCount = totalLeiturasSemPassagem(store.state);
     values["scanner-unmatched-count"] = numero(scannerUnmatchedCount);
     const scannerUnmatchedNotice = document.querySelector('[data-live="scanner-unmatched-notice"]');
     if (scannerUnmatchedNotice) scannerUnmatchedNotice.hidden = scannerUnmatchedCount === 0;
@@ -78,7 +81,7 @@ export function createLiveViewController({
     scannerValue?.classList.toggle(
       "is-error",
       leitorPodeConcluirPassagens &&
-        ["SEM_LEITURA", "SEM_PASSAGEM", "PRODUTO_INCORRETO"].includes(store.state.latestScannerReading?.result),
+        ["SEM_LEITURA", "SEM_PASSAGEM", "PRODUTO_INCORRETO"].includes(scannerReading?.result),
     );
     const progressBar = document.querySelector('[data-live="progress-bar"]');
     if (progressBar) {
@@ -167,6 +170,11 @@ export function createLiveViewController({
       }
       const detail = card.querySelector("[data-live-status-detail]");
       if (detail) detail.textContent = presentation.detail;
+      const route = card.querySelector("[data-live-status-route]");
+      if (route) {
+        route.textContent = presentation.route || "";
+        route.hidden = !presentation.route;
+      }
     });
 
     const { online: onlineCount, attention: attentionCount, unmonitored: unmonitoredCount } =
