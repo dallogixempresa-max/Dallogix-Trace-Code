@@ -233,6 +233,29 @@ $cancelledManifestsStatement = $pdo->prepare(
 );
 $cancelledManifestsStatement->execute(["company_id" => $companyId]);
 $cancelledManifests = $cancelledManifestsStatement->fetchAll();
+// Romaneios encerrados no central nos últimos dias que passaram por esta Dala.
+// Um carregamento encerrado aqui sai do instantâneo e o PC o finaliza por
+// ausência, mas sem saber se o romaneio também foi encerrado (outra Dala pode
+// continuar). Sem este aviso o romaneio ficava EM_ANDAMENTO no PC e o
+// relatório com as fotos do Keyence não podia ser gerado lá. A janela conta a
+// partir da mudança do romaneio (updated_at, gravado no encerramento), não do
+// fim do carregamento desta Dala: numa divisão de carga a outra Dala pode
+// terminar dias depois. Um PC sem sincronizar por mais tempo que a janela
+// depende do encerramento manual.
+$finishedManifestsStatement = $pdo->prepare(
+    "SELECT r.id, r.number, r.status
+     FROM romaneios r
+     WHERE r.company_id = :company_id AND r.status = 'FINALIZADO'
+       AND r.updated_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+       AND EXISTS (
+         SELECT 1 FROM carregamentos c
+         WHERE c.company_id = r.company_id AND c.romaneio_id = r.id
+           AND c.equipment_id = :equipment_id
+       )
+     ORDER BY r.id",
+);
+$finishedManifestsStatement->execute(["company_id" => $companyId, "equipment_id" => $equipmentId]);
+$finishedManifests = $finishedManifestsStatement->fetchAll();
 $availableManifestsStatement = $pdo->prepare(
     "SELECT r.id, r.number, r.scheduled_date, r.status, r.expedidor,
             t.id AS truck_id, t.plate, t.driver_name
@@ -415,6 +438,7 @@ responder_json([
         "produtos" => $produtos,
         "romaneios_disponiveis" => $availableManifests,
         "romaneios_cancelados" => $cancelledManifests,
+        "romaneios_finalizados" => $finishedManifests,
         "carregamentos_ativos" => $carregamentos,
         "comandos" => $commandStatement->fetchAll(),
         "sync_cursor" => $syncCursorValue,

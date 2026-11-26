@@ -1,6 +1,6 @@
 import { button, esc } from "./html.js";
-import { data, numero, relativo } from "./formato.js?v=202611260005";
-import { rotuloEstado, rotuloStatusComando, rotuloStatusRomaneio } from "./rotulos.js?v=202611260005";
+import { data, numero, relativo } from "./formato.js?v=202611260006";
+import { rotuloEstado, rotuloStatusComando, rotuloStatusRomaneio } from "./rotulos.js?v=202611260006";
 
 export function deviceStatusSummary(value) {
   const normalized = String(value || "DESCONHECIDO").trim().toUpperCase();

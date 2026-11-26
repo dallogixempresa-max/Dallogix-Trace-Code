@@ -392,6 +392,25 @@ try {
     $debouncedId = $counterPassage ? false : $debounce->fetchColumn();
     if ($debouncedId !== false) {
         $pdo->rollBack();
+        // Passagem descartada pela antiduplicação: não some sem rastro. Se for
+        // uma saca real muito colada na anterior, o log mostra.
+        try {
+            $pdo->prepare(
+                "INSERT INTO logs_erros (company_id, user_id, origem, mensagem, contexto)
+                 VALUES (:company_id, NULL, 'sensor.passagem.antiduplicacao', :mensagem, :contexto)",
+            )->execute([
+                "company_id" => $device["company_id"],
+                "mensagem" => "Passagem descartada pela antiduplicação ({$debounceMs} ms) no carregamento {$loadingId}.",
+                "contexto" => json_encode([
+                    "carregamento_id" => (int) $loadingId,
+                    "passagem_anterior_id" => (int) $debouncedId,
+                    "event_at_epoch_ms" => $eventAtEpochMs,
+                    "debounce_ms" => $debounceMs,
+                ], JSON_UNESCAPED_UNICODE) ?: "{}",
+            ]);
+        } catch (Throwable) {
+            // O log nunca pode impedir a resposta ao gateway.
+        }
         json_response([
             "data" => [
                 "id" => (int) $debouncedId,

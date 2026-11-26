@@ -50,6 +50,9 @@ final class ValidadorInstantaneoRemoto
         if (array_key_exists("romaneios_disponiveis", $snapshot) && !is_array($snapshot["romaneios_disponiveis"])) {
             throw new RuntimeException("Resposta do servidor central contém uma lista de romaneios disponíveis inválida.");
         }
+        if (array_key_exists("romaneios_finalizados", $snapshot) && !is_array($snapshot["romaneios_finalizados"])) {
+            throw new RuntimeException("Resposta do servidor central contém uma lista de romaneios encerrados inválida.");
+        }
 
         if (count($snapshot["equipamentos"]) !== 1) {
             throw new RuntimeException(
@@ -88,6 +91,18 @@ final class ValidadorInstantaneoRemoto
             ) {
                 throw new RuntimeException("Resposta do servidor central contém um cancelamento de romaneio inválido.");
             }
+        }
+
+        // Um encerramento inválido não pode derrubar o instantâneo inteiro (e com
+        // ele os comandos da operação): fica de fora e o resto segue.
+        if (is_array($snapshot["romaneios_finalizados"] ?? null)) {
+            $snapshot["romaneios_finalizados"] = array_values(array_filter(
+                $snapshot["romaneios_finalizados"],
+                static fn(mixed $manifest): bool => is_array($manifest)
+                    && (int) ($manifest["id"] ?? 0) >= 1
+                    && trim((string) ($manifest["number"] ?? "")) !== ""
+                    && strtoupper(trim((string) ($manifest["status"] ?? ""))) === "FINALIZADO",
+            ));
         }
 
         foreach (($snapshot["romaneios_disponiveis"] ?? []) as $manifest) {

@@ -33,7 +33,7 @@ export function parseBarcodeFrame(value, maxLength = 128) {
 export function isKeyenceNoReadFrame(value) {
   const frame = String(value ?? "").trim();
   // Alguns perfis do leitor deixam o marcador ERROR colado ao conteúdo numérico.
-  return /^ERROR(?:[0-9]{8,14})?$/i.test(frame);
+  return /^ERROR(?:[\s:_-]?[0-9]{8,14})?$/i.test(frame);
 }
 
 export function nextUnreservedSensorEventId(pendingEventIds, reservedEventIds = new Set()) {
